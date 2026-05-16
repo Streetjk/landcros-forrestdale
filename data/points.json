@@ -1,0 +1,69 @@
+[
+  {
+    "id": "p1a2b3c4-0001-0000-0000-000000000001",
+    "label": "Dock 1 – Receiving",
+    "type": "drop-off",
+    "latlng": [-33.8700, 151.2100],
+    "position3d": { "x": 0, "y": 0, "z": 0 },
+    "routeWaypoints": [
+      [-33.8720, 151.2080],
+      [-33.8715, 151.2090],
+      [-33.8700, 151.2100]
+    ],
+    "routeWaypoints3d": [],
+    "cameraPreset3d": { "position": { "x": 0, "y": 5, "z": -3 }, "lookAt": { "x": 0, "y": 0, "z": 0 } },
+    "contactIds": [
+      "c1a2b3c4-0001-0000-0000-000000000001",
+      "c1a2b3c4-0002-0000-0000-000000000002"
+    ],
+    "notes": "Heavy vehicles only. Max height 4.5m. Call ahead.",
+    "buildingRef": "Warehouse A",
+    "createdBy": "admin",
+    "createdAt": "2026-01-01T00:00:00Z",
+    "updatedAt": "2026-01-01T00:00:00Z"
+  },
+  {
+    "id": "p1a2b3c4-0002-0000-0000-000000000002",
+    "label": "Dock 2 – Dispatch",
+    "type": "drop-off",
+    "latlng": [-33.8710, 151.2110],
+    "position3d": { "x": 0, "y": 0, "z": 0 },
+    "routeWaypoints": [
+      [-33.8720, 151.2080],
+      [-33.8715, 151.2095],
+      [-33.8710, 151.2110]
+    ],
+    "routeWaypoints3d": [],
+    "cameraPreset3d": { "position": { "x": 0, "y": 5, "z": -3 }, "lookAt": { "x": 0, "y": 0, "z": 0 } },
+    "contactIds": [
+      "c1a2b3c4-0003-0000-0000-000000000003"
+    ],
+    "notes": "Standard vehicles. Loading bay available 7am–4pm.",
+    "buildingRef": "Warehouse A",
+    "createdBy": "admin",
+    "createdAt": "2026-01-01T00:00:00Z",
+    "updatedAt": "2026-01-01T00:00:00Z"
+  },
+  {
+    "id": "p1a2b3c4-0003-0000-0000-000000000003",
+    "label": "Cold Store – Receiving",
+    "type": "both",
+    "latlng": [-33.8690, 151.2130],
+    "position3d": { "x": 0, "y": 0, "z": 0 },
+    "routeWaypoints": [
+      [-33.8720, 151.2080],
+      [-33.8705, 151.2110],
+      [-33.8690, 151.2130]
+    ],
+    "routeWaypoints3d": [],
+    "cameraPreset3d": { "position": { "x": 0, "y": 5, "z": -3 }, "lookAt": { "x": 0, "y": 0, "z": 0 } },
+    "contactIds": [
+      "c1a2b3c4-0001-0000-0000-000000000001"
+    ],
+    "notes": "Refrigerated goods only. Temperature-controlled dock.",
+    "buildingRef": "Cold Store",
+    "createdBy": "admin",
+    "createdAt": "2026-01-01T00:00:00Z",
+    "updatedAt": "2026-01-01T00:00:00Z"
+  }
+]

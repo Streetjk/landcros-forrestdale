@@ -1,0 +1,32 @@
+[
+  {
+    "id": "c1a2b3c4-0001-0000-0000-000000000001",
+    "name": "James Nguyen",
+    "role": "Receiving Manager",
+    "phone": "0412 345 678",
+    "email": "j.nguyen@site.internal",
+    "active": true,
+    "createdBy": "admin",
+    "createdAt": "2026-01-01T00:00:00Z"
+  },
+  {
+    "id": "c1a2b3c4-0002-0000-0000-000000000002",
+    "name": "Sara Mitchell",
+    "role": "Dock Supervisor",
+    "phone": "0423 456 789",
+    "email": "",
+    "active": true,
+    "createdBy": "admin",
+    "createdAt": "2026-01-01T00:00:00Z"
+  },
+  {
+    "id": "c1a2b3c4-0003-0000-0000-000000000003",
+    "name": "David Park",
+    "role": "Warehouse Coordinator",
+    "phone": "0434 567 890",
+    "email": "d.park@site.internal",
+    "active": true,
+    "createdBy": "admin",
+    "createdAt": "2026-01-01T00:00:00Z"
+  }
+]

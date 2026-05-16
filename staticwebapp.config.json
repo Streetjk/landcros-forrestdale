@@ -1,0 +1,24 @@
+{
+  "navigationFallback": {
+    "rewrite": "/index.html",
+    "exclude": ["/assets/*", "/data/*", "*.js", "*.css", "*.json"]
+  },
+  "mimeTypes": {
+    ".spz":   "application/octet-stream",
+    ".splat": "application/octet-stream",
+    ".ply":   "application/octet-stream"
+  },
+  "routes": [
+    { "route": "/data/*", "headers": { "Cache-Control": "no-cache, no-store, must-revalidate" } },
+    { "route": "/assets/site-map.jpg", "headers": { "Cache-Control": "public, max-age=604800" } },
+    { "route": "/assets/site.spz",   "headers": { "Cache-Control": "public, max-age=2592000" } },
+    { "route": "/assets/site.splat", "headers": { "Cache-Control": "public, max-age=2592000" } },
+    { "route": "/assets/site.ply",   "headers": { "Cache-Control": "public, max-age=2592000" } }
+  ],
+  "globalHeaders": {
+    "X-Content-Type-Options": "nosniff",
+    "Cross-Origin-Embedder-Policy": "require-corp",
+    "Cross-Origin-Opener-Policy": "same-origin"
+  },
+  "platform": { "apiRuntime": "node:18" }
+}

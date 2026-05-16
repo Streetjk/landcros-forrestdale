@@ -1,0 +1,139 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "bld-mining",
+        "name": "Mining & CE & Truck Rebuild",
+        "labelText": "Mining & CE &\nTruck Rebuild",
+        "floors": 1,
+        "pos3d": { "x": -7.2, "y": 2.3, "z": -8.0 }
+      },
+      "geometry": { "type": "Polygon", "coordinates": [[[0,0],[0,0],[0,0]]] }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "bld-module",
+        "name": "Module & Workshop",
+        "labelText": "Module &\nWorkshop",
+        "floors": 1,
+        "pos3d": { "x": -10.0, "y": 1.8, "z": 1.6 }
+      },
+      "geometry": { "type": "Polygon", "coordinates": [[[0,0],[0,0],[0,0]]] }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "bld-parts-despatch",
+        "name": "Parts Despatch",
+        "labelText": "Parts\nDespatch",
+        "floors": 1,
+        "pos3d": { "x": -2.5, "y": 1.8, "z": 4.4 }
+      },
+      "geometry": { "type": "Polygon", "coordinates": [[[0,0],[0,0],[0,0]]] }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "bld-parts-receival",
+        "name": "Parts Receival",
+        "labelText": "Parts\nReceival",
+        "floors": 1,
+        "pos3d": { "x": 1.0, "y": 1.8, "z": 4.4 }
+      },
+      "geometry": { "type": "Polygon", "coordinates": [[[0,0],[0,0],[0,0]]] }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "bld-reman",
+        "name": "REMAN",
+        "floors": 1,
+        "pos3d": { "x": 7.7, "y": 1.8, "z": 3.3 }
+      },
+      "geometry": { "type": "Polygon", "coordinates": [[[0,0],[0,0],[0,0]]] }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "bld-office",
+        "name": "Office & Reception",
+        "labelText": "Office &\nReception",
+        "floors": 1,
+        "pos3d": { "x": -10.6, "y": 1.3, "z": 8.1 }
+      },
+      "geometry": { "type": "Polygon", "coordinates": [[[0,0],[0,0],[0,0]]] }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "gate-1",
+        "name": "Gate 1",
+        "floors": 0,
+        "labelLarge": true,
+        "pos3d": { "x": -13.0, "y": 0.5, "z": 11.5 }
+      },
+      "geometry": { "type": "Polygon", "coordinates": [[[0,0],[0,0],[0,0]]] }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "gate-2",
+        "name": "Gate 2",
+        "floors": 0,
+        "labelLarge": true,
+        "pos3d": { "x": -5.5, "y": 0.5, "z": 11.5 }
+      },
+      "geometry": { "type": "Polygon", "coordinates": [[[0,0],[0,0],[0,0]]] }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "gate-3",
+        "name": "Gate 3",
+        "floors": 0,
+        "labelLarge": true,
+        "pos3d": { "x": 4.3, "y": 0.5, "z": 11.5 }
+      },
+      "geometry": { "type": "Polygon", "coordinates": [[[0,0],[0,0],[0,0]]] }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "poi-gatehouse",
+        "name": "Gate House",
+        "labelText": "Gate\nHouse",
+        "floors": 0,
+        "labelSmall": true,
+        "pos3d": { "x": -4.3, "y": 0.8, "z": 7.3 }
+      },
+      "geometry": { "type": "Polygon", "coordinates": [[[0,0],[0,0],[0,0]]] }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "poi-visitor-parking",
+        "name": "Visitor Parking",
+        "labelText": "Visitor\nParking",
+        "floors": 0,
+        "labelSmall": true,
+        "pos3d": { "x": -8.0, "y": 0.8, "z": 11.0 }
+      },
+      "geometry": { "type": "Polygon", "coordinates": [[[0,0],[0,0],[0,0]]] }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "poi-parts-sale",
+        "name": "Parts Sale",
+        "labelText": "Parts\nSale",
+        "floors": 0,
+        "labelSmall": true,
+        "pos3d": { "x": -3.5, "y": 1.2, "z": 9.0 }
+      },
+      "geometry": { "type": "Polygon", "coordinates": [[[0,0],[0,0],[0,0]]] }
+    }
+  ]
+}

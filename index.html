@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SiteNav Admin</title>
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+  <!-- Leaflet -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+  <!-- QR -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+
+  <link rel="stylesheet" href="./style.css">
+  <style>
+    /* ── Admin shell layout ── */
+    #app {
+      display: flex;
+      flex-direction: column;
+      width: 100%;
+      height: 100%;
+    }
+
+    /* Top bar */
+    #top-bar {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 0 20px;
+      height: 52px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+      z-index: 50;
+    }
+    .logo { font-size: 17px; font-weight: 700; color: var(--primary); letter-spacing: -0.3px; }
+    .logo span { color: var(--text); font-weight: 400; }
+    #top-bar .spacer { flex: 1; }
+    .top-btn {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 7px 13px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: none;
+      font: 500 13px var(--font);
+      color: var(--text);
+      cursor: pointer;
+      transition: background 0.12s;
+    }
+    .top-btn:hover { background: var(--surface-secondary); }
+    .top-btn.active { background: var(--primary-light); border-color: var(--primary); color: var(--primary); }
+
+    /* Main area */
+    #main-area {
+      flex: 1;
+      display: flex;
+      min-height: 0;
+    }
+
+    /* Left panel */
+    #left-panel {
+      width: 320px;
+      flex-shrink: 0;
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    #panel-search {
+      padding: 12px;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    #search-input {
+      width: 100%;
+      padding: 8px 12px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      font: 14px var(--font);
+      outline: none;
+    }
+    #search-input:focus { border-color: var(--primary); }
+
+    #place-btn {
+      width: calc(100% - 24px);
+      margin: 0 12px 12px;
+      font-size: 13px;
+    }
+
+    #point-list {
+      flex: 1;
+      overflow-y: auto;
+      padding: 8px;
+    }
+    .section-label {
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--text-tertiary);
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      padding: 6px 8px 4px;
+    }
+    .point-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 9px 10px;
+      border-radius: 10px;
+      cursor: pointer;
+      transition: background 0.1s;
+      margin-bottom: 2px;
+    }
+    .point-row:hover   { background: var(--surface-secondary); }
+    .point-row.active  { background: var(--primary-light); }
+    .point-dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+    .dot-dropoff    { background: var(--primary); }
+    .dot-collection { background: var(--accent); }
+    .dot-both       { background: var(--amber); }
+    .point-row-info { flex: 1; min-width: 0; }
+    .point-row-label {
+      font-size: 13px;
+      font-weight: 500;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .point-row-sub { font-size: 11px; color: var(--text-secondary); margin-top: 1px; }
+    .point-row-arrow { color: var(--text-tertiary); font-size: 16px; }
+
+    /* Map */
+    #map-wrap { flex: 1; position: relative; }
+    #map { width: 100%; height: 100%; }
+    #placement-hint {
+      position: absolute;
+      top: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(24,95,165,0.9);
+      color: #fff;
+      padding: 8px 16px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 500;
+      pointer-events: none;
+      display: none;
+      z-index: 900;
+    }
+
+    /* Editor drawer */
+    #editor-drawer {
+      position: absolute;
+      bottom: 0;
+      left: 320px;
+      right: 0;
+      background: var(--surface);
+      border-top: 1px solid var(--border);
+      transform: translateY(100%);
+      transition: transform 0.3s cubic-bezier(0.4,0,0.2,1);
+      z-index: 100;
+      max-height: 60%;
+      overflow-y: auto;
+    }
+    #editor-drawer.open { transform: translateY(0); }
+
+    .drawer-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 14px 20px;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    .drawer-title { font-size: 15px; font-weight: 600; flex: 1; }
+    .drawer-close {
+      width: 30px;
+      height: 30px;
+      border-radius: 8px;
+      border: none;
+      background: var(--surface-secondary);
+      color: var(--text-secondary);
+      font-size: 16px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .drawer-body { padding: 20px; display: grid; grid-template-columns: 1fr 1fr; gap: 20px 28px; }
+    .drawer-body .full { grid-column: 1 / -1; }
+
+    /* Contact chip */
+    .contact-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: var(--primary-light);
+      color: var(--primary);
+      border: 1px solid var(--primary);
+      border-radius: 20px;
+      padding: 3px 8px 3px 6px;
+      font-size: 12px;
+      font-weight: 500;
+      margin: 2px;
+    }
+    .chip-remove {
+      cursor: pointer;
+      font-size: 14px;
+      line-height: 1;
+      color: var(--primary);
+      border: none;
+      background: none;
+      padding: 0;
+    }
+
+    /* QR preview */
+    #qr-section { display: none; }
+    #qr-section.visible { display: block; }
+    #qr-canvas-wrap { display: inline-block; margin-bottom: 10px; }
+
+    /* Share row */
+    .share-row { display: flex; gap: 8px; }
+    .share-row .btn-secondary { width: auto; flex: 1; }
+
+    /* Contact manager modal */
+    #modal-backdrop {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.4);
+      z-index: 500;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+    }
+    #modal-backdrop.open { display: flex; }
+    #contact-modal {
+      background: var(--surface);
+      border-radius: 16px;
+      width: 100%;
+      max-width: 640px;
+      max-height: 85vh;
+      display: flex;
+      flex-direction: column;
+      box-shadow: 0 24px 64px rgba(0,0,0,0.2);
+    }
+    .modal-header {
+      padding: 18px 20px 14px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      flex-shrink: 0;
+    }
+    .modal-title { font-size: 16px; font-weight: 600; flex: 1; }
+    .modal-close {
+      width: 30px;
+      height: 30px;
+      border-radius: 8px;
+      border: none;
+      background: var(--surface-secondary);
+      color: var(--text-secondary);
+      font-size: 17px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .modal-body { padding: 16px 20px; overflow-y: auto; flex: 1; }
+    .modal-footer {
+      padding: 14px 20px;
+      border-top: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+
+    /* Contact table */
+    .contact-table { width: 100%; border-collapse: collapse; }
+    .contact-table th {
+      text-align: left;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      color: var(--text-secondary);
+      padding: 6px 10px;
+      border-bottom: 1px solid var(--border);
+    }
+    .contact-table td {
+      padding: 9px 10px;
+      font-size: 13px;
+      border-bottom: 1px solid rgba(0,0,0,0.05);
+      vertical-align: middle;
+    }
+    .contact-table tr:last-child td { border-bottom: none; }
+    .contact-table .orphan-badge {
+      font-size: 10px;
+      background: #fef3c7;
+      color: var(--amber);
+      border-radius: 4px;
+      padding: 1px 5px;
+      margin-left: 4px;
+      font-weight: 600;
+    }
+
+    @media (max-width: 900px) {
+      #left-panel { width: 260px; }
+      #editor-drawer { left: 260px; }
+    }
+  </style>
+</head>
+<body>
+<div id="app">
+
+  <!-- Top bar -->
+  <header id="top-bar">
+    <div class="logo">Site<span>Nav</span> Admin</div>
+    <div class="spacer"></div>
+    <button class="top-btn" id="btn-roads" onclick="toggleRoadEditor()">
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 14 L8 2 L14 14"/><line x1="4" y1="10" x2="12" y2="10"/></svg>
+      Edit roads
+    </button>
+    <button class="top-btn" id="btn-save-roads" onclick="saveRoads()" style="display:none">
+      Save roads JSON
+    </button>
+    <button class="top-btn" id="btn-del-node" onclick="deleteSelectedNode()" style="display:none">
+      Delete node
+    </button>
+    <button class="top-btn" onclick="openContactManager()">
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="5" r="3"/><path d="M2 14c0-3.3 2.7-6 6-6s6 2.7 6 6"/></svg>
+      Contacts DB
+    </button>
+  </header>
+
+  <!-- Main area -->
+  <div id="main-area">
+
+    <!-- Left panel -->
+    <aside id="left-panel">
+      <div id="panel-search">
+        <input id="search-input" type="search" placeholder="Search points…" oninput="filterPoints(this.value)">
+      </div>
+      <button class="btn-primary" id="place-btn" onclick="togglePlacement()">
+        + Place new point
+      </button>
+      <div id="point-list"></div>
+    </aside>
+
+    <!-- Map -->
+    <div id="map-wrap">
+      <div id="map"></div>
+      <div id="placement-hint">Click map to place drop-off point — press Esc to cancel</div>
+
+      <!-- Editor drawer -->
+      <div id="editor-drawer">
+        <div class="drawer-header">
+          <div class="drawer-title" id="drawer-title">New point</div>
+          <button class="drawer-close" onclick="closeEditor()">&#x2715;</button>
+        </div>
+        <div class="drawer-body" id="drawer-body">
+          <!-- Filled by admin.js -->
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- Contact manager modal -->
+<div id="modal-backdrop" onclick="handleModalBackdrop(event)">
+  <div id="contact-modal">
+    <div class="modal-header">
+      <div class="modal-title">Contacts DB</div>
+      <button class="modal-close" onclick="closeContactManager()">&#x2715;</button>
+    </div>
+    <div class="modal-body">
+      <input class="form-input" id="contact-search" type="search" placeholder="Search by name, role or phone…" oninput="renderContactTable(this.value)" style="margin-bottom:14px">
+      <table class="contact-table" id="contact-table">
+        <thead>
+          <tr>
+            <th>Name</th><th>Role</th><th>Phone</th><th>Active</th>
+          </tr>
+        </thead>
+        <tbody id="contact-tbody"></tbody>
+      </table>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-primary" style="width:auto;padding:9px 18px" onclick="addNewContact()">+ Add contact</button>
+    </div>
+  </div>
+</div>
+
+<script type="module" src="./admin.js"></script>
+</body>
+</html>

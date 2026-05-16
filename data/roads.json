@@ -1,0 +1,31 @@
+{
+  "nodes": [
+    { "id": "rn-entry",  "latlng": [-33.8720, 151.2080], "label": "Entry gate" },
+    { "id": "rn-j1",     "latlng": [-33.8715, 151.2090] },
+    { "id": "rn-wa-s",   "latlng": [-33.8712, 151.2095] },
+    { "id": "rn-dock1",  "latlng": [-33.8702, 151.2097], "label": "Dock 1" },
+    { "id": "rn-dock2",  "latlng": [-33.8712, 151.2106], "label": "Dock 2" },
+    { "id": "rn-wa-ret", "latlng": [-33.8716, 151.2100] },
+    { "id": "rn-j2",     "latlng": [-33.8716, 151.2112] },
+    { "id": "rn-admin",  "latlng": [-33.8712, 151.2118], "label": "Admin" },
+    { "id": "rn-cs-s",   "latlng": [-33.8705, 151.2125] },
+    { "id": "rn-cs-dock","latlng": [-33.8690, 151.2130], "label": "Cold Store dock" },
+    { "id": "rn-cs-ret", "latlng": [-33.8705, 151.2135] },
+    { "id": "rn-exit",   "latlng": [-33.8720, 151.2140], "label": "Exit gate" }
+  ],
+  "edges": [
+    { "id": "re-01", "from": "rn-entry",  "to": "rn-j1",     "oneWay": true  },
+    { "id": "re-02", "from": "rn-j1",     "to": "rn-wa-s",   "oneWay": true  },
+    { "id": "re-03", "from": "rn-wa-s",   "to": "rn-dock1",  "oneWay": false },
+    { "id": "re-04", "from": "rn-dock1",  "to": "rn-dock2",  "oneWay": false },
+    { "id": "re-05", "from": "rn-dock2",  "to": "rn-wa-ret", "oneWay": true  },
+    { "id": "re-06", "from": "rn-wa-ret", "to": "rn-j1",     "oneWay": true  },
+    { "id": "re-07", "from": "rn-j1",     "to": "rn-j2",     "oneWay": true  },
+    { "id": "re-08", "from": "rn-j2",     "to": "rn-admin",  "oneWay": false },
+    { "id": "re-09", "from": "rn-j2",     "to": "rn-cs-s",   "oneWay": true  },
+    { "id": "re-10", "from": "rn-cs-s",   "to": "rn-cs-dock","oneWay": false },
+    { "id": "re-11", "from": "rn-cs-dock","to": "rn-cs-ret", "oneWay": true  },
+    { "id": "re-12", "from": "rn-cs-ret", "to": "rn-j2",     "oneWay": true  },
+    { "id": "re-13", "from": "rn-j2",     "to": "rn-exit",   "oneWay": true  }
+  ]
+}

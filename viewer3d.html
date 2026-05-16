@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SiteNav — 3D Viewer</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+  <!-- Importmap must come before any module scripts -->
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.167.1/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.167.1/examples/jsm/",
+      "@mkkellogg/gaussian-splats-3d": "https://esm.sh/@mkkellogg/gaussian-splats-3d@0.4.7?external=three"
+    }
+  }
+  </script>
+
+  <!-- GSAP (non-module, loads after importmap) -->
+  <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js"></script>
+
+  <link rel="stylesheet" href="./style.css">
+  <style>
+    #app { display: flex; width: 100%; height: 100%; background: #0f1117; }
+
+    /* Canvas */
+    #canvas-wrap {
+      flex: 1;
+      position: relative;
+      overflow: hidden;
+    }
+    #three-canvas { display: block; width: 100%; height: 100%; }
+
+
+    /* CSS2D labels rendered into this div by Three.js */
+    #labels-wrap {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+    }
+
+    /* Camera presets */
+    #cam-presets {
+      position: absolute;
+      top: 16px;
+      left: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      z-index: 10;
+    }
+    .cam-btn {
+      background: rgba(15,17,23,0.82);
+      backdrop-filter: blur(8px);
+      border: 1px solid rgba(255,255,255,0.12);
+      color: #e5e7eb;
+      padding: 7px 13px;
+      border-radius: 8px;
+      font: 500 12px var(--font);
+      cursor: pointer;
+      transition: background 0.15s, border-color 0.15s;
+    }
+    .cam-btn:hover  { background: rgba(24,95,165,0.35); border-color: rgba(24,95,165,0.6); }
+    .cam-btn.active { background: rgba(24,95,165,0.45); border-color: #185FA5; color: #fff; }
+
+    /* Loading */
+    #loading {
+      position: absolute;
+      inset: 0;
+      background: #0f1117;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+      transition: opacity 0.5s;
+    }
+    #loading.done { opacity: 0; pointer-events: none; }
+    .load-logo { font-size: 22px; font-weight: 700; color: #fff; margin-bottom: 20px; }
+    .load-logo span { color: #185FA5; }
+    .load-bar { width: 200px; height: 3px; background: rgba(255,255,255,0.1); border-radius: 2px; overflow: hidden; margin-bottom: 10px; }
+    .load-fill { height: 100%; background: #185FA5; border-radius: 2px; width: 0; transition: width 0.3s; }
+    .load-msg { font-size: 12px; color: #6b7280; font-family: var(--mono); }
+
+    /* Nav progress */
+    #nav-progress {
+      position: absolute;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(15,17,23,0.9);
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 12px;
+      padding: 12px 20px;
+      min-width: 280px;
+      z-index: 10;
+      display: none;
+    }
+    #nav-progress.visible { display: block; }
+    .nav-label { font-size: 12px; color: #9ca3af; font-family: var(--mono); margin-bottom: 6px; }
+    .nav-label strong { color: #60a5fa; }
+    .nav-bar { height: 4px; background: rgba(255,255,255,0.1); border-radius: 2px; overflow: hidden; }
+    .nav-bar-fill { height: 100%; background: linear-gradient(90deg, #185FA5, #1D9E75); border-radius: 2px; width: 0; transition: width 0.1s linear; }
+
+    /* Side panel */
+    #side-panel {
+      width: var(--panel-width);
+      background: var(--surface);
+      border-left: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      z-index: 20;
+    }
+    #panel-header {
+      padding: 20px 20px 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .panel-site { font-size: 11px; font-weight: 500; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 3px; }
+    .panel-title { font-size: 17px; font-weight: 700; color: var(--text); margin-bottom: 16px; }
+
+    #point-list { flex: 1; overflow-y: auto; padding: 10px; }
+    .list-section { font-size: 10px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.1em; padding: 7px 8px 5px; }
+    .point-item {
+      display: flex;
+      align-items: center;
+      gap: 11px;
+      padding: 10px;
+      border-radius: 10px;
+      cursor: pointer;
+      margin-bottom: 2px;
+      transition: background 0.1s;
+    }
+    .point-item:hover   { background: var(--surface-secondary); }
+    .point-item.selected { background: var(--primary-light); }
+    .pt-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+    .pt-label { font-size: 13px; font-weight: 500; flex: 1; }
+    .pt-sub { font-size: 11px; color: var(--text-secondary); }
+
+    /* Detail state */
+    #point-detail { flex: 1; overflow-y: auto; display: none; flex-direction: column; }
+    #point-detail.visible { display: flex; }
+    .back-link {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      padding: 13px 16px 0;
+      font-size: 13px;
+      color: var(--primary);
+      font-weight: 500;
+      cursor: pointer;
+    }
+    .back-link:hover { opacity: 0.75; }
+    .detail-hero { padding: 14px 20px 18px; border-bottom: 1px solid var(--border); }
+    .detail-label { font-size: 19px; font-weight: 700; margin-top: 8px; line-height: 1.2; }
+    .detail-notes { font-size: 13px; color: var(--text-secondary); margin-top: 6px; line-height: 1.5; }
+    .detail-section { padding: 14px 20px; border-bottom: 1px solid var(--border); }
+    .detail-section-title { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-secondary); margin-bottom: 10px; }
+    .contact-card-3d {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      background: var(--surface-secondary);
+      border-radius: 10px;
+      padding: 11px;
+      margin-bottom: 8px;
+    }
+    .avatar { width: 38px; height: 38px; border-radius: 50%; background: var(--primary-light); color: var(--primary); font-size: 13px; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+    .contact-name-3d { font-size: 14px; font-weight: 600; }
+    .contact-role-3d { font-size: 12px; color: var(--text-secondary); }
+    .contact-phone-3d { display: inline-flex; align-items: center; gap: 4px; margin-top: 6px; font-size: 13px; font-weight: 500; color: var(--accent); text-decoration: none; }
+
+    .nav-actions { padding: 14px 20px; flex-shrink: 0; }
+
+    /* Collapse toggle button */
+    #panel-toggle {
+      display: none;
+      margin-left: auto;
+      background: none;
+      border: none;
+      color: var(--text-secondary);
+      font-size: 20px;
+      cursor: pointer;
+      padding: 4px 6px;
+      line-height: 1;
+    }
+
+    /* Mobile + Tablet */
+    @media (max-width: 1199px) {
+      #app { position: relative; }
+      #canvas-wrap { width: 100%; height: 100%; flex: 1; }
+
+      /* Panel overlays the map — does not compress canvas */
+      #side-panel {
+        position: absolute;
+        top: 0; left: 0; right: 0;
+        z-index: 30;
+        width: 100%;
+        height: 22vh;
+        border-left: none;
+        border-bottom: 1px solid var(--border);
+        transition: height 0.3s ease;
+        overflow: hidden;
+        background: var(--surface);
+      }
+      #side-panel.collapsed { height: 54px; }
+      #panel-header {
+        display: flex;
+        align-items: center;
+        padding: 14px 16px;
+        border-bottom: 1px solid var(--border);
+        flex-shrink: 0;
+      }
+      #panel-header-text { flex: 1; }
+      #panel-toggle { display: block; }
+      #side-panel.collapsed #panel-toggle { transform: rotate(180deg); }
+      #cam-presets {
+        top: auto;
+        bottom: 16px;
+        left: 16px;
+        flex-direction: row;
+        opacity: 0.7;
+      }
+      #nav-progress { bottom: 16px; }
+
+      /* Logo + address: override desktop right offset, JS sets top */
+      #site-brand { right: 16px !important; transition: top 0.15s ease; }
+      #site-brand img { height: 30px !important; }
+      #site-address {
+        left: auto !important;
+        right: 20px !important;
+        font-size: 11px !important;
+        -webkit-text-stroke: 1px black !important;
+        transition: top 0.15s ease;
+      }
+    }
+  </style>
+</head>
+<body>
+<div id="app">
+
+  <div id="canvas-wrap">
+    <canvas id="three-canvas"></canvas>
+    <div id="labels-wrap"></div>
+
+
+    <div id="loading">
+      <div class="load-logo">Site<span>Nav</span> 3D</div>
+      <div class="load-bar"><div class="load-fill" id="load-fill"></div></div>
+      <div class="load-msg" id="load-msg">Initialising…</div>
+    </div>
+
+    <!-- Splat background-load progress (shows after loading screen gone) -->
+    <div id="splat-progress" style="display:none;position:absolute;bottom:16px;right:16px;
+      background:rgba(15,17,23,0.85);backdrop-filter:blur(8px);
+      border:1px solid rgba(255,255,255,0.1);border-radius:10px;
+      padding:10px 14px;z-index:10;min-width:200px;flex-direction:column;gap:6px;">
+      <div id="splat-msg" style="font:500 11px var(--mono);color:#9ca3af"></div>
+      <div style="height:3px;background:rgba(255,255,255,0.1);border-radius:2px;overflow:hidden">
+        <div id="splat-bar" style="height:100%;background:#185FA5;border-radius:2px;width:0;transition:width 0.2s"></div>
+      </div>
+    </div>
+
+    <div id="cam-presets"></div>
+
+    <div id="nav-progress">
+      <div class="nav-label">Camera: <strong id="nav-pos-label">—</strong></div>
+      <div class="nav-bar"><div class="nav-bar-fill" id="nav-bar-fill"></div></div>
+    </div>
+  </div>
+
+  <div id="site-brand" style="position:fixed;top:16px;right:calc(340px + 16px);z-index:40;pointer-events:none;display:flex;flex-direction:column;align-items:flex-end;gap:6px;">
+    <img id="site-logo" src="" alt="Company logo" style="height:48px;width:auto;opacity:0.8;display:none;">
+  </div>
+  <div id="site-address" style="position:fixed;top:69px;right:calc(340px + 16px);z-index:40;pointer-events:none;font:500 18px 'DM Sans',sans-serif;color:rgba(255,255,255,0.8);-webkit-text-stroke:2px black;paint-order:stroke fill;"></div>
+
+  <aside id="side-panel">
+    <div id="panel-header">
+      <div id="panel-header-text" style="text-align:left">
+        <div class="panel-site" id="panel-site">Site</div>
+        <div class="panel-title" id="panel-title" style="margin-top:-4px">Navigator</div>
+      </div>
+      <button id="panel-toggle" onclick="togglePanel()" aria-label="Collapse panel">&#8963;</button>
+    </div>
+
+    <div id="point-list">
+      <div class="list-section">Drop-off points</div>
+      <div id="list-dropoff"></div>
+      <div class="list-section">Collection points</div>
+      <div id="list-collection"></div>
+    </div>
+
+    <div id="point-detail">
+      <div class="back-link" onclick="showPointList()">← All points</div>
+      <div class="detail-hero">
+        <div class="chip" id="detail-chip"></div>
+        <div class="detail-label" id="detail-label"></div>
+        <div class="detail-notes" id="detail-notes"></div>
+      </div>
+      <div class="detail-section">
+        <div class="detail-section-title">Contacts</div>
+        <div id="detail-contacts"></div>
+      </div>
+      <div class="nav-actions">
+        <button class="btn-primary" id="btn-nav" onclick="startNav()">
+          Show me the way
+        </button>
+        <button class="btn-secondary" onclick="setCameraPreset('overhead')" style="margin-top:8px">
+          Overhead view
+        </button>
+      </div>
+    </div>
+  </aside>
+
+</div>
+
+<script>
+  const MOBILE_BP = 1199;
+
+  function _positionMobileBrand() {
+    if (window.innerWidth > MOBILE_BP) return;
+    const panel     = document.getElementById('side-panel');
+    const brand     = document.getElementById('site-brand');
+    const addr      = document.getElementById('site-address');
+    const collapsed = panel.classList.contains('collapsed');
+    const panelH    = collapsed ? 54 : window.innerHeight * 0.22;
+    const top       = (collapsed ? panelH : panelH * 1.12) + 16;
+    brand.style.top = top + 'px';
+    if (addr) addr.style.top = (top + 30 + 6) + 'px'; // 30 = logo height, 6px gap
+  }
+
+  window.togglePanel = function() {
+    const panel = document.getElementById('side-panel');
+    panel.classList.toggle('collapsed');
+    _positionMobileBrand(); // immediate — CSS transition animates it
+  };
+
+  // Collapse panel by default on mobile/tablet and position brand
+  if (window.innerWidth <= MOBILE_BP) {
+    document.getElementById('side-panel').classList.add('collapsed');
+  }
+  window.addEventListener('load', _positionMobileBrand);
+  window.addEventListener('resize', _positionMobileBrand);
+
+  window.addEventListener('error', e => {
+    const el = document.getElementById('load-msg');
+    if (el && e.message) el.textContent = 'Error: ' + e.message;
+  });
+  window.addEventListener('unhandledrejection', e => {
+    const r = e.reason;
+    const el = document.getElementById('load-msg');
+    if (el && r) el.textContent = 'Error: ' + (r?.message || (typeof r === 'string' ? r : 'unknown'));
+  });
+</script>
+<script type="module" src="./viewer3d.js"></script>
+</body>
+</html>

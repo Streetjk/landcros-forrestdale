@@ -1,0 +1,10 @@
+{
+  "name": "sitenav",
+  "version": "0.1.0",
+  "description": "Interactive site map with drop-off & collection point system",
+  "scripts": {
+    "start": "npx serve . -l tcp://0.0.0.0:3000",
+    "dev": "npx serve . -l tcp://0.0.0.0:3000 --no-clipboard"
+  },
+  "private": true
+}
