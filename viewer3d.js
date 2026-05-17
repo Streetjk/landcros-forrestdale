@@ -1568,14 +1568,22 @@ async function loadSplatBackground() {
       splatAlphaRemovalThreshold: 1,
     });
 
-    await sv.addSplatScene(splatPath, {
-      showLoadingUI: false,
-      onProgress: (p) => {
-        const pct = Math.round(p * 100);
-        if (bar) bar.style.width = pct + '%';
-        if (msg) msg.textContent = `Loading ${ext}… ${pct}%`;
-      },
-    });
+    // Race addSplatScene against a 20 s timeout — on static hosts (GitHub Pages)
+    // the GS3D worker can hang at ~99% without resolving or rejecting.
+    await Promise.race([
+      sv.addSplatScene(splatPath, {
+        showLoadingUI: false,
+        onProgress: (p) => {
+          // GS3D v0.4.7 passes p as 0–100, not 0–1
+          const pct = Math.min(99, Math.round(p));
+          if (bar) bar.style.width = pct + '%';
+          if (msg) msg.textContent = `Loading ${ext}… ${pct}%`;
+        },
+      }),
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('GS3D timeout')), 20000)
+      ),
+    ]);
 
     sv.splatMesh.scale.setScalar(scale);
     const [sr0, sr1, sr2] = _cfg.splat?.rotation ?? [3.260, -1.779, 0.122];
