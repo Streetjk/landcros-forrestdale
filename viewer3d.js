@@ -102,6 +102,7 @@ const _debugMode = new URLSearchParams(location.search).get('debug') === '1';
 // ── Editor state ───────────────────────────────────────────────────────────
 const _LS_LABELS  = 'sn_labels';
 const _LS_ROUTES  = 'sn_routes';
+const _LS_ROUTES_SNAP = 'sn_routes_snap';
 const _LS_JSON_OFF = 'sn_json_off';
 const _LS_CUSTOM_LABELS = 'sn_custom_labels';
 let _customLabelData = JSON.parse(localStorage.getItem(_LS_CUSTOM_LABELS) || '{}');
@@ -197,6 +198,7 @@ let _splatViewer = null;
 const _prevCamPos = new THREE.Vector3();
 const _prevCamQuat = new THREE.Quaternion();
 let _idleFrames = 0;
+const _pinAnimatables = []; // { squareLine, squareMat } — pulsed each frame
 let _lastRenderMs = 0;
 const IDLE_AFTER = _Q.idleAfter;
 const IDLE_INTERVAL = _Q.idleInterval;
@@ -224,16 +226,22 @@ function animate() {
 
   const _mobileScale = window.innerWidth <= 1199 ? 0.98 : 1.0;
   const _zoom = camera.position.distanceTo(controls.target);
-  // Full size up to zoom 20, shrink proportionally beyond, floor at 0.25.
-  // zoom < 12: grow proportionally so label stays same relative size
-  // zoom 12–20: constant 1.0
-  // zoom > 20: shrink proportionally, floor 0.5
-  const _zoomScale = _zoom >= 20 ? Math.max(0.5, 20 / _zoom)
-                   : _zoom >= 12 ? 1.0
-                   : Math.min(3.0, 12 / _zoom);
+  // Shrink labels proportionally when far (zoom > 20), constant 1.0 when close.
+  const _zoomScale = _zoom >= 20 ? Math.max(0.5, 20 / _zoom) : 1.0;
   const _finalScale = (_zoomScale * _mobileScale).toFixed(3);
   // Apply to all label types (buildings, pins, zones) via unified array.
   for (const el of _allScaleEls) el.style.transform = `scale(${_finalScale})`;
+
+  // Pulse ground squares on all pins (smooth sine, no abs bounce)
+  if (_pinAnimatables.length) {
+    const wave  = (Math.sin(now * 0.002) + 1) * 0.5; // 0→1, ~3 s cycle
+    const pulse = 0.88 + 0.12 * wave;
+    const alpha = 0.50 + 0.35 * wave;
+    for (const a of _pinAnimatables) {
+      a.squareGroup.scale.setScalar(pulse);
+      a.squareMat.opacity = alpha;
+    }
+  }
 
   if (_splatViewer) _splatViewer.update();
   renderer.render(scene, camera);
@@ -351,53 +359,84 @@ window.setCameraPreset = function setCameraPreset(name, duration = 1800) {
 // ── Pin rendering ──────────────────────────────────────────────────────────
 
 const PIN_COLORS = { 'drop-off': 0x185FA5, 'collection': 0x1D9E75, 'both': 0x854F0B };
-let _pins = {}; // id → { group, label }
+let _pins = {}; // id → { group, pinGroup, sphere, icon, label, squareMat, squareGroup, pt }
 let _selectedId = null;
 
 function renderPins(points) {
   points.forEach(pt => {
-    const color = PIN_COLORS[pt.type] ?? 0x6b7280;
     const { x, y, z } = pt.position3d;
 
     const group = new THREE.Group();
     group.position.set(x, y, z);
 
-    // Sphere
+    // ── Animated ground square — 4 thin boxes, always above ground plane ─
+    const sq = 0.455, lineW = 0.12, sqH = 0.01;
+    const squareMat = new THREE.MeshBasicMaterial({
+      color: 0xffcc00, transparent: true, opacity: 0.85, depthTest: false,
+    });
+    const squareGroup = new THREE.Group();
+    for (const [bx, bz, bw, bd] of [
+      [0,   -sq, sq * 2 + lineW, lineW],   // front (full width, covers corners)
+      [0,    sq, sq * 2 + lineW, lineW],   // back
+      [-sq,   0, lineW, sq * 2 - lineW],   // left (inner only)
+      [ sq,   0, lineW, sq * 2 - lineW],   // right
+    ]) {
+      const m = new THREE.Mesh(new THREE.BoxGeometry(bw, sqH, bd), squareMat);
+      m.position.set(bx, 0.05, bz);
+      m.renderOrder = 999;
+      squareGroup.add(m);
+    }
+    group.add(squareGroup);
+    _pinAnimatables.push({ squareGroup, squareMat });
+
+    // ── Pin icon + label — single CSS2DObject so they move as one unit ────
+    // Anchor at y=1.3 (pin tip). SVG extends 40px up; label floats above SVG.
+    const pinGroup = new THREE.Group();
+    group.add(pinGroup);
+
+    // Invisible sphere — raycast hit target only
     const sphere = new THREE.Mesh(
-      new THREE.SphereGeometry(0.4, 16, 16),
-      new THREE.MeshStandardMaterial({ color })
+      new THREE.SphereGeometry(0.2, 8, 6),
+      new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
     );
-    sphere.position.y = 1.2;
-    group.add(sphere);
+    sphere.position.y = 1.3;
+    pinGroup.add(sphere);
 
-    // Stem
-    const stem = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.05, 0.05, 1.2, 8),
-      new THREE.MeshStandardMaterial({ color })
-    );
-    stem.position.y = 0.6;
-    group.add(stem);
+    // Wrapper: 0×0 anchor div; CSS2DRenderer translates it to screen position
+    const iconWrap = document.createElement('div');
+    iconWrap.style.cssText = 'width:0;height:0;pointer-events:none;';
 
-    // CSS2D label
+    // SVG pin icon — tip aligns with anchor point
+    const svgEl = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svgEl.setAttribute('width', '28');
+    svgEl.setAttribute('height', '40');
+    svgEl.setAttribute('viewBox', '0 0 28 40');
+    svgEl.style.cssText = 'position:absolute;left:-14px;top:-40px;pointer-events:none;z-index:100;overflow:visible;transform-origin:50% 100%;';
+    const pathEl = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    pathEl.setAttribute('fill-rule', 'evenodd');
+    pathEl.setAttribute('d', 'M14,1 C7.4,1 2,6.4 2,13 C2,23 14,39 14,39 C14,39 26,23 26,13 C26,6.4 20.6,1 14,1 Z M14,8 a5,5 0 1,0 0.001,0 Z');
+    pathEl.setAttribute('fill', 'rgba(220,30,30,0.85)');
+    svgEl.appendChild(pathEl);
+    iconWrap.appendChild(svgEl);
+
+    // Label — fixed pixel offset above the SVG, centered on anchor
     const labelDiv = document.createElement('div');
     labelDiv.style.cssText = `
-      background:rgba(15,17,23,0.78);backdrop-filter:blur(6px);
-      color:#e5e7eb;font-size:11px;font-family:'DM Mono',monospace;
-      padding:4px 8px;border-radius:6px;border:1px solid rgba(255,255,255,0.1);
-      white-space:nowrap;pointer-events:none;transform-origin:center center;
+      position:absolute;left:50%;transform:translateX(-50%);bottom:44px;
+      background:rgba(255,204,0,0.88);backdrop-filter:blur(6px);
+      color:#1a1400;font-size:11px;font-family:'DM Mono',monospace;
+      padding:4px 8px;border-radius:6px;border:1px solid rgba(255,204,0,0.5);
+      white-space:nowrap;pointer-events:none;z-index:100;
     `;
     labelDiv.textContent = pt.label;
-    const pinWrapper = document.createElement('div');
-    pinWrapper.style.cssText = 'pointer-events:none';
-    pinWrapper.appendChild(labelDiv);
-    const label = new CSS2DObject(pinWrapper);
-    label._scaleEl = labelDiv;
-    _allScaleEls.push(labelDiv);
-    label.position.set(0, 1.8, 0);
-    group.add(label);
+    iconWrap.appendChild(labelDiv);
+
+    const icon = new CSS2DObject(iconWrap);
+    icon.position.set(0, 1.3, 0);
+    group.add(icon);
 
     scene.add(group);
-    _pins[pt.id] = { group, sphere, stem, label, pt };
+    _pins[pt.id] = { group, pinGroup, sphere, icon, svgEl, labelDiv, squareMat, squareGroup, pt };
   });
 }
 
@@ -405,11 +444,19 @@ function updatePinHighlight(selectedId) {
   _selectedId = selectedId;
   Object.entries(_pins).forEach(([id, pin]) => {
     const selected = id === selectedId;
-    const scale = selected ? 1.4 : 1.0;
-    pin.group.scale.setScalar(scale);
-    pin.sphere.material.emissive.setHex(selected ? 0x3399ff : 0x000000);
-    pin.sphere.material.emissiveIntensity = selected ? 0.4 : 0;
+    pin.svgEl.style.transform = selected ? 'scale(1.25)' : '';
+    pin.squareMat.color.setHex(selected ? 0x3399ff : 0xffcc00);
   });
+}
+
+function removePin(id) {
+  const pin = _pins[id];
+  if (!pin) return;
+  scene.remove(pin.group);
+  if (pin.icon.element.parentNode) pin.icon.element.parentNode.removeChild(pin.icon.element);
+  const animIdx = _pinAnimatables.findIndex(a => a.squareMat === pin.squareMat);
+  if (animIdx >= 0) _pinAnimatables.splice(animIdx, 1);
+  delete _pins[id];
 }
 
 // ── Raycasting (click-to-select) ───────────────────────────────────────────
@@ -646,6 +693,7 @@ function _makeTrafficMat(hex) {
   });
 }
 
+
 // ── Traffic rendering (into _trafficGrp so it can be cleared/redrawn) ───────
 
 let _jsonRoutes = []; // saved reference so redraw can include them
@@ -655,13 +703,27 @@ function _redrawTraffic() {
 
   const routes = [...(_jsonOff ? [] : _jsonRoutes), ..._customRoutes];
   const ROUTE_COLORS = [
-    { ribbon: 0xFF6600, arrow: 0xFFAA55 }, // outer — orange
-    { ribbon: 0x1D9E75, arrow: 0x5ECBA1 }, // inner — teal
+    { ribbon: 0xFFA040, arrow: 0xFFBF77 }, // light Landcros orange
+    { ribbon: 0xFFA040, arrow: 0xFFBF77 }, // light Landcros orange
   ];
   const Y = 0.19;
 
+  // Debug colours — one distinct colour per custom route for identification
+  const DEBUG_COLORS = [0xFF3333, 0x33FF33, 0x3388FF, 0xFFFF00]; // kept distinct for debug ID
+
   routes.forEach((route, routeIdx) => {
-    const { ribbon: rc, arrow: ac } = ROUTE_COLORS[routeIdx % ROUTE_COLORS.length];
+    const isCustom = routeIdx >= _jsonRoutes.length;
+    const customIdx = routeIdx - _jsonRoutes.length; // 0-based index within custom routes
+
+    // In debug mode show distinct colours per route so user can identify each one.
+    // In normal mode all custom routes share the primary orange.
+    let rc, ac;
+    if (_debugMode && isCustom) {
+      rc = ac = DEBUG_COLORS[customIdx % DEBUG_COLORS.length];
+    } else {
+      const colorIdx = isCustom ? 0 : routeIdx;
+      ({ ribbon: rc, arrow: ac } = ROUTE_COLORS[colorIdx % ROUTE_COLORS.length]);
+    }
     const ribbonMat = _makeTrafficMat(rc);
     const arrowMat  = _makeTrafficMat(ac);
     const pts = route.points.map(([x, z]) => new THREE.Vector3(x, Y, z));
@@ -671,12 +733,16 @@ function _redrawTraffic() {
     const hw = _roadWidth / 2;
 
     // Flat ribbon along XZ — renderOrder 2 so it renders above the splat (renderOrder 1)
+    // Tangent derived from adjacent arc-length samples (central diff) so width stays
+    // constant through turns — parametric getTangent() drifts at dense corners.
     const verts = [], idxs = [];
     for (let i = 0; i < samples.length; i++) {
       const p = samples[i];
-      const t = i / Math.max(1, samples.length - 1);
-      const tan = curve.getTangent(t);
-      const perp = new THREE.Vector3(-tan.z, 0, tan.x).normalize();
+      const prev = samples[Math.max(0, i - 1)];
+      const next = samples[Math.min(samples.length - 1, i + 1)];
+      const tx = next.x - prev.x, tz = next.z - prev.z;
+      const len = Math.sqrt(tx * tx + tz * tz) || 1;
+      const perp = new THREE.Vector3(-tz / len, 0, tx / len);
       verts.push(
         p.x + perp.x * hw, Y, p.z + perp.z * hw,
         p.x - perp.x * hw, Y, p.z - perp.z * hw
@@ -692,6 +758,62 @@ function _redrawTraffic() {
     const ribbonMesh = new THREE.Mesh(rGeo, ribbonMat);
     ribbonMesh.renderOrder = 2;
     _trafficGrp.add(ribbonMesh);
+
+    // Debug: show "R1 ▶" at start and "R1 ■" at end so topology is visible
+    if (_debugMode && isCustom) {
+      const color = `#${DEBUG_COLORS[customIdx % DEBUG_COLORS.length].toString(16).padStart(6,'0')}`;
+      const num = customIdx + 1;
+      const startPt = route.points[0];
+      const endPt   = route.points[route.points.length - 1];
+
+      [
+        { pt: startPt, text: `R${num} ▶ start` },
+        { pt: endPt,   text: `R${num} ■ end`   },
+      ].forEach(({ pt, text }) => {
+        const div = document.createElement('div');
+        div.textContent = text;
+        div.style.cssText = `background:${color};color:#000;font:bold 12px monospace;
+          padding:2px 6px;border-radius:4px;pointer-events:none;white-space:nowrap;`;
+        const lbl = new CSS2DObject(div);
+        lbl.position.set(pt[0], Y + 1.5, pt[1]);
+        _trafficGrp.add(lbl);
+      });
+
+      // Extra route-style arrows at R1 start, R1 end, R2 end
+      if (num === 1 || num === 2) {
+        const extraPts = num === 1
+          ? [route.points[0], route.points[route.points.length - 1]]
+          : [route.points[route.points.length - 1]];
+
+        const eaw = _roadWidth * 1.785, eal = eaw * 1.3, ethick = 0.036;
+        const eShape = new THREE.Shape();
+        eShape.moveTo(0, eal * 2 / 3);
+        eShape.lineTo(-eaw * 0.5, -eal / 3);
+        eShape.lineTo( eaw * 0.5, -eal / 3);
+        eShape.closePath();
+        const qX = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI / 2);
+
+        extraPts.forEach(ep => {
+          // Direction: tangent at that endpoint from the CatmullRom curve
+          const t = ep === route.points[0] ? 0.001 : 0.999;
+          const tan = curve.getTangentAt(t);
+          const dir = new THREE.Vector3(tan.x, 0, tan.z).normalize();
+          if (dir.lengthSq() < 0.01) return;
+
+          const geo = new THREE.ExtrudeGeometry(eShape, {
+            depth: ethick, bevelEnabled: true,
+            bevelSize: 0.01, bevelThickness: 0.01, bevelSegments: 1,
+          });
+          geo.translate(0, 0, -ethick / 2);
+          const mesh = new THREE.Mesh(geo, arrowMat);
+          mesh.renderOrder = 3;
+          const qY = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.atan2(-dir.x, -dir.z));
+          mesh.quaternion.multiplyQuaternions(qY, qX);
+          mesh.position.set(ep[0], Y + ethick * 0.5 + 0.04, ep[1]);
+          _trafficGrp.add(mesh);
+        });
+      }
+    }
 
     // Arrows: arc-length equal spacing + extras at sharp waypoint turns.
     // getPointAt / getTangentAt use arc-length parameterisation → equal world-space gaps.
@@ -916,6 +1038,9 @@ function _renderEdPanel(panel) {
     ` : `
       <div style="display:flex;flex-direction:column;gap:5px">
         <button id="ed-new"    class="_ed-btn" style="border-color:#2563eb;color:#60a5fa">+ Draw new route</button>
+        ${nCustom >= 1 ? `<button id="ed-snap-save" class="_ed-btn" style="border-color:#f59e0b;color:#fcd34d">💾 Save snapshot (${nCustom} routes)</button>` : ''}
+        ${localStorage.getItem(_LS_ROUTES_SNAP) ? `<button id="ed-snap-restore" class="_ed-btn" style="border-color:#f59e0b;color:#fcd34d">↺ Restore snapshot</button>` : ''}
+${nCustom >= 1 ? `<button id="ed-export" class="_ed-btn" style="border-color:#a78bfa;color:#c4b5fd">📋 Copy traffic.json</button>` : ''}
         ${nCustom ? `<button id="ed-clr-custom" class="_ed-btn" style="border-color:#ef4444;color:#f87171">🗑 Clear ${nCustom} drawn route${nCustom!==1?'s':''}</button>` : ''}
         <button id="ed-clr-all" class="_ed-btn" style="border-color:#ef4444;color:#f87171">🗑 Clear ALL routes</button>
         ${_jsonOff && nCustom===0 ? `<button id="ed-restore" class="_ed-btn" style="border-color:#6b7280;color:#9ca3af">↺ Restore default routes</button>` : ''}
@@ -995,6 +1120,23 @@ function _renderEdPanel(panel) {
     localStorage.setItem(_LS_ROUTES, JSON.stringify([]));
     localStorage.setItem(_LS_JSON_OFF, '1');
     _redrawTraffic(); _renderEdPanel(panel);
+  });
+  panel.querySelector('#ed-snap-save')?.addEventListener('click', () => {
+    localStorage.setItem(_LS_ROUTES_SNAP, JSON.stringify(_customRoutes));
+    _renderEdPanel(panel);
+    alert(`Snapshot saved — ${_customRoutes.length} routes backed up.`);
+  });
+  panel.querySelector('#ed-snap-restore')?.addEventListener('click', () => {
+    const snap = localStorage.getItem(_LS_ROUTES_SNAP);
+    if (!snap) return;
+    _customRoutes = JSON.parse(snap);
+    localStorage.setItem(_LS_ROUTES, JSON.stringify(_customRoutes));
+    _redrawTraffic(); _renderEdPanel(panel);
+  });
+  panel.querySelector('#ed-export')?.addEventListener('click', () => {
+    const json = JSON.stringify({ routes: _customRoutes }, null, 2);
+    navigator.clipboard.writeText(json).catch(() => {});
+    alert('Copied! Paste into data/traffic.json');
   });
   panel.querySelector('#ed-restore')?.addEventListener('click', () => {
     _jsonOff = false; localStorage.removeItem(_LS_JSON_OFF);
@@ -1629,6 +1771,10 @@ async function boot() {
   document.getElementById('load-fill').style.width = '100%';
   await new Promise(r => setTimeout(r, 150));
   document.getElementById('loading').classList.add('done');
+
+  // Expose API for admin3d.js and dispatch ready event
+  window._v3d = { renderer, camera, controls, _raycaster, _pickGround, renderPins, removePin, updatePinHighlight, latlngToScene, pins: _pins };
+  window.dispatchEvent(new CustomEvent('viewer3d:ready'));
 
   // Load splat in background — scene is already usable without it
   loadSplatBackground();
