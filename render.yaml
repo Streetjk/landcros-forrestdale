@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: landcros-forrestdale
+    runtime: node
+    buildCommand: ""
+    startCommand: node server.js
+    healthCheckPath: /
+    envVars:
+      - key: NODE_VERSION
+        value: 20
