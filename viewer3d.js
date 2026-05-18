@@ -691,6 +691,11 @@ window.showPointList = function() {
   updatePinHighlight(null);
   document.getElementById('point-list').style.display = '';
   document.getElementById('point-detail').classList.remove('visible');
+  // Collapse panel on mobile and desktop
+  const panel = document.getElementById('side-panel');
+  if (panel) panel.classList.remove('sheet-mid', 'sheet-full');
+  document.getElementById('app')?.classList.remove('panel-open');
+  window._updateCamPresetsBottom?.();
   history.pushState(null, '', location.pathname);
 };
 
