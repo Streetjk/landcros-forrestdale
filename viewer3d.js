@@ -542,6 +542,11 @@ async function selectPoint(pt) {
     document.getElementById('side-panel')?.classList.remove('sheet-full');
   }
 
+  // On desktop/tablet — open the overlay panel
+  if (window.innerWidth > 767) {
+    document.getElementById('app')?.classList.add('panel-open');
+  }
+
 }
 
 window.showPointList = function() {
@@ -585,9 +590,9 @@ function renderPointList(points) {
 // No per-frame scaling math — the CSS2DRenderer handles projection.
 // size: 'small' | 'normal' | 'large'
 function _makeLabelCSS2D(text, size = 'normal') {
-  const fs  = size === 'large' ? '16px' : size === 'small' ? '11px' : '13px';
+  const fs  = size === 'large' ? '21px' : size === 'small' ? '14px' : '17px';
   const pad = size === 'large' ? '5px 12px' : size === 'small' ? '3px 8px' : '5px 11px';
-  const mxw = size === 'large' ? '90px' : size === 'small' ? '80px' : '130px';
+  const mxw = size === 'large' ? '120px' : size === 'small' ? '100px' : '160px';
   const inner = document.createElement('div');
   inner.style.cssText = [
     'background:rgba(255,102,0,0.88)',
@@ -661,7 +666,7 @@ async function renderBuildings(geoData) {
       const cz = pts.reduce((s, p) => s + p.z, 0) / pts.length;
       const zoneDiv = document.createElement('div');
       zoneDiv.style.cssText = `
-        color:#fff;font:600 10px 'DM Mono',monospace;letter-spacing:0.05em;
+        color:#fff;font:600 13px 'DM Mono',monospace;letter-spacing:0.05em;
         background:${zone.color ?? '#185FA5'}cc;padding:2px 7px;border-radius:4px;
         pointer-events:none;white-space:nowrap;
       `;
