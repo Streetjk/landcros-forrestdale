@@ -1647,86 +1647,9 @@ async function loadSplatBackground() {
     setTimeout(() => { if (wrap) wrap.style.display = 'none'; }, 1200);
     return;
   } catch (err) {
-    console.warn('GS3D failed, falling back to point cloud:', err);
-    if (msg) msg.textContent = `Trying point cloud fallback…`;
-  }
-
-  try {
-    if (msg) msg.textContent = `Loading ${ext} (point cloud)…`;
-
-    // Reuse rawBuf from Pass 1 if available; otherwise fetch now
-    let rawBuf2 = rawBuf;
-    if (!rawBuf2) {
-      const res = await fetch(splatPath);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      rawBuf2 = await res.arrayBuffer();
-    }
-    const raw = new Uint8Array(rawBuf2);
-
-    // Parse .splat binary: 32 bytes per splat
-    // [x f32][y f32][z f32][sx f32][sy f32][sz f32][r u8][g u8][b u8][a u8][q0..3 u8]
-    const STRIDE = 32;
-    const count = Math.floor(raw.byteLength / STRIDE);
-    const dv    = new DataView(raw.buffer);
-
-    // First pass: read positions and compute bounding box centre
-    let minX = Infinity, maxX = -Infinity;
-    let minY = Infinity, maxY = -Infinity;
-    let minZ = Infinity, maxZ = -Infinity;
-    const rawPos = new Float32Array(count * 3);
-    for (let i = 0; i < count; i++) {
-      const o = i * STRIDE;
-      const x = dv.getFloat32(o,     true);
-      const y = dv.getFloat32(o + 4, true);
-      const z = dv.getFloat32(o + 8, true);
-      rawPos[i*3] = x; rawPos[i*3+1] = y; rawPos[i*3+2] = z;
-      if (x < minX) minX = x; if (x > maxX) maxX = x;
-      if (y < minY) minY = y; if (y > maxY) maxY = y;
-      if (z < minZ) minZ = z; if (z > maxZ) maxZ = z;
-    }
-    const cx = (minX + maxX) / 2;
-    const cy = (minY + maxY) / 2;
-    const cz = (minZ + maxZ) / 2;
-    const spread = Math.max(maxX - minX, maxY - minY, maxZ - minZ);
-
-    // Second pass: centre & read colour (skip nearly-transparent splats)
-    const pos = new Float32Array(count * 3);
-    const col = new Float32Array(count * 3);
-    let vi = 0;
-    for (let i = 0; i < count; i++) {
-      const o = i * STRIDE;
-      const a = dv.getUint8(o + 27);
-      if (a < 10) continue;
-      pos[vi*3]   =  (rawPos[i*3]   - cx);
-      pos[vi*3+1] = -(rawPos[i*3+1] - cy); // flip Y — SuperSplat is Y-down vs Three.js Y-up
-      pos[vi*3+2] =  (rawPos[i*3+2] - cz);
-      col[vi*3]   = dv.getUint8(o + 24) / 255;
-      col[vi*3+1] = dv.getUint8(o + 25) / 255;
-      col[vi*3+2] = dv.getUint8(o + 26) / 255;
-      vi++;
-    }
-
-    const pointSize = Math.max(0.06, spread / 300);
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.BufferAttribute(pos.subarray(0, vi * 3), 3));
-    geo.setAttribute('color',    new THREE.BufferAttribute(col.subarray(0, vi * 3), 3));
-    const cloud = new THREE.Points(geo, new THREE.PointsMaterial({ size: pointSize, vertexColors: true, sizeAttenuation: true }));
-    scene.add(cloud);
-
-    // Fit camera to cloud
-    const camDist = spread * 1.2;
-    camera.position.set(0, camDist * 0.6, camDist * 0.8);
-    camera.lookAt(0, 0, 0);
-    controls.target.set(0, 0, 0);
-    controls.maxDistance = camDist * 3;
-    controls.update();
-
-    if (msg)  msg.textContent  = `${vi.toLocaleString()} splats • spread ${spread.toFixed(1)} units`;
-    if (bar)  bar.style.width  = '100%';
-    setTimeout(() => { if (wrap) wrap.style.display = 'none'; }, 1500);
-  } catch (err) {
     console.warn('Splat load failed:', err);
-    if (msg)  msg.textContent = `Error: ${err.message}`;
+    if (msg) msg.textContent = `Splat error: ${err.message}`;
+    setTimeout(() => { if (wrap) wrap.style.display = 'none'; }, 3000);
   }
 }
 
@@ -1751,9 +1674,10 @@ async function boot() {
 
   document.getElementById('load-msg').textContent = 'Loading site data…';
 
-  const [geoRes, trafficRes] = await Promise.all([
+  const [geoRes, trafficRes, roadsRes] = await Promise.all([
     fetch('./data/buildings.geojson').then(r => r.json()).catch(() => null),
     fetch('./data/traffic.json').then(r => r.json()).catch(() => null),
+    fetch('./data/roads.json').then(r => r.json()).catch(() => null),
   ]);
   document.getElementById('load-fill').style.width = '30%';
   document.getElementById('load-msg').textContent = 'Loading satellite…';
@@ -1764,6 +1688,7 @@ async function boot() {
   document.getElementById('load-msg').textContent = 'Building scene…';
 
   if (geoRes) await renderBuildings(geoRes);
+  if (roadsRes) await renderRoads(roadsRes);
   _restoreCustomLabels();
   _jsonRoutes = trafficRes?.routes ?? [];
   _redrawTraffic();
