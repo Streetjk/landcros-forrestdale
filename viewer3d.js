@@ -342,7 +342,7 @@ function _buildCamButtons(cfg) {
   // Speed limit sign — decorative, non-functional
   const speedBtn = document.createElement('div');
   speedBtn.className = 'cam-preset-btn speed-limit-sign';
-  speedBtn.innerHTML = `<div class="icon-wrap"><svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round"><circle cx="12" cy="12" r="10" fill="#dc2626" stroke="#fff"/><text x="12" y="16.5" text-anchor="middle" font-size="10" font-weight="700" fill="white" stroke="none" font-family="sans-serif">10</text></svg></div><span class="label-wrap">Speed limit</span>`;
+  speedBtn.innerHTML = `<div class="icon-wrap"><svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><defs><radialGradient id="spd-glow" cx="40%" cy="35%" r="60%"><stop offset="0%" stop-color="#ffffff" stop-opacity="0.25"/><stop offset="100%" stop-color="#000000" stop-opacity="0.06"/></radialGradient></defs><circle cx="12" cy="12" r="11.5" fill="#ffffff" stroke="#c0392b" stroke-width="0.8"/><circle cx="12" cy="12" r="10.2" fill="none" stroke="#dc2626" stroke-width="2.4"/><circle cx="12" cy="12" r="7.8" fill="#ffffff" stroke="none"/><text x="12" y="15.2" text-anchor="middle" font-family="Arial,sans-serif" font-weight="900" font-size="9" fill="#111111" stroke="none" letter-spacing="-0.3">10</text><circle cx="12" cy="12" r="11.5" fill="url(#spd-glow)" stroke="none" pointer-events="none"/></svg></div><span class="label-wrap">Speed limit</span>`;
   wrap.appendChild(speedBtn);
 }
 
@@ -501,7 +501,7 @@ function renderPins(points) {
     labelInner.style.cssText = `
       display:inline-block;
       background:rgba(255,204,0,0.88);backdrop-filter:blur(6px);
-      color:#1a1400;font-size:18px;font-family:'DM Mono',monospace;
+      color:#ffffff;font:600 18px 'DM Sans',sans-serif;
       padding:4px 8px;border-radius:6px;border:1px solid rgba(255,204,0,0.5);
       white-space:nowrap;transform-origin:50% 100%;
     `;
@@ -1859,6 +1859,7 @@ async function boot() {
   document.getElementById('load-fill').style.width = '100%';
   await new Promise(r => setTimeout(r, 150));
   document.getElementById('loading').classList.add('done');
+  setTimeout(() => document.getElementById('app')?.classList.add('scene-ready'), 700);
 
   // Expose API for admin3d.js and dispatch ready event
   window._v3d = { renderer, camera, controls, _raycaster, _pickGround, renderPins, removePin, updatePinHighlight, latlngToScene, pins: _pins };

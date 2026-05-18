@@ -198,7 +198,7 @@
         width: 160px;
         background: rgba(230, 80, 10, 0.15) !important;
         border-color: rgba(230, 80, 10, 0.4) !important;
-        color: #e6500a !important;
+        color: #ffffff !important;
       }
       .cam-preset-btn:hover .label-wrap {
         opacity: 1;
@@ -705,7 +705,13 @@
         left: 16px !important;
         flex-direction: row !important;
         gap: 10px;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.4s ease;
+      }
+      #app.scene-ready #cam-presets {
         opacity: 1;
+        pointer-events: auto;
       }
       .cam-preset-btn {
         width: 40px;
