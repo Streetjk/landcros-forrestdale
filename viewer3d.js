@@ -504,7 +504,7 @@ function renderPins(points) {
       display:inline-block;
       background:rgba(0,177,64,0.80);backdrop-filter:blur(6px);
       color:#ffffff;font:600 18px 'DM Sans',sans-serif;
-      padding:4px 8px;border-radius:6px;border:1px solid rgba(255,204,0,0.5);
+      padding:4px 8px;border-radius:6px;
       white-space:nowrap;transform-origin:50% 100%;
     `;
     labelInner.textContent = pt.label;
