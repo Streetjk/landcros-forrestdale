@@ -222,6 +222,7 @@
     }
     .cam-preset-btn.active .label-wrap { color: #ffffff; }
     .speed-limit-sign { cursor: default !important; pointer-events: none; }
+    .speed-limit-sign .icon-wrap svg { width: 44px !important; height: 44px !important; opacity: 1; }
 
     /* Keep old .cam-btn style for other buttons like Edit */
     .cam-btn {
@@ -714,6 +715,7 @@
         width: 40px;
         height: 40px;
       }
+      .speed-limit-sign .icon-wrap svg { width: 40px !important; height: 40px !important; }
       .cam-preset-btn .label-wrap {
         display: none;
       }
@@ -842,6 +844,14 @@
   const MOBILE_BP = 767;
 
   // Mobile bottom sheet: peek ↔ mid
+  function _updateCamPresetsBottom() {
+    if (window.innerWidth > MOBILE_BP) return;
+    const panel = document.getElementById('side-panel');
+    const presets = document.getElementById('cam-presets');
+    if (!presets) return;
+    const isOpen = panel.classList.contains('sheet-mid') || panel.classList.contains('sheet-full');
+    presets.style.bottom = isOpen ? 'calc(22vh + 8px)' : '44px';
+  }
   window.togglePanel = function() {
     if (window.innerWidth > MOBILE_BP) return;
     const panel = document.getElementById('side-panel');
@@ -850,6 +860,7 @@
     } else {
       panel.classList.add('sheet-mid');
     }
+    _updateCamPresetsBottom();
   };
 
   // Desktop/tablet slide-in panel

@@ -87,7 +87,7 @@ labelsWrap.appendChild(css2d.domElement);
 
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
-controls.dampingFactor = 0.06;   // lower = more momentum / smoother coast
+controls.dampingFactor = window.innerWidth > 767 ? 0.06 : 0.03;
 controls.rotateSpeed   = window.innerWidth > 767 ? 0.35 : 0.70;
 controls.zoomSpeed     = 0.8;
 controls.panSpeed      = 0.7;
@@ -270,7 +270,7 @@ function animate() {
 
   _updateCamHud();
 
-  const _mobileScale = window.innerWidth <= 640 ? 0.5 : (window.innerWidth <= 1199 ? 0.98 : 1.0);
+  const _mobileScale = window.innerWidth <= 640 ? 0.625 : (window.innerWidth <= 1199 ? 0.98 : 1.0);
   const _zoom = camera.position.distanceTo(controls.target);
   // Shrink labels proportionally when far (zoom > 20), constant 1.0 when close.
   const _zoomScale = _zoom >= 20 ? Math.max(0.5, 20 / _zoom) : 1.0;
@@ -608,6 +608,7 @@ async function selectPoint(pt) {
   if (window.innerWidth <= 767) {
     document.getElementById('side-panel')?.classList.add('sheet-mid');
     document.getElementById('side-panel')?.classList.remove('sheet-full');
+    window._updateCamPresetsBottom?.();
   }
 
   // On desktop/tablet — open the overlay panel
@@ -683,6 +684,8 @@ async function selectPoint(pt) {
 window.showPointList = function() {
   if (_camTween) { _camTween.kill(); _camTween = null; }
   stopAutoOrbit();
+  controls.enabled = true;
+  _camAnimating = false;
   updatePinHighlight(null);
   document.getElementById('point-list').style.display = '';
   document.getElementById('point-detail').classList.remove('visible');
