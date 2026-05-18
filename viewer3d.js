@@ -362,9 +362,10 @@ window.setCameraPreset = function setCameraPreset(name, duration = 2500) {
   let preset = PRESETS[name];
   if (!preset) return;
 
-  // On mobile/tablet, overhead zooms out 30% more and shifts left 30% of height.
+  // On mobile/tablet, overhead zooms out more and shifts left slightly.
   if (name === 'overhead' && window.innerWidth <= 1199) {
-    const h = preset.pos.y * 1.3;
+    const scale = window.innerWidth <= 767 ? 1.43 : 1.3;
+    const h = preset.pos.y * scale;
     const dx = -preset.pos.y * 0.05;
     preset = {
       pos:  new THREE.Vector3(preset.pos.x  + dx, h, preset.pos.z),
