@@ -88,7 +88,7 @@ labelsWrap.appendChild(css2d.domElement);
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 controls.dampingFactor = 0.06;   // lower = more momentum / smoother coast
-controls.rotateSpeed   = window.innerWidth > 767 ? 0.15 : 0.35;
+controls.rotateSpeed   = window.innerWidth > 767 ? 1.0 : 0.35;
 controls.zoomSpeed     = 0.8;
 controls.panSpeed      = 0.7;
 controls.minDistance = 3;
@@ -240,7 +240,7 @@ function animate() {
   requestAnimationFrame(animate);
   if (_orbitActive) {
     // ~35-second full orbit at 60 fps
-    _orbitAngle += 0.001;  // ~105-second full orbit
+    _orbitAngle += window.innerWidth > 767 ? 0.0005 : 0.001;
     const flatR = _orbitRadius * Math.cos(_orbitElev);
     camera.position.set(
       _orbitTarget.x + flatR * Math.cos(_orbitAngle),
