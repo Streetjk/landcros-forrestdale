@@ -89,7 +89,7 @@ const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 controls.dampingFactor = 0.06;
 controls.rotateSpeed   = window.innerWidth > 767 ? 0.35 : 0.525;
-controls.zoomSpeed     = 0.8;
+controls.zoomSpeed     = 0.4;
 controls.panSpeed      = 0.7;
 controls.minDistance = 3;
 controls.maxDistance = 80;
@@ -97,8 +97,9 @@ controls.maxPolarAngle = THREE.MathUtils.degToRad(85);
 // Stop auto-orbit the moment the user grabs the camera
 controls.addEventListener('start', stopAutoOrbit);
 
-// Initial camera — overhead
-camera.position.set(0.00, 26.60, 0.00);
+// Initial camera — overhead (mobile matches mobile overhead preset: 1.43× height)
+const _initY = window.innerWidth <= 767 ? 26.60 * 1.43 : 26.60;
+camera.position.set(0.00, _initY, 0.00);
 controls.target.set(0.00, 0.00, 0.00);
 controls.update();
 
