@@ -122,6 +122,7 @@ scene.add(_trafficGrp);
 
 let _drawing = false;
 let _camAnimating = false;
+let _camTween = null;
 let _drawPts = [];
 const _drawGrp = new THREE.Group();
 scene.add(_drawGrp);
@@ -307,6 +308,10 @@ window.setCameraPreset = function setCameraPreset(name, duration = 1800) {
     };
   }
 
+  // Kill any in-progress camera animation before starting a new one.
+  // Without this, two tweens fight over camera.position and cause a jerk.
+  if (_camTween) { _camTween.kill(); _camTween = null; }
+
   controls.enabled = false;
   _camAnimating = true;
 
@@ -329,10 +334,10 @@ window.setCameraPreset = function setCameraPreset(name, duration = 1800) {
   const endTheta = startSph.theta + dTheta;
 
   const prog = { t: 0 };
-  gsap.to(prog, {
+  _camTween = gsap.to(prog, {
     t: 1,
     duration: duration / 1000,
-    ease: 'power2.inOut',
+    ease: 'power3.inOut',
     onUpdate() {
       const { t } = prog;
       const look = startLook.clone().lerp(endLook, t);
@@ -347,9 +352,10 @@ window.setCameraPreset = function setCameraPreset(name, duration = 1800) {
     onComplete() {
       camera.position.copy(preset.pos);
       controls.target.copy(endLook);
-      controls.update(); // sync internal spherical state before re-enabling
+      controls.update();
       controls.enabled = true;
       _camAnimating = false;
+      _camTween = null;
     },
   });
 
@@ -522,7 +528,7 @@ async function selectPoint(pt) {
     pos:  new THREE.Vector3(x + preset.position.x, y + preset.position.y, z + preset.position.z),
     look: new THREE.Vector3(x, y, z),
   };
-  setCameraPreset('_point', 1000);
+  setCameraPreset('_point', 1800);
 }
 
 window.showPointList = function() {
