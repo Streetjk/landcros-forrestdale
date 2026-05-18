@@ -87,7 +87,10 @@ labelsWrap.appendChild(css2d.domElement);
 
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
-controls.dampingFactor = 0.08;
+controls.dampingFactor = 0.06;   // lower = more momentum / smoother coast
+controls.rotateSpeed   = 0.55;   // slower drag rotation
+controls.zoomSpeed     = 0.8;
+controls.panSpeed      = 0.7;
 controls.minDistance = 3;
 controls.maxDistance = 80;
 controls.maxPolarAngle = THREE.MathUtils.degToRad(85);
@@ -237,7 +240,7 @@ function animate() {
   requestAnimationFrame(animate);
   if (_orbitActive) {
     // ~35-second full orbit at 60 fps
-    _orbitAngle += 0.003;
+    _orbitAngle += 0.001;  // ~105-second full orbit
     const flatR = _orbitRadius * Math.cos(_orbitElev);
     camera.position.set(
       _orbitTarget.x + flatR * Math.cos(_orbitAngle),
@@ -527,6 +530,11 @@ renderer.domElement.addEventListener('click', e => {
 // ── Point selection & panel ────────────────────────────────────────────────
 
 async function selectPoint(pt) {
+  // Second click on same pin deselects it
+  if (_selectedId === pt.id) {
+    showPointList();
+    return;
+  }
   updatePinHighlight(pt.id);
   history.pushState(null, '', `?id=${pt.id}`);
 
