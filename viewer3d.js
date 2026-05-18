@@ -1135,8 +1135,10 @@ ${nCustom >= 1 ? `<button id="ed-export" class="_ed-btn" style="border-color:#a7
   });
   panel.querySelector('#ed-export')?.addEventListener('click', () => {
     const json = JSON.stringify({ routes: _customRoutes }, null, 2);
-    navigator.clipboard.writeText(json).catch(() => {});
-    alert('Copied! Paste into data/traffic.json');
+    const a = document.createElement('a');
+    a.href = 'data:application/json,' + encodeURIComponent(json);
+    a.download = 'traffic.json';
+    a.click();
   });
   panel.querySelector('#ed-restore')?.addEventListener('click', () => {
     _jsonOff = false; localStorage.removeItem(_LS_JSON_OFF);
