@@ -88,7 +88,7 @@ labelsWrap.appendChild(css2d.domElement);
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 controls.dampingFactor = 0.06;   // lower = more momentum / smoother coast
-controls.rotateSpeed   = 0.55;   // slower drag rotation
+controls.rotateSpeed   = 0.35;
 controls.zoomSpeed     = 0.8;
 controls.panSpeed      = 0.7;
 controls.minDistance = 3;
