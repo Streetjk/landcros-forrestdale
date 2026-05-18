@@ -882,10 +882,7 @@
     document.getElementById('app').classList.toggle('panel-open');
   };
 
-  document.addEventListener('DOMContentLoaded', () => {
-    const header = document.getElementById('panel-header');
-    if (header) header.addEventListener('click', window.togglePanel);
-  });
+  // #panel-toggle button handles collapse via its own onclick — no header listener needed
 
   function _positionMobileBrand() {}
   window.addEventListener('resize', _positionMobileBrand);
