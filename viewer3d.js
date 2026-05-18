@@ -645,6 +645,14 @@ async function selectPoint(pt) {
 
   controls.enabled = false;
   _camAnimating = true;
+  const interruptFlyTo = () => {
+    controls.removeEventListener('start', interruptFlyTo);
+    if (_camTween) { _camTween.kill(); _camTween = null; }
+    controls.enabled = true;
+    _camAnimating = false;
+  };
+  controls.addEventListener('start', interruptFlyTo);
+  controls.enabled = true;
 
   const startLook = controls.target.clone();
   const endLook   = pinPos.clone();
@@ -673,6 +681,7 @@ async function selectPoint(pt) {
       camera.lookAt(look);
     },
     onComplete() {
+      controls.removeEventListener('start', interruptFlyTo);
       camera.position.copy(targetPos);
       controls.target.copy(pinPos);
       controls.enabled = true;
