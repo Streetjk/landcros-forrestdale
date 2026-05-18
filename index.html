@@ -112,12 +112,12 @@
       margin-bottom: 5px;
     }
     .load-site-sub {
-      font-size: 11px;
-      font-weight: 400;
-      letter-spacing: 0.12em;
-      color: rgba(238, 240, 244, 0.4);
+      font-size: 36px;
+      font-weight: 300;
+      letter-spacing: 0.25em;
+      color: #ffffff;
       text-transform: uppercase;
-      margin-bottom: 32px;
+      margin-bottom: 36px;
     }
 
     .load-bar {
@@ -210,15 +210,18 @@
     }
 
     .cam-preset-btn.active {
-      background: rgba(59, 130, 246, 0.25) !important;
-      border-color: #3b82f6 !important;
-      color: #3b82f6 !important;
-      box-shadow: 0 0 15px rgba(59, 130, 246, 0.3);
+      background: #e6500a !important;
+      border-color: #e6500a !important;
+      color: #ffffff !important;
+      box-shadow: 0 0 15px rgba(230, 80, 10, 0.45);
     }
     .cam-preset-btn.active .icon-wrap svg {
       opacity: 1;
+      stroke: #ffffff;
       stroke-width: 2.5;
     }
+    .cam-preset-btn.active .label-wrap { color: #ffffff; }
+    .speed-limit-sign { cursor: default !important; pointer-events: none; }
 
     /* Keep old .cam-btn style for other buttons like Edit */
     .cam-btn {
@@ -729,6 +732,9 @@
     @media (max-width: 640px) {
       #app { flex-direction: row !important; }
       #side-panel { order: unset !important; }
+      /* style.css hides #site-brand and #site-address by ID — restore both */
+      #site-brand  { display: flex !important; }
+      #site-address { display: block !important; }
     }
   </style>
 </head>
@@ -769,7 +775,7 @@
 
   <div id="site-brand" style="position:fixed;top:16px;right:16px;z-index:40;pointer-events:none;display:flex;flex-direction:column;align-items:flex-end;gap:4px;">
     <img id="site-logo" src="" alt="Company logo" style="height:44px;width:auto;opacity:0.9;display:none;">
-    <div id="site-address" style="font:500 13px 'Inter','DM Sans',sans-serif;color:rgba(255,255,255,0.9);text-shadow:0 1px 4px rgba(0,0,0,0.85);">107 Allen Rd, Forrestdale</div>
+    <div id="site-address" style="font:500 15px 'Inter','DM Sans',sans-serif;color:rgba(255,255,255,0.9);text-shadow:0 1px 4px rgba(0,0,0,0.85);">107 Allen Rd, Forrestdale</div>
   </div>
 
   <!-- Pull-tab: always visible on desktop/tablet, hidden on mobile -->

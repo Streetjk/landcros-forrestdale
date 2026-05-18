@@ -88,7 +88,7 @@ labelsWrap.appendChild(css2d.domElement);
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 controls.dampingFactor = 0.06;   // lower = more momentum / smoother coast
-controls.rotateSpeed   = 0.35;
+controls.rotateSpeed   = window.innerWidth > 767 ? 0.35 : 0.70;
 controls.zoomSpeed     = 0.8;
 controls.panSpeed      = 0.7;
 controls.minDistance = 3;
@@ -326,7 +326,7 @@ function _buildCamButtons(cfg) {
 
   (cfg.camera?.presets ?? []).forEach((p, i) => {
     const btn = document.createElement('button');
-    btn.className = 'cam-preset-btn' + (i === 0 ? ' active' : '');
+    btn.className = 'cam-preset-btn';
     btn.id = `btn-${p.id}`;
     
     const icon = icons[p.id] || icons.overhead;
@@ -338,6 +338,12 @@ function _buildCamButtons(cfg) {
     btn.onclick = () => window.setCameraPreset(p.id);
     wrap.appendChild(btn);
   });
+
+  // Speed limit sign — decorative, non-functional
+  const speedBtn = document.createElement('div');
+  speedBtn.className = 'cam-preset-btn speed-limit-sign';
+  speedBtn.innerHTML = `<div class="icon-wrap"><svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round"><circle cx="12" cy="12" r="10" fill="#dc2626" stroke="#fff"/><text x="12" y="16.5" text-anchor="middle" font-size="10" font-weight="700" fill="white" stroke="none" font-family="sans-serif">10</text></svg></div><span class="label-wrap">Speed limit</span>`;
+  wrap.appendChild(speedBtn);
 }
 
 function _applyBranding(cfg) {
@@ -1819,7 +1825,11 @@ async function boot() {
     fetch('./data/traffic.json').then(r => r.json()).catch(() => null),
     fetch('./data/roads.json').then(r => r.json()).catch(() => null),
   ]);
-  document.getElementById('load-fill').style.width = '40%';
+  document.getElementById('load-fill').style.width = '30%';
+  document.getElementById('load-msg').textContent = 'Loading satellite…';
+  await _addGroundPlane();
+
+  document.getElementById('load-fill').style.width = '70%';
   document.getElementById('load-msg').textContent = 'Building scene…';
 
   if (geoRes) await renderBuildings(geoRes);
@@ -1832,9 +1842,6 @@ async function boot() {
   document.getElementById('load-fill').style.width = '100%';
   await new Promise(r => setTimeout(r, 150));
   document.getElementById('loading').classList.add('done');
-
-  // Satellite and splat load in background so the scene is usable immediately
-  _addGroundPlane();
 
   // Expose API for admin3d.js and dispatch ready event
   window._v3d = { renderer, camera, controls, _raycaster, _pickGround, renderPins, removePin, updatePinHighlight, latlngToScene, pins: _pins };
