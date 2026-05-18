@@ -271,7 +271,7 @@ function animate() {
 
   _updateCamHud();
 
-  const _mobileScale = window.innerWidth <= 640 ? 0.625 : (window.innerWidth <= 1199 ? 0.98 : 1.0);
+  const _mobileScale = window.innerWidth <= 640 ? 0.9375 : (window.innerWidth <= 1199 ? 0.98 : 1.0);
   const _zoom = camera.position.distanceTo(controls.target);
   // Shrink labels proportionally when far (zoom > 20), constant 1.0 when close.
   const _zoomScale = _zoom >= 20 ? Math.max(0.5, 20 / _zoom) : 1.0;
