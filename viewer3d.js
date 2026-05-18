@@ -427,29 +427,37 @@ function renderPins(points) {
     iconWrap.appendChild(svgEl);
 
     // Label — fixed pixel offset above the SVG, centered on anchor
+    // Outer div handles position only; inner span is the scale target (same
+    // pattern as building labels) so _allScaleEls doesn't clobber translateX.
     const labelDiv = document.createElement('div');
     labelDiv.style.cssText = `
       position:absolute;left:50%;transform:translateX(-50%);bottom:44px;
-      background:rgba(255,204,0,0.88);backdrop-filter:blur(6px);
-      color:#1a1400;font-size:14px;font-family:'DM Mono',monospace;
-      padding:4px 8px;border-radius:6px;border:1px solid rgba(255,204,0,0.5);
-      white-space:nowrap;pointer-events:auto;cursor:pointer;z-index:100;
+      pointer-events:auto;cursor:pointer;z-index:100;
     `;
-    labelDiv.textContent = pt.label;
+    const labelInner = document.createElement('span');
+    labelInner.style.cssText = `
+      display:inline-block;
+      background:rgba(255,204,0,0.88);backdrop-filter:blur(6px);
+      color:#1a1400;font-size:18px;font-family:'DM Mono',monospace;
+      padding:4px 8px;border-radius:6px;border:1px solid rgba(255,204,0,0.5);
+      white-space:nowrap;transform-origin:50% 100%;
+    `;
+    labelInner.textContent = pt.label;
+    labelDiv.appendChild(labelInner);
     labelDiv.addEventListener('pointerup', e => {
       e.preventDefault();
       e.stopPropagation();
       selectPoint(pt);
     });
     iconWrap.appendChild(labelDiv);
-    _allScaleEls.push(labelDiv);
+    _allScaleEls.push(labelInner);
 
     const icon = new CSS2DObject(iconWrap);
     icon.position.set(0, 1.3, 0);
     group.add(icon);
 
     scene.add(group);
-    _pins[pt.id] = { group, pinGroup, sphere, icon, svgEl, labelDiv, squareMat, squareGroup, pt };
+    _pins[pt.id] = { group, pinGroup, sphere, icon, svgEl, labelDiv, labelInner, squareMat, squareGroup, pt };
   });
 }
 
@@ -468,7 +476,7 @@ function removePin(id) {
   if (pin.icon.element.parentNode) pin.icon.element.parentNode.removeChild(pin.icon.element);
   const animIdx = _pinAnimatables.findIndex(a => a.squareMat === pin.squareMat);
   if (animIdx >= 0) _pinAnimatables.splice(animIdx, 1);
-  const scaleIdx = _allScaleEls.indexOf(pin.labelDiv);
+  const scaleIdx = _allScaleEls.indexOf(pin.labelInner);
   if (scaleIdx >= 0) _allScaleEls.splice(scaleIdx, 1);
   delete _pins[id];
 }
@@ -534,21 +542,12 @@ async function selectPoint(pt) {
     document.getElementById('side-panel')?.classList.remove('sheet-full');
   }
 
-  // Fly camera to point
-  const { x, y, z } = pt.position3d;
-  const preset = pt.cameraPreset3d;
-  PRESETS._point = {
-    pos:  new THREE.Vector3(x + preset.position.x, y + preset.position.y, z + preset.position.z),
-    look: new THREE.Vector3(x, y, z),
-  };
-  setCameraPreset('_point', 1800);
 }
 
 window.showPointList = function() {
   updatePinHighlight(null);
   document.getElementById('point-list').style.display = '';
   document.getElementById('point-detail').classList.remove('visible');
-  setCameraPreset('overhead');
   history.pushState(null, '', location.pathname);
 };
 

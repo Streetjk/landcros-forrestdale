@@ -737,14 +737,6 @@
         <div class="detail-section-title">Contacts</div>
         <div id="detail-contacts"></div>
       </div>
-      <div class="nav-actions">
-        <button class="btn-primary" id="btn-nav" onclick="startNav()">
-          Show me the way
-        </button>
-        <button class="btn-secondary" onclick="setCameraPreset('overhead')" style="margin-top:8px">
-          Overhead view
-        </button>
-      </div>
     </div>
   </aside>
 
@@ -754,15 +746,12 @@
   const MOBILE_BP = 767;  // bottom sheet threshold
   const TABLET_BP = 1199; // floating island threshold
 
-  // Mobile bottom sheet: cycles peek → mid → full → peek
+  // Mobile bottom sheet: cycles peek → mid → peek
   window.togglePanel = function() {
     if (window.innerWidth > MOBILE_BP) return;
     const panel = document.getElementById('side-panel');
-    if (panel.classList.contains('sheet-full')) {
+    if (panel.classList.contains('sheet-mid') || panel.classList.contains('sheet-full')) {
       panel.classList.remove('sheet-full', 'sheet-mid');        // → peek
-    } else if (panel.classList.contains('sheet-mid')) {
-      panel.classList.add('sheet-full');
-      panel.classList.remove('sheet-mid');                       // → full
     } else {
       panel.classList.add('sheet-mid');                          // → mid
     }
