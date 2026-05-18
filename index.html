@@ -594,6 +594,7 @@
       cursor: pointer;
       padding: 4px 6px;
       line-height: 1;
+      transition: transform 420ms cubic-bezier(0.2, 0.8, 0.2, 1);
     }
     #panel-toggle:hover { color: rgba(238, 240, 244, 0.8); }
 
@@ -708,6 +709,7 @@
       #panel-header-text .panel-site { display: none !important; }
       #panel-toggle { display: block; margin-left: 0; }
       #panel-tab { display: none !important; }
+      #side-panel.sheet-mid #panel-toggle,
       #side-panel.sheet-full #panel-toggle { transform: rotate(180deg); }
 
       #cam-presets {
