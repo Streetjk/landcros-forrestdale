@@ -581,7 +581,8 @@
       }
       #site-address {
         right: 20px !important;
-        transition: right 0.35s cubic-bezier(0.2, 0.8, 0.2, 1);
+        font-size: 15px !important;  /* locked — no dynamic reflow */
+        transition: none !important; /* no right-animation; avoids subpixel repaint flicker */
       }
       #app.panel-open #site-brand  { right: calc(200px + 16px) !important; }
       #app.panel-open #site-address { right: calc(200px + 20px) !important; }

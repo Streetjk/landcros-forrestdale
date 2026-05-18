@@ -350,46 +350,27 @@ window.setCameraPreset = function setCameraPreset(name, duration = 2500) {
     };
   }
 
-  // Kill any in-progress camera animation before starting a new one.
-  // Without this, two tweens fight over camera.position and cause a jerk.
   if (_camTween) { _camTween.kill(); _camTween = null; }
 
   controls.enabled = false;
   _camAnimating = true;
 
+  // World-space lerp: starts exactly at current camera position with no
+  // spherical-coordinate singularity (overhead phi≈0 caused azimuth snaps).
+  const startPos  = camera.position.clone();
   const startLook = controls.target.clone();
   const endLook   = preset.look.clone();
-
-  // Spherical offset of camera relative to its orbit target — avoids Cartesian
-  // mid-point zoom artifact by keeping constant arc radius throughout.
-  const startSph = new THREE.Spherical().setFromVector3(
-    camera.position.clone().sub(startLook)
-  );
-  const endSph = new THREE.Spherical().setFromVector3(
-    preset.pos.clone().sub(endLook)
-  );
-
-  // Shortest-path theta to avoid spinning the long way round.
-  let dTheta = endSph.theta - startSph.theta;
-  if (dTheta >  Math.PI) dTheta -= 2 * Math.PI;
-  if (dTheta < -Math.PI) dTheta += 2 * Math.PI;
-  const endTheta = startSph.theta + dTheta;
 
   const prog = { t: 0 };
   _camTween = gsap.to(prog, {
     t: 1,
     duration: duration / 1000,
-    ease: 'power3.inOut',
+    ease: 'power2.inOut',
     onUpdate() {
       const { t } = prog;
-      const look = startLook.clone().lerp(endLook, t);
-      const sph  = new THREE.Spherical(
-        THREE.MathUtils.lerp(startSph.radius, endSph.radius, t),
-        THREE.MathUtils.lerp(startSph.phi,    endSph.phi,    t),
-        THREE.MathUtils.lerp(startSph.theta,  endTheta,      t),
-      );
-      camera.position.copy(look).add(new THREE.Vector3().setFromSpherical(sph));
-      camera.lookAt(look);
+      camera.position.lerpVectors(startPos, preset.pos, t);
+      controls.target.lerpVectors(startLook, endLook, t);
+      camera.lookAt(controls.target);
     },
     onComplete() {
       camera.position.copy(preset.pos);
@@ -1842,11 +1823,6 @@ async function boot() {
     _allContacts = contacts;
     renderPins(points);
     renderPointList(points);
-    const pinId = new URLSearchParams(location.search).get('id');
-    if (pinId) {
-      const pt = points.find(p => p.id === pinId);
-      if (pt) selectPoint(pt);
-    }
   }
 
   // Load splat in background — scene is already usable without it
