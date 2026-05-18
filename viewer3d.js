@@ -399,7 +399,11 @@ window.setCameraPreset = function setCameraPreset(name, duration = 2500) {
   });
 
   document.querySelectorAll('.cam-preset-btn').forEach(b => b.classList.remove('active'));
-  document.getElementById(`btn-${name}`)?.classList.add('active');
+  const _flashBtn = document.getElementById(`btn-${name}`);
+  if (_flashBtn) {
+    _flashBtn.classList.add('active');
+    setTimeout(() => _flashBtn.classList.remove('active'), 500);
+  }
 };
 
 // ── Pin rendering ──────────────────────────────────────────────────────────

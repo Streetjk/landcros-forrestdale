@@ -144,13 +144,13 @@
 
     /* ── Camera preset buttons ── */
     #cam-presets {
-      position: absolute;
+      position: fixed;
       bottom: 24px;
       left: 24px;
       display: flex;
       flex-direction: column;
       gap: 12px;
-      z-index: 100;
+      z-index: 200;
     }
     .cam-preset-btn {
       background: rgba(8, 10, 16, 0.93) !important;
@@ -589,13 +589,6 @@
       height: 44px !important;
       opacity: 0.9 !important;
     }
-    #site-address {
-      color: rgba(255,255,255,0.9) !important;
-      text-shadow: 0 1px 4px rgba(0,0,0,0.8) !important;
-      -webkit-text-stroke: 0 !important;
-      paint-order: unset !important;
-    }
-
     /* ── Splat progress pill ── */
     #splat-progress {
       border-radius: 12px !important;
@@ -629,13 +622,7 @@
         right: 16px !important;
         transition: right 0.35s cubic-bezier(0.2, 0.8, 0.2, 1);
       }
-      #site-address {
-        right: 20px !important;
-        font-size: 13px !important;  /* locked — no dynamic reflow */
-        transition: none !important; /* no right-animation; avoids subpixel repaint flicker */
-      }
-      #app.panel-open #site-brand  { right: calc(200px + 16px) !important; }
-      #app.panel-open #site-address { right: calc(200px + 20px) !important; }
+      #app.panel-open #site-brand { right: calc(200px + 16px) !important; }
     }
 
     /* ── Mobile bottom sheet (≤767px) ── */
@@ -736,14 +723,6 @@
         display: flex !important;
       }
       #site-brand img { height: 28px !important; }
-      #site-address {
-        position: fixed !important;
-        top: 50px !important; right: 16px !important;
-        left: auto !important; font-size: 13px !important;
-        display: block !important;
-        -webkit-text-stroke: 0 !important;
-        text-shadow: 0 1px 4px rgba(0,0,0,0.9) !important;
-      }
     }
 
     /* ── Undo global style.css panel overrides for this page ── */
@@ -780,18 +759,18 @@
       </div>
     </div>
 
-    <div id="cam-presets"></div>
-
     <div id="nav-progress">
       <div class="nav-label">Camera: <strong id="nav-pos-label">—</strong></div>
       <div class="nav-bar"><div class="nav-bar-fill" id="nav-bar-fill"></div></div>
     </div>
   </div>
 
-  <div id="site-brand" style="position:fixed;top:16px;right:16px;z-index:40;pointer-events:none;display:flex;flex-direction:column;align-items:flex-end;gap:6px;">
+  <div id="cam-presets"></div>
+
+  <div id="site-brand" style="position:fixed;top:16px;right:16px;z-index:40;pointer-events:none;display:flex;flex-direction:column;align-items:flex-end;gap:4px;">
     <img id="site-logo" src="" alt="Company logo" style="height:44px;width:auto;opacity:0.9;display:none;">
+    <div id="site-address" style="font:500 13px 'Inter','DM Sans',sans-serif;color:rgba(255,255,255,0.9);text-shadow:0 1px 4px rgba(0,0,0,0.85);">107 Allen Rd, Forrestdale</div>
   </div>
-  <div id="site-address" style="position:fixed;top:69px;right:20px;z-index:40;pointer-events:none;font:500 13px 'Inter','DM Sans',sans-serif;color:rgba(255,255,255,0.9);text-shadow:0 1px 4px rgba(0,0,0,0.8);">107 Allen Rd, Forrestdale</div>
 
   <!-- Pull-tab: always visible on desktop/tablet, hidden on mobile -->
   <div id="panel-tab" onclick="togglePanelOpen()" role="button" aria-label="Open locations panel">
