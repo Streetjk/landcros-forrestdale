@@ -865,8 +865,8 @@ function _redrawTraffic() {
 
   const routes = [...(_jsonOff ? [] : _jsonRoutes), ..._customRoutes];
   const ROUTE_COLORS = [
-    { ribbon: 0xFFA040, arrow: 0xFFBF77 }, // light Landcros orange
-    { ribbon: 0xFFA040, arrow: 0xFFBF77 }, // light Landcros orange
+    { ribbon: 0xFFA040, arrow: 0x7EC8E3 }, // light blue arrows
+    { ribbon: 0xFFA040, arrow: 0x7EC8E3 }, // light blue arrows
   ];
   const Y = 0.19;
 
