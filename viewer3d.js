@@ -1021,10 +1021,10 @@ function _redrawTraffic() {
       extGeo.translate(0, 0, -arrowThick / 2);
 
       const arrowMesh = new THREE.Mesh(extGeo, arrowMat);
-      arrowMesh.renderOrder = 2;
+      arrowMesh.renderOrder = 3;
       const qY = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.atan2(-dir.x, -dir.z));
       arrowMesh.quaternion.multiplyQuaternions(qY, qX);
-      arrowMesh.position.set(pos.x, Y + arrowThick * 0.5 + 0.04, pos.z);
+      arrowMesh.position.set(pos.x, Y + arrowThick * 0.5 + 0.10, pos.z);
       _trafficGrp.add(arrowMesh);
     }
   });
