@@ -1,32 +1,982 @@
 [
   {
-    "id": "c1a2b3c4-0001-0000-0000-000000000001",
-    "name": "James Nguyen",
-    "role": "Receiving Manager",
-    "phone": "0412 345 678",
-    "email": "j.nguyen@site.internal",
+    "id": "14861d01-f0f1-77fd-e6e2-5d569b59d50b",
+    "name": "Shane Gibbs",
+    "role": "Western Mining Assembly Manager",
+    "phone": "0407 294 883",
+    "email": "gibbs@hcma.com.au",
     "active": true,
-    "createdBy": "admin",
-    "createdAt": "2026-01-01T00:00:00Z"
+    "createdBy": "import",
+    "createdAt": "2026-05-18T00:00:00Z"
   },
   {
-    "id": "c1a2b3c4-0002-0000-0000-000000000002",
-    "name": "Sara Mitchell",
-    "role": "Dock Supervisor",
-    "phone": "0423 456 789",
-    "email": "",
+    "id": "64f82677-25ec-3901-75fa-97151c24c92a",
+    "name": "Jackson Lee",
+    "role": "Service Co-ordinator",
+    "phone": "0475736 184",
+    "email": "leeja@hcma.com.au",
     "active": true,
-    "createdBy": "admin",
-    "createdAt": "2026-01-01T00:00:00Z"
+    "createdBy": "import",
+    "createdAt": "2026-05-18T00:00:00Z"
   },
   {
-    "id": "c1a2b3c4-0003-0000-0000-000000000003",
-    "name": "David Park",
-    "role": "Warehouse Coordinator",
-    "phone": "0434 567 890",
-    "email": "d.park@site.internal",
+    "id": "1fcb75f2-1c40-9f98-9d10-c91d807d29ae",
+    "name": "Alan Meadwell",
+    "role": "Mining Assembly Supervisor",
+    "phone": "0400 622 864",
+    "email": "meadwell@hcma.com.au",
     "active": true,
-    "createdBy": "admin",
-    "createdAt": "2026-01-01T00:00:00Z"
+    "createdBy": "import",
+    "createdAt": "2026-05-18T00:00:00Z"
+  },
+  {
+    "id": "9420131d-3eeb-5df1-6446-ece74b1d3e3c",
+    "name": "Jacqueline Opperman",
+    "role": "Service Administrator - Mining Assembly",
+    "phone": "(08) 9234 9800",
+    "email": "jacqueline.opperman@hcma.com.au",
+    "active": true,
+    "createdBy": "import",
+    "createdAt": "2026-05-18T00:00:00Z"
+  },
+  {
+    "id": "96103ee8-881f-f39f-8cfc-acfdf5213839",
+    "name": "Brayden Bailye",
+    "role": "Service Administrator",
+    "phone": "(08) 9234 9800",
+    "email": "bailyeb@hcma.com.au",
+    "active": true,
+    "createdBy": "import",
+    "createdAt": "2026-05-18T00:00:00Z"
+  },
+  {
+    "id": "2bef8426-90c5-c9e1-e108-482b9c9771c2",
+    "name": "Christopher Beath",
+    "role": "Customer Support Manager",
+    "phone": "0418 409 048",
+    "email": "beath@hcma.com.au",
+    "active": true,
+    "createdBy": "import",
+    "createdAt": "2026-05-18T00:00:00Z"
+  },
+  {
+    "id": "e6edcb5d-a7df-8bc0-e9ae-2282fa69065b",
+    "name": "Daniel Bennett",
+    "role": "Product Support Representative",
+    "phone": "0429 361 692",
+    "email": "bennettda@hcma.com.au",
+    "active": true,
+    "createdBy": "import",
+    "createdAt": "2026-05-18T00:00:00Z"
+  },
+  {
+    "id": "9f13309c-d49b-18da-8714-a6510f0e6332",
+    "name": "Jason Bond",
+    "role": "Product Support Representative",
+    "phone": "0400 483 061",
+    "email": "bond@hcma.com.au",
+    "active": true,
+    "createdBy": "import",
+    "createdAt": "2026-05-18T00:00:00Z"
+  },
+  {
+    "id": "aea2ed5b-7563-a861-05a0-deb46e2f8a08",
+    "name": "Liam Boulton",
+    "role": "Workshop Leading Hand",
+    "phone": "(08) 9234 9800",
+    "email": "boulton@hcma.com.au",
+    "active": true,
+    "createdBy": "import",
+    "createdAt": "2026-05-18T00:00:00Z"
+  },
+  {
+    "id": "26472e89-d0d1-27c0-4683-259ab183ea87",
+    "name": "Tegan Brown",
+    "role": "Sales Administrator",
+    "phone": "08 9234 9857",
+    "email": "brownt@hcma.com.au",
+    "active": true,
+    "createdBy": "import",
+    "createdAt": "2026-05-18T00:00:00Z"
+  },
+  {
+    "id": "05180d34-b20b-9b0b-ef1e-2182f0b8794f",
+    "name": "Claudia Browne",
+    "role": "Administration Administrator",
+    "phone": "(08) 9234 9816",
+    "email": "brownec@hcma.com.au",
+    "active": true,
+    "createdBy": "import",
+    "createdAt": "2026-05-18T00:00:00Z"
+  },
+  {
+    "id": "163758dc-4172-851a-f5ba-05f6518d4c6c",
+    "name": "Matthew Cameron-wilton",
+    "role": "Product Support Representative",
+    "phone": "0407 437 227",
+    "email": "cameronwm@hcma.com.au",
+    "active": true,
+    "createdBy": "import",
+    "createdAt": "2026-05-18T00:00:00Z"
+  },
+  {
+    "id": "d1160402-fcb9-2bee-e7d3-b92a5825b986",
+    "name": "Charles Cato",
+    "role": "Technical Support Representative",
+    "phone": "0448095036",
+    "email": "cato@hcma.com.au",
+    "active": true,
+    "createdBy": "import",
+    "createdAt": "2026-05-18T00:00:00Z"
+  },
+  {
+    "id": "aac714bf-9832-e10c-2969-66a6b2808b4e",
+    "name": "Mason Coyle",
+    "role": "Light Equipment Sales Representative",
+    "phone": "(08) 9234 9800",
+    "email": "mason.coyle@hcma.com.au",
+    "active": true,
+    "createdBy": "import",
+    "createdAt": "2026-05-18T00:00:00Z"
+  },
+  {
+    "id": "a775b80e-4c13-cbc8-6f71-ffa5a21abf34",
+    "name": "Trevor Crozier",
+    "role": "Technical Support Representative",
+    "phone": "0400 714 350",
+    "email": "crozier@hcma.com.au",
+    "active": true,
+    "createdBy": "import",
+    "createdAt": "2026-05-18T00:00:00Z"
+  },
+  {
+    "id": "5e200bbf-8e8c-22fd-a38a-a0b213c5af49",
+    "name": "Martin Dadleff",
+    "role": "Regional General Manager",
+    "phone": "0455 461 689",
+    "email": "dadleff@hcma.com.au",
+    "active": true,
+    "createdBy": "import",
+    "createdAt": "2026-05-18T00:00:00Z"
+  },
+  {
+    "id": "b1b5176a-d7a5-5f4c-cc8f-4cee2d7da19a",
+    "name": "Gavin Edge",
+    "role": "CE Sales Representative - EAST",
+    "phone": "0418 448 954",
+    "email": "edgeg@hcma.com.au",
+    "active": true,
+    "createdBy": "import",
+    "createdAt": "2026-05-18T00:00:00Z"
+  },
+  {
+    "id": "a6427f4b-dd17-7413-d42b-cdfbdb04a2a1",
+    "name": "Curt Elphinstone",
+    "role": "Service Co-ordinator",
+    "phone": "0493 487 522",
+    "email": "elphinstone@hcma.com.au",
+    "active": true,
+    "createdBy": "import",
+    "createdAt": "2026-05-18T00:00:00Z"
+  },
+  {
+    "id": "fe49dca1-7c93-b296-f5de-7bfa356c0703",
+    "name": "Gary Evans",
+    "role": "Parts Interpreter",
+    "phone": "(08) 9234 9847",
+    "email": "evansg@hcma.com.au",
+    "active": true,
+    "createdBy": "import",
+    "createdAt": "2026-05-18T00:00:00Z"
+  },
+  {
+    "id": "cee8745f-e1f6-d171-bf20-ca98145c8474",
+    "name": "Kathryn Evans",
+    "role": "Administration Manager",
+    "phone": "0439 376 784",
+    "email": "evansk@hcma.com.au",
+    "active": true,
+    "createdBy": "import",
+    "createdAt": "2026-05-18T00:00:00Z"
+  },
+  {
+    "id": "eef91fc8-2b3a-ef68-d556-49f967f8133d",
+    "name": "Daniel Fimognari",
+    "role": "Field Service Leading Hand",
+    "phone": "0437 145 316",
+    "email": "fimognari@hcma.com.au",
+    "active": true,
+    "createdBy": "import",
+    "createdAt": "2026-05-18T00:00:00Z"
+  },
+  {
+    "id": "4ab080eb-da19-b57f-ada1-cdb25928f433",
+    "name": "Stephen Francis",
+    "role": "Service Manager \u2013 Western Australia",
+    "phone": "0488 400 518",
+    "email": "francis@hcma.com.au",
+    "active": true,
+    "createdBy": "import",
+    "createdAt": "2026-05-18T00:00:00Z"
+  },
+  {
+    "id": "4019bf9b-42e3-de17-28da-9c0f1b7e5d7a",
+    "name": "Benjamin Freeman",
+    "role": "Assembly Supervisor",
+    "phone": "0400 596 560",
+    "email": "freemanb@hcma.com.au",
+    "active": true,
+    "createdBy": "import",
+    "createdAt": "2026-05-18T00:00:00Z"
+  },
+  {
+    "id": "b98ede65-f3d3-4ec0-12d1-b12b407b9abe",
+    "name": "Liam Gibbons",
+    "role": "Parts Supervisor",
+    "phone": "0407 263 137",
+    "email": "gibbons@hcma.com.au",
+    "active": true,
+    "createdBy": "import",
+    "createdAt": "2026-05-18T00:00:00Z"
+  },
+  {
+    "id": "b11566fd-b50b-60d8-cf05-a04d39edeedb",
+    "name": "Kenneth Godfrey",
+    "role": "Product Support Representative",
+    "phone": "0455 530 258",
+    "email": "godfreyk@hcma.com.au",
+    "active": true,
+    "createdBy": "import",
+    "createdAt": "2026-05-18T00:00:00Z"
+  },
+  {
+    "id": "4e41b25a-1e59-910e-947a-cd855003c885",
+    "name": "Kelly Griffen",
+    "role": "Administration Administrator",
+    "phone": "(08) 9234 9800",
+    "email": "griffen@hcma.com.au",
+    "active": true,
+    "createdBy": "import",
+    "createdAt": "2026-05-18T00:00:00Z"
+  },
+  {
+    "id": "6c20712e-6d5b-243c-15f2-987532eb1a0b",
+    "name": "Neil Griffiths",
+    "role": "Site Supervisor",
+    "phone": "(08) 9234 9800",
+    "email": "neil.griffiths@hcma.com.au",
+    "active": true,
+    "createdBy": "import",
+    "createdAt": "2026-05-18T00:00:00Z"
+  },
+  {
+    "id": "b2bb7820-5db4-1ca6-bd15-1867caf2c8c3",
+    "name": "Caron Hampson",
+    "role": "Service Administrator",
+    "phone": "0437 615 047",
+    "email": "hampsonc@hcma.com.au",
+    "active": true,
+    "createdBy": "import",
+    "createdAt": "2026-05-18T00:00:00Z"
+  },
+  {
+    "id": "83c00a23-9134-10eb-00e8-facc84503858",
+    "name": "Veronica Harper",
+    "role": "Facilities Administrator",
+    "phone": "0474 861 298",
+    "email": "harperv@hcma.com.au",
+    "active": true,
+    "createdBy": "import",
+    "createdAt": "2026-05-18T00:00:00Z"
+  },
+  {
+    "id": "bd285787-bbbc-d3d7-5d1a-8cee0a612a6e",
+    "name": "David Harris",
+    "role": "Branch Manager",
+    "phone": "0408 863 670",
+    "email": "harrisd@hcma.com.au",
+    "active": true,
+    "createdBy": "import",
+    "createdAt": "2026-05-18T00:00:00Z"
+  },
+  {
+    "id": "7777b7cb-d471-8e0c-b5b9-42064dc3d63b",
+    "name": "Justin Harun",
+    "role": "Field Service Supervisor",
+    "phone": "0408 400 196",
+    "email": "harun@hcma.com.au",
+    "active": true,
+    "createdBy": "import",
+    "createdAt": "2026-05-18T00:00:00Z"
+  },
+  {
+    "id": "0ae465c4-5eb0-7427-0efc-3d82223f2617",
+    "name": "Russel Hatton",
+    "role": "Boddington Site Supervisor",
+    "phone": "0409281980",
+    "email": "hatton@hcma.com.au",
+    "active": true,
+    "createdBy": "import",
+    "createdAt": "2026-05-18T00:00:00Z"
+  },
+  {
+    "id": "a270fcaf-5ed6-4e68-c81b-1279412be82a",
+    "name": "Malcolm Henry",
+    "role": "Mineral Resources Account Manager",
+    "phone": "0429 166 443",
+    "email": "henry@hcma.com.au",
+    "active": true,
+    "createdBy": "import",
+    "createdAt": "2026-05-18T00:00:00Z"
+  },
+  {
+    "id": "079e209b-618a-f5be-150f-2bb8237a307e",
+    "name": "Daniel Hickford",
+    "role": "Workshop Leading Hand",
+    "phone": "(08) 9234 9800",
+    "email": "hickford@hcma.com.au",
+    "active": true,
+    "createdBy": "import",
+    "createdAt": "2026-05-18T00:00:00Z"
+  },
+  {
+    "id": "982f80d1-81fe-0e98-83e2-bc5750dcba67",
+    "name": "Todd Huntley",
+    "role": "Service Supervisor",
+    "phone": "0409 800 140",
+    "email": "huntley@hcma.com.au",
+    "active": true,
+    "createdBy": "import",
+    "createdAt": "2026-05-18T00:00:00Z"
+  },
+  {
+    "id": "11fd4d85-588c-4337-aa0f-d1bef111952e",
+    "name": "Eddie Iemi",
+    "role": "Consumables Sales Rep",
+    "phone": "0407 882 531",
+    "email": "iemi@hcma.com.au",
+    "active": true,
+    "createdBy": "import",
+    "createdAt": "2026-05-18T00:00:00Z"
+  },
+  {
+    "id": "76eb890e-acc7-cfed-4d07-09e14f1512bb",
+    "name": "Daniel Karafilis",
+    "role": "Step UP Site Supervisor - Boddington",
+    "phone": "0400 201 898",
+    "email": "karafilis@hcma.com.au",
+    "active": true,
+    "createdBy": "import",
+    "createdAt": "2026-05-18T00:00:00Z"
+  },
+  {
+    "id": "3528aa91-8f96-c7a0-694f-eaa7fadffcfb",
+    "name": "Chloe Kinnear",
+    "role": "Service Administrator",
+    "phone": "(08) 9234 9907",
+    "email": "kinnearc@hcma.com.au",
+    "active": true,
+    "createdBy": "import",
+    "createdAt": "2026-05-18T00:00:00Z"
+  },
+  {
+    "id": "3d636ab0-117e-9e96-3652-f62500d284eb",
+    "name": "James Lancaster",
+    "role": "Product Support Representative",
+    "phone": "0498 877 774",
+    "email": "lancasterj@hcma.com.au",
+    "active": true,
+    "createdBy": "import",
+    "createdAt": "2026-05-18T00:00:00Z"
+  },
+  {
+    "id": "7ca20875-751d-dddf-1e07-bb80586cd1cc",
+    "name": "Kelvin Lewis",
+    "role": "Workshop Supervisor",
+    "phone": "0455 879 565",
+    "email": "lewisk@hcma.com.au",
+    "active": true,
+    "createdBy": "import",
+    "createdAt": "2026-05-18T00:00:00Z"
+  },
+  {
+    "id": "720b93e0-d686-ced5-964e-8b1ff042fe49",
+    "name": "Meagan Lightbody",
+    "role": "Administration Administrator",
+    "phone": "(08) 9234 9911",
+    "email": "lightbodym@hcma.com.au",
+    "active": true,
+    "createdBy": "import",
+    "createdAt": "2026-05-18T00:00:00Z"
+  },
+  {
+    "id": "c22d65c0-5010-21b8-2019-5deb2989d6c0",
+    "name": "Michael Mahon",
+    "role": "Customer Support Representative",
+    "phone": "(02) 9780 6900",
+    "email": "mahon@hcma.com.au",
+    "active": true,
+    "createdBy": "import",
+    "createdAt": "2026-05-18T00:00:00Z"
+  },
+  {
+    "id": "c2f0a1c9-6301-1755-39ed-b4966f7de355",
+    "name": "Therese Matthews",
+    "role": "Employee Liaison & TCS Coordinator",
+    "phone": "(08) 9234 9824",
+    "email": "matthewst@hcma.com.au",
+    "active": true,
+    "createdBy": "import",
+    "createdAt": "2026-05-18T00:00:00Z"
+  },
+  {
+    "id": "7ef80046-53ea-80cc-bf79-ffedc38bf0e0",
+    "name": "Perry Maxwell",
+    "role": "CE Sales - Manager",
+    "phone": "0429 480 627",
+    "email": "maxwellp@hcma.com.au",
+    "active": true,
+    "createdBy": "import",
+    "createdAt": "2026-05-18T00:00:00Z"
+  },
+  {
+    "id": "2de19561-80b1-cd51-dcf6-408a87d0b179",
+    "name": "Daniel Mcclure",
+    "role": "Reman Coordinator",
+    "phone": "0438 708 861",
+    "email": "mcclure@hcma.com.au",
+    "active": true,
+    "createdBy": "import",
+    "createdAt": "2026-05-18T00:00:00Z"
+  },
+  {
+    "id": "382fa415-e188-cc99-f1e6-c7cb99189028",
+    "name": "Nicole Melville",
+    "role": "Administration Administrator",
+    "phone": "08 9234 9800",
+    "email": "melville@hcma.com.au",
+    "active": true,
+    "createdBy": "import",
+    "createdAt": "2026-05-18T00:00:00Z"
+  },
+  {
+    "id": "be2129c5-5658-1765-4c34-ad4e320618b0",
+    "name": "Sharon Mills",
+    "role": "Service Administrator",
+    "phone": "(08) 9234 9876",
+    "email": "millss@hcma.com.au",
+    "active": true,
+    "createdBy": "import",
+    "createdAt": "2026-05-18T00:00:00Z"
+  },
+  {
+    "id": "e11aec1f-7ba4-4413-5bc6-cc9cd7d55931",
+    "name": "Alistair Mitchell",
+    "role": "Major Accounts Manager, Rio Tinto",
+    "phone": "0488 604 937",
+    "email": "mitchella@hcma.com.au",
+    "active": true,
+    "createdBy": "import",
+    "createdAt": "2026-05-18T00:00:00Z"
+  },
+  {
+    "id": "ce6f5653-4134-4d45-a760-e4db24c0bd19",
+    "name": "Luke Moncrieff",
+    "role": "Project Supervisor",
+    "phone": "(08) 9234 9800",
+    "email": "moncrieff@hcma.com.au",
+    "active": true,
+    "createdBy": "import",
+    "createdAt": "2026-05-18T00:00:00Z"
+  },
+  {
+    "id": "a4c654eb-a512-817d-83f2-fff3c7f23739",
+    "name": "Craig Muirson",
+    "role": "Project Supervisor",
+    "phone": "0488 950 180",
+    "email": "muirson@hcma.com.au",
+    "active": true,
+    "createdBy": "import",
+    "createdAt": "2026-05-18T00:00:00Z"
+  },
+  {
+    "id": "e7422d43-0c3a-a066-b26e-2d3458641000",
+    "name": "Colleen Murphy",
+    "role": "Parts Administrator",
+    "phone": "(08) 9234 9835",
+    "email": "murphyco@hcma.com.au",
+    "active": true,
+    "createdBy": "import",
+    "createdAt": "2026-05-18T00:00:00Z"
+  },
+  {
+    "id": "0e3ce680-3c44-0bce-bf3c-91307538ef2d",
+    "name": "Natasha Neumann",
+    "role": "Administrator Sales",
+    "phone": "(08) 9234 9800",
+    "email": "natasha.neumann@hcma.com.au",
+    "active": true,
+    "createdBy": "import",
+    "createdAt": "2026-05-18T00:00:00Z"
+  },
+  {
+    "id": "011de43e-46ea-b2d7-c0b2-92e81a2d0b7a",
+    "name": "Taylor Nielsen",
+    "role": "Parts Administrator",
+    "phone": "(08) 9234 9948",
+    "email": "nielsenta@hcma.com.au",
+    "active": true,
+    "createdBy": "import",
+    "createdAt": "2026-05-18T00:00:00Z"
+  },
+  {
+    "id": "cbdd2db3-e0b9-2896-cf05-94328eb4453f",
+    "name": "Craig Norman",
+    "role": "Service Co-ordinator",
+    "phone": "0438 942 195",
+    "email": "normanc@hcma.com.au",
+    "active": true,
+    "createdBy": "import",
+    "createdAt": "2026-05-18T00:00:00Z"
+  },
+  {
+    "id": "348ff60d-c618-914c-f1c7-463157e750c5",
+    "name": "Clayton O'donnell",
+    "role": "Product Support Representative",
+    "phone": "0461 420 134",
+    "email": "odonnellc@hcma.com.au",
+    "active": true,
+    "createdBy": "import",
+    "createdAt": "2026-05-18T00:00:00Z"
+  },
+  {
+    "id": "d6437d84-487c-15ef-cd35-a878e20d61b9",
+    "name": "Brooke Rooney",
+    "role": "Tool Store Administrator",
+    "phone": "0499 604 373",
+    "email": "rooney@hcma.com.au",
+    "active": true,
+    "createdBy": "import",
+    "createdAt": "2026-05-18T00:00:00Z"
+  },
+  {
+    "id": "54b19ead-5def-8af5-1074-d8e15fd7c045",
+    "name": "Kylie Ryder",
+    "role": "Receptionist Administrator",
+    "phone": "(08) 9234 9800",
+    "email": "ryderk@hcma.com.au",
+    "active": true,
+    "createdBy": "import",
+    "createdAt": "2026-05-18T00:00:00Z"
+  },
+  {
+    "id": "a89ad22f-d657-8ff1-9d69-edc655d1214e",
+    "name": "Michael Scurr",
+    "role": "Field Service Supervisor",
+    "phone": "(08) 9234 9800",
+    "email": "scurr@hcma.com.au",
+    "active": true,
+    "createdBy": "import",
+    "createdAt": "2026-05-18T00:00:00Z"
+  },
+  {
+    "id": "cfbdc77a-0f37-05c0-83d3-d6fa05322fd1",
+    "name": "Shane Shepherd",
+    "role": "Leading Hand",
+    "phone": "(08) 9234 9800",
+    "email": "shepherds@hcma.com.au",
+    "active": true,
+    "createdBy": "import",
+    "createdAt": "2026-05-18T00:00:00Z"
+  },
+  {
+    "id": "636c071f-8605-4bb0-2b89-ae20b5f44fa2",
+    "name": "Ashleigh Sillitto",
+    "role": "Service Administrator",
+    "phone": "(08) 9234 9892",
+    "email": "sillitto@hcma.com.au",
+    "active": true,
+    "createdBy": "import",
+    "createdAt": "2026-05-18T00:00:00Z"
+  },
+  {
+    "id": "2cea6c74-1140-8778-8cd3-6e55ba0da0fb",
+    "name": "Tony Smit",
+    "role": "Senior Parts Supervisor",
+    "phone": "0418 864 629",
+    "email": "smit@hcma.com.au",
+    "active": true,
+    "createdBy": "import",
+    "createdAt": "2026-05-18T00:00:00Z"
+  },
+  {
+    "id": "89bf8137-4a5f-4fa6-bf60-37f1a2614294",
+    "name": "Greg Smith",
+    "role": "SALES MANAGER",
+    "phone": "0494 655 478",
+    "email": "greg.smith2@hcma.com.au",
+    "active": true,
+    "createdBy": "import",
+    "createdAt": "2026-05-18T00:00:00Z"
+  },
+  {
+    "id": "ed54da1b-d567-3c38-13a5-c60e252fd4f8",
+    "name": "Dale Smulders",
+    "role": "Major Account Manager WA",
+    "phone": "0439 397 766",
+    "email": "smulders@hcma.com.au",
+    "active": true,
+    "createdBy": "import",
+    "createdAt": "2026-05-18T00:00:00Z"
+  },
+  {
+    "id": "42e9adb2-d1a9-23ec-20c0-78c68cc90f2d",
+    "name": "Nickolas Smyth",
+    "role": "Leading Hand",
+    "phone": "(08) 9234 9800",
+    "email": "nickolas.smyth@hcma.com.au",
+    "active": true,
+    "createdBy": "import",
+    "createdAt": "2026-05-18T00:00:00Z"
+  },
+  {
+    "id": "c6152af4-891c-fd15-a603-8b223e9a2681",
+    "name": "Skylah Spurr",
+    "role": "Administrative Assistant",
+    "phone": "(08) 9234 989974",
+    "email": "skylah.spurr@hcma.com.au",
+    "active": true,
+    "createdBy": "import",
+    "createdAt": "2026-05-18T00:00:00Z"
+  },
+  {
+    "id": "31eacb7a-7b01-e57a-8964-942d5f99aeec",
+    "name": "Andrew Starkie",
+    "role": "Product Support Representative",
+    "phone": "(08) 9188-2390",
+    "email": "starkiea@hcma.com.au",
+    "active": true,
+    "createdBy": "import",
+    "createdAt": "2026-05-18T00:00:00Z"
+  },
+  {
+    "id": "f2af6b76-8028-390a-3171-fdac5fd9e45c",
+    "name": "Lara Thompson",
+    "role": "Parts Administrator",
+    "phone": "(08) 9234 9826",
+    "email": "thompsonl@hcma.com.au",
+    "active": true,
+    "createdBy": "import",
+    "createdAt": "2026-05-18T00:00:00Z"
+  },
+  {
+    "id": "3087aec3-0281-8582-8c8e-c04ce5c12172",
+    "name": "Doug Thomson",
+    "role": "Parts Manager",
+    "phone": "0417 904 882",
+    "email": "thomsondo@hcma.com.au",
+    "active": true,
+    "createdBy": "import",
+    "createdAt": "2026-05-18T00:00:00Z"
+  },
+  {
+    "id": "98768fb6-a21a-d541-9e41-61e4a6d5805d",
+    "name": "Trent Tillemans",
+    "role": "Leading Hand Workshop",
+    "phone": "(08) 9234 9800",
+    "email": "tillemans@hcma.com.au",
+    "active": true,
+    "createdBy": "import",
+    "createdAt": "2026-05-18T00:00:00Z"
+  },
+  {
+    "id": "0e9ba90d-55a0-1690-078c-c380851a9c5e",
+    "name": "Adam Tunnecliffe",
+    "role": "Workshop Leading Hand",
+    "phone": "(08) 9234 9800",
+    "email": "tunnecliffe@hcma.com.au",
+    "active": true,
+    "createdBy": "import",
+    "createdAt": "2026-05-18T00:00:00Z"
+  },
+  {
+    "id": "8a52f3cd-378b-daef-8cb0-58c4e1afd638",
+    "name": "Duncan Van Den Bergh",
+    "role": "Product Support Representative",
+    "phone": "(08) 9234 9800",
+    "email": "vandenberghd@hcma.com.au",
+    "active": true,
+    "createdBy": "import",
+    "createdAt": "2026-05-18T00:00:00Z"
+  },
+  {
+    "id": "9cf07681-dfce-645b-8cd1-170fe26a7615",
+    "name": "Troy Verden",
+    "role": "Product Support Representative",
+    "phone": "0448 371 268",
+    "email": "verden@hcma.com.au",
+    "active": true,
+    "createdBy": "import",
+    "createdAt": "2026-05-18T00:00:00Z"
+  },
+  {
+    "id": "8f86b304-cf1c-0a57-7da8-ba1ce5dc7c6d",
+    "name": "Rocky Versace",
+    "role": "Workshop Supervisor",
+    "phone": "0417 903 125",
+    "email": "versace@hcma.com.au",
+    "active": true,
+    "createdBy": "import",
+    "createdAt": "2026-05-18T00:00:00Z"
+  },
+  {
+    "id": "d957da72-7484-5c42-a38c-23b40c642b71",
+    "name": "Nicholas Watt",
+    "role": "Roy Hill Account Manager",
+    "phone": "0419 218 897",
+    "email": "wattn@hcma.com.au",
+    "active": true,
+    "createdBy": "import",
+    "createdAt": "2026-05-18T00:00:00Z"
+  },
+  {
+    "id": "7dbd03fd-96e7-54b1-65f9-3aac1eca02f8",
+    "name": "Damien Wearne",
+    "role": "CE & Electrical Coordinator",
+    "phone": "0418 968 225",
+    "email": "wearne@hcma.com.au",
+    "active": true,
+    "createdBy": "import",
+    "createdAt": "2026-05-18T00:00:00Z"
+  },
+  {
+    "id": "d95184fe-1809-a7ef-488b-eb6dd82fc785",
+    "name": "Kaz Ayres",
+    "role": "Manager Reman",
+    "phone": "0417 144 072",
+    "email": "ayres@hcma.com.au",
+    "active": true,
+    "createdBy": "import",
+    "createdAt": "2026-05-18T00:00:00Z"
+  },
+  {
+    "id": "afb4c4fa-9382-c416-beb3-4b4561312bd0",
+    "name": "Holly Booth",
+    "role": "Service Administrator",
+    "phone": "(08) 9234 9957",
+    "email": "boothh@hcma.com.au",
+    "active": true,
+    "createdBy": "import",
+    "createdAt": "2026-05-18T00:00:00Z"
+  },
+  {
+    "id": "17cd7e56-1588-6c93-4aa7-f4d25e0d3c59",
+    "name": "Andrew Brogle",
+    "role": "Leading Hand - Remanufacturing",
+    "phone": "0428 743 176",
+    "email": "broglea@hcma.com.au",
+    "active": true,
+    "createdBy": "import",
+    "createdAt": "2026-05-18T00:00:00Z"
+  },
+  {
+    "id": "20a1dee8-a864-592d-77eb-54364b2a58c2",
+    "name": "Dee Burr",
+    "role": "Administration Administrator",
+    "phone": "(08) 9234 9914",
+    "email": "burrd@hcma.com.au",
+    "active": true,
+    "createdBy": "import",
+    "createdAt": "2026-05-18T00:00:00Z"
+  },
+  {
+    "id": "42869c52-0db1-e037-985e-5957cd247e09",
+    "name": "Jarrid Hahn",
+    "role": "Hydraulic Reman Supervisor",
+    "phone": "0413 399 847",
+    "email": "hahn@hcma.com.au",
+    "active": true,
+    "createdBy": "import",
+    "createdAt": "2026-05-18T00:00:00Z"
+  },
+  {
+    "id": "798012c1-aa0e-5f05-f3cf-586f77c3c9f4",
+    "name": "Matthew Harris",
+    "role": "Reman Leading Hand",
+    "phone": "0428 981 052",
+    "email": "harrism@hcma.com.au",
+    "active": true,
+    "createdBy": "import",
+    "createdAt": "2026-05-18T00:00:00Z"
+  },
+  {
+    "id": "9f32b353-1478-3434-31e5-99882e189742",
+    "name": "Craig Henderson",
+    "role": "Leading Hand Reman",
+    "phone": "0407 992 552",
+    "email": "hendersonc@hcma.com.au",
+    "active": true,
+    "createdBy": "import",
+    "createdAt": "2026-05-18T00:00:00Z"
+  },
+  {
+    "id": "eafe4507-1202-3757-eba6-41824822a8ec",
+    "name": "Sally Mckenzie",
+    "role": "Service Administrator",
+    "phone": "(08) 9234 9916",
+    "email": "mckenzies@hcma.com.au",
+    "active": true,
+    "createdBy": "import",
+    "createdAt": "2026-05-18T00:00:00Z"
+  },
+  {
+    "id": "06e5e147-ed5b-5b97-e0dd-7f67d234d1da",
+    "name": "Tamara Munro",
+    "role": "Service Administrator - Reman",
+    "phone": "(08) 9234 9800",
+    "email": "tamara.munro@hcma.com.au",
+    "active": true,
+    "createdBy": "import",
+    "createdAt": "2026-05-18T00:00:00Z"
+  },
+  {
+    "id": "66e927a6-b9f1-3553-d9ca-f7c06c1a6eef",
+    "name": "Gregory Shoesmith",
+    "role": "Leading hand",
+    "phone": "0448 796 837",
+    "email": "shoesmithg@hcma.com.au",
+    "active": true,
+    "createdBy": "import",
+    "createdAt": "2026-05-18T00:00:00Z"
+  },
+  {
+    "id": "621d2833-03bb-f1ad-dc12-e1984b399e94",
+    "name": "Steven Wilby",
+    "role": "Reman Supervisor",
+    "phone": "(08) 9234 9800",
+    "email": "wilbys@hcma.com.au",
+    "active": true,
+    "createdBy": "import",
+    "createdAt": "2026-05-18T00:00:00Z"
+  },
+  {
+    "id": "77c6864e-4c59-bf2a-8baa-2ce35f5df716",
+    "name": "Susan Atkinson",
+    "role": "Warehouse Administrator",
+    "phone": "(08) 9234 9856",
+    "email": "atkinsons@hcma.com.au",
+    "active": true,
+    "createdBy": "import",
+    "createdAt": "2026-05-18T00:00:00Z"
+  },
+  {
+    "id": "cbe6cd0b-22c8-d30f-6015-c6705014fe1f",
+    "name": "Kripalsinh Chudasama",
+    "role": "Warehouse Supervisor",
+    "phone": "08 9234 9917",
+    "email": "chudasama@hcma.com.au",
+    "active": true,
+    "createdBy": "import",
+    "createdAt": "2026-05-18T00:00:00Z"
+  },
+  {
+    "id": "646a907e-c14a-f2e1-976a-9e4b41f4398a",
+    "name": "Andrew Devaney",
+    "role": "Team Leader- AM Shift",
+    "phone": "(08) 9234 9800",
+    "email": "devaney@hcma.com.au",
+    "active": true,
+    "createdBy": "import",
+    "createdAt": "2026-05-18T00:00:00Z"
+  },
+  {
+    "id": "b16f1752-bca6-ee5b-47b2-b76d3a90f736",
+    "name": "TERRENCE Gibbs",
+    "role": "Warehouse Team Leader",
+    "phone": "(08) 9234 9800",
+    "email": "terrence.gibbs@hcma.com.au",
+    "active": true,
+    "createdBy": "import",
+    "createdAt": "2026-05-18T00:00:00Z"
+  },
+  {
+    "id": "8cad6e05-36b1-36ae-d09f-256862c02417",
+    "name": "Robert Kinnear",
+    "role": "Warehouse Leading Hand",
+    "phone": "(08) 9234 9800",
+    "email": "kinnear@hcma.com.au",
+    "active": true,
+    "createdBy": "import",
+    "createdAt": "2026-05-18T00:00:00Z"
+  },
+  {
+    "id": "e3f64891-04f3-cc4a-f29c-625ef62e546b",
+    "name": "Daren Mcdonnell",
+    "role": "Warehouse Supervisor",
+    "phone": "0439 441 223",
+    "email": "mcdonnell@hcma.com.au",
+    "active": true,
+    "createdBy": "import",
+    "createdAt": "2026-05-18T00:00:00Z"
+  },
+  {
+    "id": "ec686cfb-5869-1fac-f75e-fdba09ab4b1b",
+    "name": "Mark Pickering",
+    "role": "Warehouse Supervisor",
+    "phone": "0474 279 346",
+    "email": "pickeringm@hcma.com.au",
+    "active": true,
+    "createdBy": "import",
+    "createdAt": "2026-05-18T00:00:00Z"
+  },
+  {
+    "id": "511721d3-b768-47ef-8942-3181ac275566",
+    "name": "Nathan Sells",
+    "role": "Warehouse Leading Hand",
+    "phone": "(08) 9234 9800",
+    "email": "sells@hcma.com.au",
+    "active": true,
+    "createdBy": "import",
+    "createdAt": "2026-05-18T00:00:00Z"
+  },
+  {
+    "id": "67f1d092-ca94-5b1a-076d-74ee5a5c17e4",
+    "name": "Pushwinder Sodhi",
+    "role": "Team Leader- Dispatch",
+    "phone": "(08) 9234 9887",
+    "email": "sodhip@hcma.com.au",
+    "active": true,
+    "createdBy": "import",
+    "createdAt": "2026-05-18T00:00:00Z"
+  },
+  {
+    "id": "44de1f3d-5c3f-b31a-af4e-2a57a850dfeb",
+    "name": "Roger Sugden",
+    "role": "Team Leader",
+    "phone": "(08) 9234 9886",
+    "email": "sugden@hcma.com.au",
+    "active": true,
+    "createdBy": "import",
+    "createdAt": "2026-05-18T00:00:00Z"
+  },
+  {
+    "id": "7db91d84-75e7-dfb3-67de-c9fd045d3350",
+    "name": "Andela Tarmidi",
+    "role": "Warehouse Administrator",
+    "phone": "(08) 9234 9927",
+    "email": "tarmidi@hcma.com.au",
+    "active": true,
+    "createdBy": "import",
+    "createdAt": "2026-05-18T00:00:00Z"
+  },
+  {
+    "id": "867ed9ad-5c0b-3ebb-83e3-c082b4893263",
+    "name": "Timothy Ward",
+    "role": "Warehouse Manager",
+    "phone": "0417 484 640",
+    "email": "wardtim@hcma.com.au",
+    "active": true,
+    "createdBy": "import",
+    "createdAt": "2026-05-18T00:00:00Z"
   }
 ]
