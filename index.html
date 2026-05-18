@@ -513,78 +513,104 @@
       border: 1px solid rgba(255,255,255,0.08) !important;
     }
 
-    /* ── Mobile / tablet (≤1199px) — bottom sheet ── */
-    @media (max-width: 1199px) {
+    /* ── Tablet floating island (768–1199px) ── */
+    @media (min-width: 768px) and (max-width: 1199px) {
       #app { position: relative; }
-      #canvas-wrap { width: 100%; height: 100%; flex: 1; }
+      #canvas-wrap { width: 100%; height: 100%; position: absolute; inset: 0; }
+
+      #side-panel {
+        position: absolute !important;
+        top: 20px !important;
+        right: 20px !important;
+        bottom: 20px !important;
+        left: auto !important;
+        width: 340px !important;
+        height: auto !important;
+        border-radius: 20px !important;
+        border: 1px solid rgba(255,255,255,0.08) !important;
+        border-left: 1px solid rgba(255,255,255,0.08) !important;
+        box-shadow: 0 8px 40px rgba(0,0,0,0.55), 0 2px 8px rgba(0,0,0,0.3) !important;
+        background: rgba(8, 10, 16, 0.94) !important;
+        overflow: hidden;
+        z-index: 30;
+      }
+      #panel-header { padding: 20px 20px 0 !important; }
+      #cam-presets { bottom: 20px; left: 20px; flex-direction: column; }
+      #site-brand { right: calc(340px + 36px) !important; top: 20px !important; }
+      #site-address { right: calc(340px + 36px) !important; top: 66px !important; font-size: 13px !important; }
+    }
+
+    /* ── Mobile bottom sheet (≤767px) ── */
+    @media (max-width: 767px) {
+      #app { position: relative; flex-direction: row !important; }
+      #canvas-wrap { width: 100%; height: 100%; position: absolute; inset: 0; flex: none; min-height: 0; }
 
       .panel-handle { display: block; }
 
       #side-panel {
         position: absolute !important;
-        bottom: 0 !important;
-        left: 0 !important;
-        right: 0 !important;
-        top: auto !important;
-        z-index: 30;
+        bottom: 0 !important; left: 0 !important; right: 0 !important; top: auto !important;
         width: 100% !important;
-        height: 45vh;
+        height: 85vh !important;
+        border-radius: 28px 28px 0 0 !important;
         border-left: none !important;
         border-top: 1px solid rgba(255,255,255,0.1) !important;
         border-bottom: none !important;
-        border-radius: 20px 20px 0 0 !important;
-        transition: height 0.3s ease;
+        box-shadow: 0 -12px 40px rgba(0,0,0,0.6) !important;
+        background: rgba(12, 15, 22, 0.95) !important;
+        backdrop-filter: blur(24px) saturate(160%) !important;
+        -webkit-backdrop-filter: blur(24px) saturate(160%) !important;
+        /* default: peek state — show only 72px */
+        transform: translateY(calc(100% - 72px));
+        transition: transform 420ms cubic-bezier(0.2, 0.8, 0.2, 1);
+        will-change: transform;
         overflow: hidden;
-        background: rgba(8, 10, 16, 0.96) !important;
+        z-index: 30;
+        order: unset !important;
       }
-      #side-panel.collapsed {
-        height: 62px !important;
-      }
+      /* Mid snap — ~45% visible */
+      #side-panel.sheet-mid  { transform: translateY(calc(100% - 45vh)); }
+      /* Full snap — fully open */
+      #side-panel.sheet-full { transform: translateY(0); }
+
       #panel-header {
         display: flex !important;
         align-items: center !important;
-        padding: 14px 18px 10px !important;
+        padding: 10px 18px 8px !important;
         flex-shrink: 0;
+        cursor: pointer;
       }
       #panel-header-text { flex: 1; }
       #panel-toggle { display: block; }
-      #side-panel.collapsed #panel-toggle { transform: rotate(180deg); }
+      #side-panel.sheet-full #panel-toggle { transform: rotate(180deg); }
 
       #cam-presets {
-        top: auto;
-        bottom: 16px;
-        left: 16px;
-        flex-direction: row;
-        opacity: 0.8;
+        top: auto !important; bottom: 88px; left: 16px;
+        flex-direction: row; opacity: 0.85;
       }
-      #nav-progress { bottom: 16px; }
+      #nav-progress { bottom: 88px; }
 
-      /* Logo + address: top-right, smaller */
+      /* Brand: top-right, fixed over canvas */
       #site-brand {
-        right: 16px !important;
-        transition: top 0.15s ease;
+        position: fixed !important;
+        top: 16px !important; right: 16px !important;
+        display: flex !important;
       }
-      #site-brand img { height: 30px !important; }
+      #site-brand img { height: 28px !important; }
       #site-address {
-        left: auto !important;
-        right: 20px !important;
-        font-size: 11px !important;
-        transition: top 0.15s ease;
+        position: fixed !important;
+        top: 50px !important; right: 16px !important;
+        left: auto !important; font-size: 11px !important;
+        display: block !important;
+        -webkit-text-stroke: 0 !important;
+        text-shadow: 0 1px 4px rgba(0,0,0,0.9) !important;
       }
     }
 
-    /* ── Small mobile (≤640px) — css.css mobile overrides conflict fix ── */
+    /* ── Undo global style.css panel overrides for this page ── */
     @media (max-width: 640px) {
       #app { flex-direction: row !important; }
-      #side-panel {
-        width: 100% !important;
-        height: 45vh !important;
-        border-bottom: none !important;
-        order: unset !important;
-      }
-      #side-panel.collapsed { height: 62px !important; }
-      #canvas-wrap { flex: 1; min-height: 0; }
-      #site-brand, #site-address { display: flex !important; }
+      #side-panel { order: unset !important; }
     }
   </style>
 </head>
@@ -676,28 +702,32 @@
 </div>
 
 <script>
-  const MOBILE_BP = 1199;
+  const MOBILE_BP = 767;  // bottom sheet threshold
+  const TABLET_BP = 1199; // floating island threshold
 
-  function _positionMobileBrand() {
-    if (window.innerWidth > MOBILE_BP) return;
-    const brand = document.getElementById('site-brand');
-    const addr  = document.getElementById('site-address');
-    // Panel is now a bottom sheet — brand always anchors to top of screen
-    if (brand) brand.style.top = '16px';
-    if (addr)  addr.style.top  = '52px';
-  }
-
+  // Mobile bottom sheet: cycles peek → mid → full → peek
   window.togglePanel = function() {
+    if (window.innerWidth > MOBILE_BP) return;
     const panel = document.getElementById('side-panel');
-    panel.classList.toggle('collapsed');
-    _positionMobileBrand(); // immediate — CSS transition animates it
+    if (panel.classList.contains('sheet-full')) {
+      panel.classList.remove('sheet-full', 'sheet-mid');        // → peek
+    } else if (panel.classList.contains('sheet-mid')) {
+      panel.classList.add('sheet-full');
+      panel.classList.remove('sheet-mid');                       // → full
+    } else {
+      panel.classList.add('sheet-mid');                          // → mid
+    }
   };
 
-  // Collapse panel by default on mobile/tablet and position brand
-  if (window.innerWidth <= MOBILE_BP) {
-    document.getElementById('side-panel').classList.add('collapsed');
-  }
-  window.addEventListener('load', _positionMobileBrand);
+  // Tap handle/header area also advances sheet
+  document.addEventListener('DOMContentLoaded', () => {
+    const header = document.getElementById('panel-header');
+    if (header) header.addEventListener('click', window.togglePanel);
+  });
+
+  // Brand/address positioning is handled fully by CSS on mobile/tablet
+  function _positionMobileBrand() {}
+
   window.addEventListener('resize', _positionMobileBrand);
 
   window.addEventListener('error', e => {

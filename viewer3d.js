@@ -433,9 +433,14 @@ function renderPins(points) {
       background:rgba(255,204,0,0.88);backdrop-filter:blur(6px);
       color:#1a1400;font-size:11px;font-family:'DM Mono',monospace;
       padding:4px 8px;border-radius:6px;border:1px solid rgba(255,204,0,0.5);
-      white-space:nowrap;pointer-events:none;z-index:100;
+      white-space:nowrap;pointer-events:auto;cursor:pointer;z-index:100;
     `;
     labelDiv.textContent = pt.label;
+    labelDiv.addEventListener('pointerup', e => {
+      e.preventDefault();
+      e.stopPropagation();
+      selectPoint(pt);
+    });
     iconWrap.appendChild(labelDiv);
 
     const icon = new CSS2DObject(iconWrap);
@@ -520,6 +525,12 @@ async function selectPoint(pt) {
 
   document.getElementById('point-list').style.display = 'none';
   document.getElementById('point-detail').classList.add('visible');
+
+  // On mobile bottom sheet — snap to mid state so detail is visible
+  if (window.innerWidth <= 767) {
+    document.getElementById('side-panel')?.classList.add('sheet-mid');
+    document.getElementById('side-panel')?.classList.remove('sheet-full');
+  }
 
   // Fly camera to point
   const { x, y, z } = pt.position3d;
