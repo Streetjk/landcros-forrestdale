@@ -500,7 +500,7 @@ function renderPins(points) {
     const labelInner = document.createElement('span');
     labelInner.style.cssText = `
       display:inline-block;
-      background:rgba(255,204,0,0.88);backdrop-filter:blur(6px);
+      background:rgba(255,204,0,0.80);backdrop-filter:blur(6px);
       color:#ffffff;font:600 18px 'DM Sans',sans-serif;
       padding:4px 8px;border-radius:6px;border:1px solid rgba(255,204,0,0.5);
       white-space:nowrap;transform-origin:50% 100%;
