@@ -87,7 +87,7 @@ labelsWrap.appendChild(css2d.domElement);
 
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
-controls.dampingFactor = window.innerWidth > 767 ? 0.06 : 0.006;
+controls.dampingFactor = 0.06;
 controls.rotateSpeed   = window.innerWidth > 767 ? 0.35 : 0.525;
 controls.zoomSpeed     = 0.8;
 controls.panSpeed      = 0.7;
