@@ -444,7 +444,7 @@ function renderPins(points) {
     // ── Animated ground square — 4 thin boxes, always above ground plane ─
     const sq = 0.455, lineW = 0.12, sqH = 0.01;
     const squareMat = new THREE.MeshBasicMaterial({
-      color: 0xffcc00, transparent: true, opacity: 0.85, depthTest: false,
+      color: 0x00b140, transparent: true, opacity: 0.85, depthTest: false,
     });
     const squareGroup = new THREE.Group();
     for (const [bx, bz, bw, bd] of [
@@ -502,7 +502,7 @@ function renderPins(points) {
     const labelInner = document.createElement('span');
     labelInner.style.cssText = `
       display:inline-block;
-      background:rgba(255,204,0,0.80);backdrop-filter:blur(6px);
+      background:rgba(0,177,64,0.80);backdrop-filter:blur(6px);
       color:#ffffff;font:600 18px 'DM Sans',sans-serif;
       padding:4px 8px;border-radius:6px;border:1px solid rgba(255,204,0,0.5);
       white-space:nowrap;transform-origin:50% 100%;
@@ -530,7 +530,7 @@ function updatePinHighlight(selectedId) {
   _selectedId = selectedId;
   Object.entries(_pins).forEach(([id, pin]) => {
     const selected = id === selectedId;
-    pin.squareMat.color.setHex(selected ? 0x3399ff : 0xffcc00);
+    pin.squareMat.color.setHex(selected ? 0xffcc00 : 0x00b140);
   });
 }
 
