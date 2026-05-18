@@ -96,11 +96,18 @@ export async function getChangelog() {
   try { return await _fetch(`${DATA_BASE}/changelog.json`); } catch { return []; }
 }
 
-// ── Write helper (works only when served by a writable backend) ────────────
-// For the flat-JSON version without a write API, changes are in-memory only.
-// Swap this with a POST to your backend or SharePoint REST when ready.
+// ── Write helper ───────────────────────────────────────────────────────────
+// Local dev:   server.py handles POST /api/write → writes to ./data/ on disk.
+// SharePoint:  set USE_SHAREPOINT=true above and implement the SP REST call.
 async function _writeJSON(path, data) {
-  // In-browser flat-file mode: no-op — data changes are ephemeral.
-  // Replace with: await fetch('/api/write', { method:'POST', body: JSON.stringify({ path, data }) })
-  console.debug('[db] write (in-memory):', path, data);
+  if (USE_SHAREPOINT) {
+    // TODO: swap with SP REST — /_api/web/lists/getbytitle('SiteMap...')/items
+    throw new Error('SharePoint write not yet implemented');
+  }
+  const res = await fetch('/api/write', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path, data }),
+  });
+  if (!res.ok) throw new Error(`Write failed: ${res.status}`);
 }

@@ -10,9 +10,24 @@ async function _loadBounds() {
   return _boundsData;
 }
 
-export const SITE_BOUNDS      = await _loadBounds().then(d => d.bounds);
+export const SITE_BOUNDS       = await _loadBounds().then(d => d.bounds);
 export const ENTRY_GATE_LATLNG = await _loadBounds().then(d => d.entryGate);
-export const EXIT_GATE_LATLNG  = await _loadBounds().then(d => d.exitGate);
+export const EXIT_GATE_LATLNG  = await _loadBounds().then(d => d.exitGate ?? d.gate2 ?? d.gate1);
+
+// Inverse of viewer3d.js latlngToScene — converts Three.js world pos3d → [lat, lng].
+// Scene is mapped: x ∈ [-20,20] = lng range, z ∈ [-15,15] = lat range (inverted).
+function _sceneToLatlng(pos3d) {
+  const [[swLat, swLng], [neLat, neLng]] = SITE_BOUNDS;
+  const lat = swLat + (-pos3d.z / 30 + 0.5) * (neLat - swLat);
+  const lng = swLng + ( pos3d.x / 40 + 0.5) * (neLng - swLng);
+  return [lat, lng];
+}
+
+// Returns true when GeoJSON geometry coordinates are still placeholder zeros.
+function _isPlaceholderGeom(feature) {
+  const coords = feature.geometry?.coordinates?.[0];
+  return !coords || coords.every(([x, y]) => x === 0 && y === 0);
+}
 
 /**
  * initMap(containerId, options) → { map, imageOverlay, buildingLayer }
@@ -21,18 +36,30 @@ export async function initMap(containerId, options = {}) {
   const bounds = await _loadBounds();
   const leafletBounds = L.latLngBounds(bounds.bounds[0], bounds.bounds[1]);
 
+  // Custom CRS: linear pixel mapping for pseudo-coordinates (not real GPS).
+  // These fake coords were designed for L.CRS.Simple; EPSG3857 distorts them.
+  // Transformation maps [swLng..neLng] → [0..imgW] and [neLat..swLat] → [0..imgH].
+  const [[swLat, swLng], [neLat, neLng]] = bounds.bounds;
+  const imgW = 1934, imgH = 1236;  // satellite.png dimensions
+  const scaleX = imgW / (neLng - swLng);
+  const scaleY = imgH / (neLat - swLat);
+  const SiteMapCRS = L.Util.extend({}, L.CRS.Simple, {
+    transformation: new L.Transformation(scaleX, -scaleX * swLng, -scaleY, scaleY * neLat),
+  });
+
   const map = L.map(containerId, {
-    crs: L.CRS.Simple,
-    minZoom: -2,
+    crs: SiteMapCRS,
+    minZoom: -3,
     maxZoom: 4,
-    maxBounds: leafletBounds,
+    maxBounds: leafletBounds.pad(0.3),
     maxBoundsViscosity: 0.85,
+    zoomSnap: 0.25,
   });
 
   let imageOverlay = null;
   const imageCandidates = options.imagePath
     ? [options.imagePath]
-    : ['./assets/site-map.png', './assets/site-map.jpg', './assets/site-map.webp'];
+    : ['./assets/satellite.png', './assets/site-map.png', './assets/site-map.jpg', './assets/site-map.webp'];
   try {
     for (const p of imageCandidates) {
       const check = await fetch(p, { method: 'HEAD' });
@@ -47,7 +74,9 @@ export async function initMap(containerId, options = {}) {
   try {
     const geoRes = await fetch('./data/buildings.geojson');
     const geoData = await geoRes.json();
-    buildingLayer = L.geoJSON(geoData, {
+    // Only pass features with real polygon geometry to L.geoJSON (skip placeholders).
+    const realGeo = { ...geoData, features: geoData.features.filter(f => !_isPlaceholderGeom(f)) };
+    buildingLayer = L.geoJSON(realGeo, {
       style: { fillColor: '#378ADD', fillOpacity: 0.15, color: '#185FA5', weight: 1 },
       onEachFeature(feature, layer) {
         const p = feature.properties;
@@ -60,13 +89,18 @@ export async function initMap(containerId, options = {}) {
       },
     }).addTo(map);
 
-    // Building name labels (permanent, centred on polygon)
+    // Building name labels — use polygon centroid if available, else convert pos3d.
     geoData.features.forEach(f => {
       const p = f.properties;
       if (!p?.name || !f.geometry) return;
-      const coords = f.geometry.coordinates[0];
-      const lat = coords.reduce((s, c) => s + c[1], 0) / coords.length;
-      const lng = coords.reduce((s, c) => s + c[0], 0) / coords.length;
+      let lat, lng;
+      if (_isPlaceholderGeom(f) && p.pos3d) {
+        [lat, lng] = _sceneToLatlng(p.pos3d);
+      } else {
+        const coords = f.geometry.coordinates[0];
+        lat = coords.reduce((s, c) => s + c[1], 0) / coords.length;
+        lng = coords.reduce((s, c) => s + c[0], 0) / coords.length;
+      }
       L.marker([lat, lng], {
         icon: L.divIcon({
           className: '',

@@ -1,7 +1,7 @@
-import { getContacts, getPoints, savePoint, deletePoint, saveContact, getChangelog, searchContacts } from './db.js';
-import { initMap, renderRoadNetwork } from './map.js';
+import { getContacts, getPoints, savePoint, deletePoint, saveContact } from './db.js';
+import { initMap } from './map.js';
 import { generateQR, downloadQR } from './qr.js';
-import { findRoute, nearestNode, buildGraph, dijkstra } from './pathfinder.js';
+import { findRoute } from './pathfinder.js';
 
 // ── State ──────────────────────────────────────────────────────────────────
 
@@ -12,7 +12,8 @@ let _markers = {};
 let _placementMode = false;
 let _editingPoint = null;
 let _editingContactIds = [];
-let _selectedMarker = null;
+let _editingType = null;
+let _saving = false;
 let _contactsAll = [];
 
 // Road editor state
@@ -85,6 +86,7 @@ function renderMarkers() {
     if (_markers[pt.id]) {
       _markers[pt.id].setLatLng(latlng);
       _markers[pt.id].setIcon(_pinIcon(pt.type, _editingPoint?.id === pt.id));
+      _markers[pt.id].setTooltipContent(pt.label);
     } else {
       const marker = L.marker(latlng, { icon: _pinIcon(pt.type) })
         .addTo(_map)
@@ -183,8 +185,10 @@ function onMapClick(e) {
 // ── Editor drawer ──────────────────────────────────────────────────────────
 
 window.openEditor = function openEditor(pt) {
+  if (!pt) return;
   _editingPoint = pt;
   _editingContactIds = [...pt.contactIds];
+  _editingType = pt.type;
 
   document.getElementById('drawer-title').textContent = pt.label || 'New point';
   document.getElementById('editor-drawer').classList.add('open');
@@ -196,8 +200,9 @@ window.openEditor = function openEditor(pt) {
 
 window.closeEditor = function closeEditor() {
   _editingPoint = null;
+  _editingType = null;
   document.getElementById('editor-drawer').classList.remove('open');
-  document.getElementById('qr-section').classList.remove('visible');
+  document.getElementById('qr-section').style.display = 'none';
   renderMarkers();
   renderPointList();
 };
@@ -228,7 +233,7 @@ function renderDrawerBody() {
       <div style="display:flex;gap:8px">
         ${['drop-off','collection','both'].map(t => `
           <label style="display:flex;align-items:center;gap:5px;font-size:13px;cursor:pointer">
-            <input type="radio" name="pt-type" value="${t}" ${pt.type===t?'checked':''} onchange="window._adminSetType('${t}')">
+            <input type="radio" name="pt-type" value="${t}" ${_editingType===t?'checked':''} onchange="window._adminSetType('${t}')">
             ${typeLabel[t]}
           </label>
         `).join('')}
@@ -250,23 +255,17 @@ function renderDrawerBody() {
     </div>
 
     <div class="full" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
-      <button class="btn-primary" style="width:auto;padding:9px 18px" onclick="window._adminSave()">Save point</button>
+      <button id="btn-save-point" class="btn-primary" style="width:auto;padding:9px 18px" onclick="window._adminSave()">Save point</button>
       <div class="share-row" style="flex:1;min-width:200px">
         <button class="btn-secondary" onclick="window._adminCopyLink()">Copy 2D link</button>
         <button class="btn-secondary" onclick="window._adminToggleQR()">QR code</button>
       </div>
       <button class="btn-primary danger" style="width:auto;padding:9px 14px" onclick="window._adminDelete()">Delete</button>
     </div>
-
-    <div class="full" id="qr-section">
-      <div id="qr-canvas-wrap"></div>
-      <br>
-      <button class="btn-secondary" style="width:auto" onclick="window._adminDownloadQR()">Download QR PNG</button>
-    </div>
   `;
 }
 
-window._adminSetType = type => { if (_editingPoint) _editingPoint.type = type; };
+window._adminSetType = type => { _editingType = type; };
 
 window._adminAddContact = id => {
   if (!id || _editingContactIds.includes(id)) return;
@@ -280,33 +279,43 @@ window._adminRemoveContact = id => {
 };
 
 window._adminSave = async () => {
-  if (!_editingPoint) return;
+  if (!_editingPoint || _saving) return;
   const label = document.getElementById('field-label').value.trim();
   if (!label || label.length < 3) { showToast('Label must be at least 3 characters'); return; }
-  if (_editingContactIds.length === 0) { showToast('Add at least 1 contact before saving'); return; }
 
-  _editingPoint.label = label;
-  _editingPoint.notes = document.getElementById('field-notes').value.trim();
-  _editingPoint.contactIds = [..._editingContactIds];
-  _editingPoint.updatedAt = new Date().toISOString();
+  _saving = true;
+  try {
+    // Resolve route before any mutations so a failure leaves state intact
+    let routeWaypoints = _editingPoint.routeWaypoints;
+    if (_roads.nodes.length > 0) {
+      const bounds = await fetch('./assets/site-map-bounds.json').then(r => r.json());
+      const route = findRoute(_roads, bounds.entryGate, _editingPoint.latlng);
+      if (route) routeWaypoints = route;
+    }
 
-  // Auto-calculate route through road network if roads are defined
-  if (_roads.nodes.length > 0) {
-    const boundsRes = await fetch('./assets/site-map-bounds.json');
-    const bounds = await boundsRes.json();
-    const route = findRoute(_roads, bounds.entryGate, _editingPoint.latlng);
-    if (route) _editingPoint.routeWaypoints = route;
+    // Mutate only after all awaits succeed
+    _editingPoint.label          = label;
+    _editingPoint.notes          = document.getElementById('field-notes').value.trim();
+    _editingPoint.type           = _editingType;
+    _editingPoint.contactIds     = [..._editingContactIds];
+    _editingPoint.updatedAt      = new Date().toISOString();
+    _editingPoint.routeWaypoints = routeWaypoints;
+
+    await savePoint(_editingPoint);
+
+    const idx = _points.findIndex(p => p.id === _editingPoint.id);
+    if (idx >= 0) _points[idx] = _editingPoint; else _points.push(_editingPoint);
+
+    renderMarkers();
+    renderPointList();
+    renderDrawerBody();
+    document.getElementById('drawer-title').textContent = _editingPoint.label;
+    showToast('Point saved');
+  } catch (e) {
+    showToast('Save failed — ' + (e.message || 'check connection'));
+  } finally {
+    _saving = false;
   }
-
-  await savePoint(_editingPoint);
-  const idx = _points.findIndex(p => p.id === _editingPoint.id);
-  if (idx >= 0) _points[idx] = _editingPoint; else _points.push(_editingPoint);
-
-  renderMarkers();
-  renderPointList();
-  renderDrawerBody();
-  document.getElementById('drawer-title').textContent = _editingPoint.label;
-  showToast('Point saved');
 };
 
 window._adminDelete = async () => {
@@ -333,7 +342,8 @@ window._adminCopyLink = () => {
 window._adminToggleQR = () => {
   if (!_editingPoint) return;
   const sec = document.getElementById('qr-section');
-  const visible = sec.classList.toggle('visible');
+  const visible = sec.style.display !== 'block';
+  sec.style.display = visible ? 'block' : 'none';
   if (visible) {
     const url = `${location.origin}${location.pathname.replace('index.html', '')}viewer.html?id=${_editingPoint.id}`;
     document.getElementById('qr-canvas-wrap').innerHTML = '';
@@ -351,6 +361,7 @@ window._adminDownloadQR = () => {
 
 window.openContactManager = async () => {
   _contactsAll = await getContacts();
+  _contacts = [..._contactsAll];
   renderContactTable('');
   document.getElementById('modal-backdrop').classList.add('open');
 };
@@ -447,6 +458,35 @@ function showToast(msg) {
 }
 
 boot();
+
+// ── 2D / 3D view toggle ────────────────────────────────────────────────────
+
+let _viewer3dFrame = null;
+
+window.toggle3DView = () => {
+  const mapWrap    = document.getElementById('map-wrap');
+  const frameWrap  = document.getElementById('viewer3d-wrap');
+  const btn        = document.getElementById('btn-toggle-3d');
+  const showing3d  = frameWrap.style.display !== 'none';
+
+  if (showing3d) {
+    mapWrap.style.display   = '';
+    frameWrap.style.display = 'none';
+    btn.textContent = 'View 3D';
+    btn.classList.remove('active');
+  } else {
+    if (!_viewer3dFrame) {
+      _viewer3dFrame = document.createElement('iframe');
+      _viewer3dFrame.src = './viewer3d.html';
+      _viewer3dFrame.style.cssText = 'width:100%;height:100%;border:none;display:block';
+      frameWrap.appendChild(_viewer3dFrame);
+    }
+    mapWrap.style.display   = 'none';
+    frameWrap.style.display = '';
+    btn.textContent = 'View 2D';
+    btn.classList.add('active');
+  }
+};
 
 // ── Road editor ────────────────────────────────────────────────────────────
 
@@ -577,9 +617,17 @@ function _cancelRoadEdge() {
 }
 
 window.saveRoads = async () => {
-  // In flat-JSON mode this is in-memory only; swap with your write API.
-  console.log('Roads data (copy to data/roads.json):', JSON.stringify(_roads, null, 2));
-  showToast('Roads saved (see console for JSON — paste into data/roads.json)');
+  try {
+    const res = await fetch('/api/write', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: './data/roads.json', data: _roads }),
+    });
+    if (!res.ok) throw new Error(res.status);
+    showToast('Roads saved');
+  } catch (e) {
+    showToast('Save failed — ' + e.message);
+  }
 };
 
 window.deleteSelectedNode = () => {
@@ -587,6 +635,7 @@ window.deleteSelectedNode = () => {
   _roads.nodes = _roads.nodes.filter(n => n.id !== _roadPendingFrom);
   _roads.edges = _roads.edges.filter(e => e.from !== _roadPendingFrom && e.to !== _roadPendingFrom);
   _roadPendingFrom = null;
+  if (_roadDrawLine) { _map.removeLayer(_roadDrawLine); _roadDrawLine = null; }
   _renderRoadLayers();
   showToast('Node deleted');
 };

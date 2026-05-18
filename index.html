@@ -91,24 +91,16 @@
     #loading.done { opacity: 0; pointer-events: none; }
 
     .load-logo-mark {
-      width: 52px;
-      height: 52px;
-      border-radius: 14px;
-      background: linear-gradient(135deg, #1d4ed8, #0ea5e9);
       display: flex;
       align-items: center;
       justify-content: center;
       margin-bottom: 22px;
-      box-shadow: 0 8px 32px rgba(59, 130, 246, 0.35);
     }
-    .load-logo-mark svg {
-      width: 28px;
-      height: 28px;
-      fill: none;
-      stroke: #fff;
-      stroke-width: 2;
-      stroke-linecap: round;
-      stroke-linejoin: round;
+    .load-logo-mark img {
+      height: 60px;
+      width: auto;
+      max-width: 220px;
+      object-fit: contain;
     }
 
     .load-site-name {
@@ -153,13 +145,82 @@
     /* ── Camera preset buttons ── */
     #cam-presets {
       position: absolute;
-      top: 16px;
-      left: 16px;
+      bottom: 24px;
+      left: 24px;
       display: flex;
       flex-direction: column;
-      gap: 6px;
-      z-index: 10;
+      gap: 12px;
+      z-index: 100;
     }
+    .cam-preset-btn {
+      background: rgba(8, 10, 16, 0.93) !important;
+      backdrop-filter: blur(12px) !important;
+      -webkit-backdrop-filter: blur(12px) !important;
+      border: 1px solid rgba(255, 255, 255, 0.1) !important;
+      color: rgba(255, 255, 255, 0.9) !important;
+      width: 44px;
+      height: 44px;
+      border-radius: 22px !important;
+      display: flex;
+      align-items: center;
+      padding: 0 !important;
+      cursor: pointer;
+      overflow: hidden;
+      transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1), background 0.2s, border-color 0.2s, box-shadow 0.2s !important;
+      white-space: nowrap;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    }
+    .cam-preset-btn .icon-wrap {
+      width: 44px;
+      height: 44px;
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .cam-preset-btn .icon-wrap svg {
+      width: 20px;
+      height: 20px;
+      opacity: 0.85;
+    }
+    .cam-preset-btn .label-wrap {
+      font: 600 13px var(--font) !important;
+      padding-right: 18px;
+      opacity: 0;
+      transform: translateX(-10px);
+      transition: opacity 0.2s 0.05s, transform 0.2s 0.05s;
+      letter-spacing: 0.03em;
+    }
+    
+    /* Desktop Hover effect */
+    @media (min-width: 1025px) {
+      .cam-preset-btn:hover {
+        width: 160px;
+        background: rgba(59, 130, 246, 0.15) !important;
+        border-color: rgba(59, 130, 246, 0.4) !important;
+        color: #3b82f6 !important;
+      }
+      .cam-preset-btn:hover .label-wrap {
+        opacity: 1;
+        transform: translateX(0);
+      }
+      .cam-preset-btn:hover .icon-wrap svg {
+        opacity: 1;
+      }
+    }
+
+    .cam-preset-btn.active {
+      background: rgba(59, 130, 246, 0.25) !important;
+      border-color: #3b82f6 !important;
+      color: #3b82f6 !important;
+      box-shadow: 0 0 15px rgba(59, 130, 246, 0.3);
+    }
+    .cam-preset-btn.active .icon-wrap svg {
+      opacity: 1;
+      stroke-width: 2.5;
+    }
+
+    /* Keep old .cam-btn style for other buttons like Edit */
     .cam-btn {
       background: rgba(8, 10, 16, 0.82) !important;
       backdrop-filter: blur(12px) !important;
@@ -171,17 +232,6 @@
       font: 500 12px var(--font) !important;
       cursor: pointer;
       transition: background 0.15s, border-color 0.15s, color 0.15s;
-      letter-spacing: 0.02em;
-    }
-    .cam-btn:hover {
-      background: rgba(59, 130, 246, 0.18) !important;
-      border-color: rgba(59, 130, 246, 0.4) !important;
-      color: #93c5fd !important;
-    }
-    .cam-btn.active {
-      background: rgba(59, 130, 246, 0.25) !important;
-      border-color: rgba(59, 130, 246, 0.5) !important;
-      color: #93c5fd !important;
     }
 
     /* ── Nav progress bar ── */
@@ -581,7 +631,7 @@
       }
       #site-address {
         right: 20px !important;
-        font-size: 15px !important;  /* locked — no dynamic reflow */
+        font-size: 13px !important;  /* locked — no dynamic reflow */
         transition: none !important; /* no right-animation; avoids subpixel repaint flicker */
       }
       #app.panel-open #site-brand  { right: calc(200px + 16px) !important; }
@@ -659,8 +709,23 @@
       #side-panel.sheet-full #panel-toggle { transform: rotate(180deg); }
 
       #cam-presets {
-        top: auto !important; bottom: calc(22vh + 12px); left: 16px;
-        flex-direction: row; opacity: 0.85;
+        top: auto !important;
+        bottom: calc(22vh + 20px) !important;
+        left: 16px !important;
+        flex-direction: row !important;
+        gap: 10px;
+        opacity: 1;
+      }
+      .cam-preset-btn {
+        width: 40px;
+        height: 40px;
+      }
+      .cam-preset-btn .icon-wrap {
+        width: 40px;
+        height: 40px;
+      }
+      .cam-preset-btn .label-wrap {
+        display: none;
       }
       #nav-progress { bottom: calc(22vh + 12px); }
 
@@ -674,7 +739,7 @@
       #site-address {
         position: fixed !important;
         top: 50px !important; right: 16px !important;
-        left: auto !important; font-size: 11px !important;
+        left: auto !important; font-size: 13px !important;
         display: block !important;
         -webkit-text-stroke: 0 !important;
         text-shadow: 0 1px 4px rgba(0,0,0,0.9) !important;
@@ -697,13 +762,8 @@
 
     <div id="loading">
       <div class="load-logo-mark">
-        <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-          <path d="M12 2L2 7l10 5 10-5-10-5z"/>
-          <path d="M2 17l10 5 10-5"/>
-          <path d="M2 12l10 5 10-5"/>
-        </svg>
+        <img src="https://hitachikenki.scene7.com/is/image/hitachikenki/LANDCROS%20logo_orange_RGB-1" alt="Landcros">
       </div>
-      <div class="load-site-name">Landcros</div>
       <div class="load-site-sub">Forrestdale</div>
       <div class="load-bar"><div class="load-fill" id="load-fill"></div></div>
       <div class="load-msg" id="load-msg">Initialising…</div>
@@ -731,7 +791,7 @@
   <div id="site-brand" style="position:fixed;top:16px;right:16px;z-index:40;pointer-events:none;display:flex;flex-direction:column;align-items:flex-end;gap:6px;">
     <img id="site-logo" src="" alt="Company logo" style="height:44px;width:auto;opacity:0.9;display:none;">
   </div>
-  <div id="site-address" style="position:fixed;top:69px;right:20px;z-index:40;pointer-events:none;font:500 15px 'Inter','DM Sans',sans-serif;color:rgba(255,255,255,0.9);text-shadow:0 1px 4px rgba(0,0,0,0.8);">107 Allen Rd, Forrestdale</div>
+  <div id="site-address" style="position:fixed;top:69px;right:20px;z-index:40;pointer-events:none;font:500 13px 'Inter','DM Sans',sans-serif;color:rgba(255,255,255,0.9);text-shadow:0 1px 4px rgba(0,0,0,0.8);">107 Allen Rd, Forrestdale</div>
 
   <!-- Pull-tab: always visible on desktop/tablet, hidden on mobile -->
   <div id="panel-tab" onclick="togglePanelOpen()" role="button" aria-label="Open locations panel">

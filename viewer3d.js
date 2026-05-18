@@ -88,7 +88,7 @@ labelsWrap.appendChild(css2d.domElement);
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 controls.dampingFactor = 0.06;   // lower = more momentum / smoother coast
-controls.rotateSpeed   = 0.35;
+controls.rotateSpeed   = window.innerWidth > 767 ? 0.15 : 0.35;
 controls.zoomSpeed     = 0.8;
 controls.panSpeed      = 0.7;
 controls.minDistance = 3;
@@ -317,11 +317,24 @@ function _buildCamButtons(cfg) {
   const wrap = document.getElementById('cam-presets');
   if (!wrap) return;
   wrap.innerHTML = '';
+
+  const icons = {
+    overhead: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>`,
+    entry: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M13.8 12H3"/></svg>`,
+    exit: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M19.8 12H9"/></svg>`
+  };
+
   (cfg.camera?.presets ?? []).forEach((p, i) => {
     const btn = document.createElement('button');
-    btn.className = 'cam-btn' + (i === 0 ? ' active' : '');
+    btn.className = 'cam-preset-btn' + (i === 0 ? ' active' : '');
     btn.id = `btn-${p.id}`;
-    btn.textContent = p.label;
+    
+    const icon = icons[p.id] || icons.overhead;
+    btn.innerHTML = `
+      <div class="icon-wrap">${icon}</div>
+      <span class="label-wrap">${p.label}</span>
+    `;
+
     btn.onclick = () => window.setCameraPreset(p.id);
     wrap.appendChild(btn);
   });
@@ -385,7 +398,7 @@ window.setCameraPreset = function setCameraPreset(name, duration = 2500) {
     },
   });
 
-  document.querySelectorAll('.cam-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.cam-preset-btn').forEach(b => b.classList.remove('active'));
   document.getElementById(`btn-${name}`)?.classList.add('active');
 };
 
@@ -546,7 +559,7 @@ async function selectPoint(pt) {
   document.getElementById('detail-label').textContent = pt.label;
   document.getElementById('detail-notes').textContent = pt.notes ?? '';
 
-  const contacts = pt.contactIds.map(id => _allContacts.find(c => c.id === id)).filter(Boolean);
+  const contacts = (pt.contactIds ?? []).map(id => _allContacts.find(c => c.id === id)).filter(Boolean);
   document.getElementById('detail-contacts').innerHTML = contacts.map(c => {
     const initials = c.name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
     return `
@@ -623,6 +636,7 @@ async function selectPoint(pt) {
     onUpdate() {
       const { t } = prog;
       const look = startLook.clone().lerp(endLook, t);
+      controls.target.copy(look);
       const sph  = new THREE.Spherical(
         THREE.MathUtils.lerp(startSph.radius, endSph.radius, t),
         THREE.MathUtils.lerp(startSph.phi,    endSph.phi,    t),
@@ -643,6 +657,7 @@ async function selectPoint(pt) {
 }
 
 window.showPointList = function() {
+  if (_camTween) { _camTween.kill(); _camTween = null; }
   stopAutoOrbit();
   updatePinHighlight(null);
   document.getElementById('point-list').style.display = '';
@@ -1741,7 +1756,7 @@ async function loadSplatBackground() {
       THREE.MathUtils.degToRad(_intro.theta ?? -25.9),
     );
     const prog     = { t: 0 };
-    gsap.to(prog, {
+    _camTween = gsap.to(prog, {
       t: 1,
       duration: 3.0,
       delay: 0.4,
@@ -1759,6 +1774,7 @@ async function loadSplatBackground() {
         controls.update();
         controls.enabled = true;
         _camAnimating = false;
+        _camTween = null;
       },
     });
 
