@@ -351,7 +351,7 @@ function _buildCamButtons(cfg) {
   // Speed limit sign — decorative, non-functional
   const speedBtn = document.createElement('div');
   speedBtn.className = 'cam-preset-btn speed-limit-sign';
-  speedBtn.innerHTML = `<div class="icon-wrap"><svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><defs><radialGradient id="spd-glow" cx="40%" cy="35%" r="60%"><stop offset="0%" stop-color="#ffffff" stop-opacity="0.25"/><stop offset="100%" stop-color="#000000" stop-opacity="0.06"/></radialGradient></defs><circle cx="12" cy="12" r="11.5" fill="#ffffff" stroke="#c0392b" stroke-width="0.8"/><circle cx="12" cy="12" r="10.2" fill="none" stroke="#dc2626" stroke-width="2.4"/><circle cx="12" cy="12" r="7.8" fill="#ffffff" stroke="none"/><text x="12" y="15.2" text-anchor="middle" font-family="Arial,sans-serif" font-weight="900" font-size="9" fill="#111111" stroke="none" letter-spacing="-0.3">10</text><circle cx="12" cy="12" r="11.5" fill="url(#spd-glow)" stroke="none" pointer-events="none"/></svg></div><span class="label-wrap">Speed limit</span>`;
+  speedBtn.innerHTML = `<div class="icon-wrap"><svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><defs><radialGradient id="spd-glow" cx="40%" cy="35%" r="60%"><stop offset="0%" stop-color="#ffffff" stop-opacity="0.25"/><stop offset="100%" stop-color="#000000" stop-opacity="0.06"/></radialGradient></defs><circle cx="12" cy="12" r="11.5" fill="#ffffff" stroke="#c0392b" stroke-width="0.8"/><circle cx="12" cy="12" r="10.2" fill="none" stroke="#dc2626" stroke-width="2.4"/><circle cx="12" cy="12" r="7.8" fill="#ffffff" stroke="none"/><text x="12" y="12" dominant-baseline="central" text-anchor="middle" font-family="Arial,sans-serif" font-weight="900" font-size="9" fill="#111111" stroke="none" letter-spacing="-0.3">10</text><circle cx="12" cy="12" r="11.5" fill="url(#spd-glow)" stroke="none" pointer-events="none"/></svg></div><span class="label-wrap">Speed limit</span>`;
   wrap.appendChild(speedBtn);
 }
 
@@ -386,6 +386,14 @@ window.setCameraPreset = function setCameraPreset(name, duration = 2500) {
 
   controls.enabled = false;
   _camAnimating = true;
+  const interruptPreset = () => {
+    controls.removeEventListener('start', interruptPreset);
+    if (_camTween) { _camTween.kill(); _camTween = null; }
+    controls.enabled = true;
+    _camAnimating = false;
+  };
+  controls.addEventListener('start', interruptPreset);
+  controls.enabled = true;
 
   const startPos  = camera.position.clone();
   const startLook = controls.target.clone();
@@ -418,6 +426,7 @@ window.setCameraPreset = function setCameraPreset(name, duration = 2500) {
       camera.quaternion.slerpQuaternions(startQuat, endQuat, t);
     },
     onComplete() {
+      controls.removeEventListener('start', interruptPreset);
       camera.position.copy(preset.pos);
       controls.target.copy(endLook);
       camera.up.copy(savedUp);
@@ -928,8 +937,8 @@ function _redrawTraffic() {
 
   const routes = [...(_jsonOff ? [] : _jsonRoutes), ..._customRoutes];
   const ROUTE_COLORS = [
-    { ribbon: 0xFFA040, arrow: 0xC45000 }, // darker orange arrows
-    { ribbon: 0xFFA040, arrow: 0xC45000 }, // darker orange arrows
+    { ribbon: 0xFFA040, arrow: 0xE07828 }, // darker orange arrows
+    { ribbon: 0xFFA040, arrow: 0xE07828 }, // darker orange arrows
   ];
   const Y = 0.19;
 
@@ -1034,7 +1043,7 @@ function _redrawTraffic() {
           mesh.renderOrder = 3;
           const qY = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.atan2(-dir.x, -dir.z));
           mesh.quaternion.multiplyQuaternions(qY, qX);
-          mesh.position.set(ep[0], Y + ethick * 0.5, ep[1]);
+          mesh.position.set(ep[0], Y + ethick * 0.5 + 0.05, ep[1]);
           _trafficGrp.add(mesh);
         });
       }
@@ -1073,7 +1082,7 @@ function _redrawTraffic() {
       arrowMesh.renderOrder = 3;
       const qY = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.atan2(-dir.x, -dir.z));
       arrowMesh.quaternion.multiplyQuaternions(qY, qX);
-      arrowMesh.position.set(pos.x, Y + arrowThick * 0.5, pos.z);
+      arrowMesh.position.set(pos.x, Y + arrowThick * 0.5 + 0.05, pos.z);
       _trafficGrp.add(arrowMesh);
     }
   });
