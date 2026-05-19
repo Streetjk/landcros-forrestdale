@@ -1944,8 +1944,9 @@ async function boot() {
   window._v3d = { renderer, camera, controls, _raycaster, _pickGround, renderPins, removePin, updatePinHighlight, latlngToScene, pins: _pins };
   window.dispatchEvent(new CustomEvent('viewer3d:ready'));
 
-  // viewer3d.html: load pins/contacts and handle ?id= deep-link
+  // viewer3d.html: load pins/contacts — always start fresh (clear any ?id= from URL)
   if (!document.getElementById('admin-controls')) {
+    history.replaceState(null, '', location.pathname);
     const [points, contacts] = await Promise.all([
       fetch('./data/points.json').then(r => r.json()).catch(() => []),
       fetch('./data/contacts.json').then(r => r.json()).catch(() => []),
@@ -1953,11 +1954,6 @@ async function boot() {
     _allContacts = contacts;
     renderPins(points);
     renderPointList(points);
-    const deepId = new URLSearchParams(location.search).get('id');
-    if (deepId) {
-      const pt = points.find(p => p.id === deepId);
-      if (pt) selectPoint(pt);
-    }
   }
 
   // Load splat in background — scene is already usable without it
