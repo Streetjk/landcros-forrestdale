@@ -93,6 +93,7 @@ controls.zoomSpeed     = 0.6;
 controls.panSpeed      = 0.7;
 controls.minDistance = 3;
 controls.maxDistance = 80;
+controls.minPolarAngle = THREE.MathUtils.degToRad(2);
 controls.maxPolarAngle = THREE.MathUtils.degToRad(85);
 // Stop auto-orbit the moment the user grabs the camera
 controls.addEventListener('start', stopAutoOrbit);
@@ -420,10 +421,10 @@ window.setCameraPreset = function setCameraPreset(name, duration = 2500) {
       camera.position.copy(preset.pos);
       controls.target.copy(endLook);
       camera.up.copy(savedUp);
-      controls.update();
       controls.enabled = true;
       _camAnimating = false;
       _camTween = null;
+      controls.update();
     },
   });
 
@@ -1865,10 +1866,10 @@ async function loadSplatBackground() {
       },
       onComplete() {
         controls.target.copy(lookAt);
-        controls.update();
         controls.enabled = true;
         _camAnimating = false;
         _camTween = null;
+        controls.update();
       },
     });
 
