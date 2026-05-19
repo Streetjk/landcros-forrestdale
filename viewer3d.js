@@ -111,14 +111,20 @@ const _LS_ROUTES  = 'sn_routes';
 const _LS_ROUTES_SNAP = 'sn_routes_snap';
 const _LS_JSON_OFF = 'sn_json_off';
 const _LS_CUSTOM_LABELS = 'sn_custom_labels';
-let _customLabelData = JSON.parse(localStorage.getItem(_LS_CUSTOM_LABELS) || '{}');
+
+function _lsGet(key, fallback) {
+  try { return JSON.parse(localStorage.getItem(key) ?? 'null') ?? fallback; }
+  catch { return fallback; }
+}
+
+let _customLabelData = _lsGet(_LS_CUSTOM_LABELS, {});
 
 const _bldRefs = {}; // id → { css2d, name, x, y, z }
 const _allScaleEls = []; // inner elements for all CSS2D labels — zoom scaling target
 // Label positions are baked into buildings.geojson — localStorage overrides
 // are only applied in debug mode so desktop/mobile always share the same source.
-let _labelPos     = _debugMode ? JSON.parse(localStorage.getItem(_LS_LABELS) || '{}') : {};
-let _customRoutes = JSON.parse(localStorage.getItem(_LS_ROUTES)  || '[]');
+let _labelPos     = _debugMode ? _lsGet(_LS_LABELS, {}) : {};
+let _customRoutes = _lsGet(_LS_ROUTES, []);
 let _jsonOff      = localStorage.getItem(_LS_JSON_OFF) === '1';
 let _roadWidth    = parseFloat(localStorage.getItem('sn_road_w') || '0.3');
 let _allContacts  = [];
@@ -331,10 +337,11 @@ function _buildCamButtons(cfg) {
     btn.id = `btn-${p.id}`;
     
     const icon = icons[p.id] || icons.overhead;
-    btn.innerHTML = `
-      <div class="icon-wrap">${icon}</div>
-      <span class="label-wrap">${p.label}</span>
-    `;
+    btn.innerHTML = `<div class="icon-wrap">${icon}</div>`;
+    const labelSpan = document.createElement('span');
+    labelSpan.className = 'label-wrap';
+    labelSpan.textContent = p.label;
+    btn.appendChild(labelSpan);
 
     btn.onclick = () => window.setCameraPreset(p.id);
     wrap.appendChild(btn);
@@ -435,6 +442,7 @@ let _pins = {}; // id → { group, pinGroup, sphere, icon, label, squareMat, squ
 let _selectedId = null;
 
 function renderPins(points) {
+  Object.keys(_pins).forEach(removePin);
   points.forEach(pt => {
     const { x, y, z } = pt.position3d;
 
@@ -532,11 +540,18 @@ function updatePinHighlight(selectedId) {
     const selected = id === selectedId;
     pin.squareMat.color.setHex(selected ? 0xffcc00 : 0x00b140);
   });
+  document.querySelectorAll('.point-item[data-pt-id]').forEach(el => {
+    el.classList.toggle('selected', el.dataset.ptId === selectedId);
+  });
 }
 
 function removePin(id) {
   const pin = _pins[id];
   if (!pin) return;
+  pin.sphere.geometry.dispose();
+  pin.sphere.material.dispose();
+  pin.squareGroup.children.forEach(m => m.geometry.dispose());
+  pin.squareMat.dispose();
   scene.remove(pin.group);
   if (pin.icon.element.parentNode) pin.icon.element.parentNode.removeChild(pin.icon.element);
   const animIdx = _pinAnimatables.findIndex(a => a.squareMat === pin.squareMat);
@@ -586,22 +601,41 @@ async function selectPoint(pt) {
   document.getElementById('detail-notes').textContent = pt.notes ?? '';
 
   const contacts = (pt.contactIds ?? []).map(id => _allContacts.find(c => c.id === id)).filter(Boolean);
-  document.getElementById('detail-contacts').innerHTML = contacts.map(c => {
-    const initials = c.name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
-    return `
-      <div class="contact-card-3d">
-        <div class="avatar">${initials}</div>
-        <div>
-          <div class="contact-name-3d">${c.name}</div>
-          <div class="contact-role-3d">${c.role}</div>
-          <a class="contact-phone-3d" href="tel:${c.phone.replace(/\s/g,'')}">
-            <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M5.5 2.5c.5 1 1 2.5.5 3.5L4.5 7c1 2 2.5 3.5 4.5 4.5l1-1.5c1-.5 2.5 0 3.5.5v2.5C13.5 13.5 12 14 11 14 6 14 2 10 2 5c0-1 .5-2.5 1.5-2.5h2z"/></svg>
-            ${c.phone}
-          </a>
-        </div>
-      </div>
-    `;
-  }).join('') || '<p style="font-size:13px;color:var(--text-secondary)">No contacts assigned.</p>';
+  const contactsEl = document.getElementById('detail-contacts');
+  contactsEl.innerHTML = '';
+  if (contacts.length === 0) {
+    const p = document.createElement('p');
+    p.style.cssText = 'font-size:13px;color:var(--text-secondary)';
+    p.textContent = 'No contacts assigned.';
+    contactsEl.appendChild(p);
+  } else {
+    contacts.forEach(c => {
+      const card = document.createElement('div');
+      card.className = 'contact-card-3d';
+      const avatar = document.createElement('div');
+      avatar.className = 'avatar';
+      avatar.textContent = c.name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
+      const info = document.createElement('div');
+      const name = document.createElement('div');
+      name.className = 'contact-name-3d';
+      name.textContent = c.name;
+      const role = document.createElement('div');
+      role.className = 'contact-role-3d';
+      role.textContent = c.role;
+      const phone = document.createElement('a');
+      phone.className = 'contact-phone-3d';
+      const safePhone = c.phone.replace(/[^\d+\s().-]/g, '');
+      phone.href = `tel:${safePhone.replace(/\s/g, '')}`;
+      phone.innerHTML = `<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M5.5 2.5c.5 1 1 2.5.5 3.5L4.5 7c1 2 2.5 3.5 4.5 4.5l1-1.5c1-.5 2.5 0 3.5.5v2.5C13.5 13.5 12 14 11 14 6 14 2 10 2 5c0-1 .5-2.5 1.5-2.5h2z"/></svg>`;
+      phone.appendChild(document.createTextNode(c.phone));
+      info.appendChild(name);
+      info.appendChild(role);
+      info.appendChild(phone);
+      card.appendChild(avatar);
+      card.appendChild(info);
+      contactsEl.appendChild(card);
+    });
+  }
 
   document.getElementById('point-list').style.display = 'none';
   document.getElementById('point-detail').classList.add('visible');
@@ -708,28 +742,35 @@ window.showPointList = function() {
   history.pushState(null, '', location.pathname);
 };
 
-window.startNav = function() {
-  // Phase 7.5 — nav fly-through (to be implemented)
-  alert('Navigation fly-through — Phase 7.5 (not yet implemented)');
-};
+window.startNav = function() {};
 
 // ── Point list panel ───────────────────────────────────────────────────────
 
 function renderPointList(points) {
   const dropEl = document.getElementById('list-dropoff');
   const colEl  = document.getElementById('list-collection');
+  dropEl.innerHTML = '';
+  colEl.innerHTML  = '';
 
   points.forEach(pt => {
     const dot = { 'drop-off': '#185FA5', 'collection': '#1D9E75', 'both': '#854F0B' }[pt.type] ?? '#6b7280';
     const el = document.createElement('div');
     el.className = 'point-item';
-    el.innerHTML = `
-      <div class="pt-dot" style="background:${dot}"></div>
-      <div>
-        <div class="pt-label">${pt.label}</div>
-        <div class="pt-sub">${pt.type.replace('-', ' ')}</div>
-      </div>
-    `;
+    el.dataset.ptId = pt.id;
+    const dotEl = document.createElement('div');
+    dotEl.className = 'pt-dot';
+    dotEl.style.background = dot;
+    const labelEl = document.createElement('div');
+    const ptLabel = document.createElement('div');
+    ptLabel.className = 'pt-label';
+    ptLabel.textContent = pt.label;
+    const ptSub = document.createElement('div');
+    ptSub.className = 'pt-sub';
+    ptSub.textContent = pt.type.replace('-', ' ');
+    labelEl.appendChild(ptLabel);
+    labelEl.appendChild(ptSub);
+    el.appendChild(dotEl);
+    el.appendChild(labelEl);
     el.onclick = () => selectPoint(pt);
     if (pt.type === 'collection') colEl.appendChild(el);
     else dropEl.appendChild(el);
@@ -875,7 +916,12 @@ function _makeTrafficMat(hex) {
 let _jsonRoutes = []; // saved reference so redraw can include them
 
 function _redrawTraffic() {
-  while (_trafficGrp.children.length) _trafficGrp.remove(_trafficGrp.children[0]);
+  while (_trafficGrp.children.length) {
+    const child = _trafficGrp.children[0];
+    if (child.geometry) child.geometry.dispose();
+    if (child.material) child.material.dispose();
+    _trafficGrp.remove(child);
+  }
 
   const routes = [...(_jsonOff ? [] : _jsonRoutes), ..._customRoutes];
   const ROUTE_COLORS = [
@@ -900,10 +946,10 @@ function _redrawTraffic() {
       const colorIdx = isCustom ? 0 : routeIdx;
       ({ ribbon: rc, arrow: ac } = ROUTE_COLORS[colorIdx % ROUTE_COLORS.length]);
     }
-    const ribbonMat = _makeTrafficMat(rc);
-    const arrowMat  = _makeTrafficMat(ac);
     const pts = route.points.map(([x, z]) => new THREE.Vector3(x, Y, z));
     if (pts.length < 2) return;
+    const ribbonMat = _makeTrafficMat(rc);
+    const arrowMat  = _makeTrafficMat(ac);
     const curve = new THREE.CatmullRomCurve3(pts, false, 'centripetal', 0.5);
     const samples = curve.getSpacedPoints(pts.length * 25);
     const hw = _roadWidth / 2;
@@ -1033,7 +1079,12 @@ function _redrawTraffic() {
 // ── Draw-mode preview ──────────────────────────────────────────────────────
 
 function _updateDrawPreview() {
-  while (_drawGrp.children.length) _drawGrp.remove(_drawGrp.children[0]);
+  while (_drawGrp.children.length) {
+    const child = _drawGrp.children[0];
+    if (child.geometry) child.geometry.dispose();
+    if (child.material) child.material.dispose();
+    _drawGrp.remove(child);
+  }
   if (!_drawPts.length) return;
 
   const ptMat = new THREE.MeshBasicMaterial({ color: 0xf59e0b });
@@ -1303,9 +1354,9 @@ ${nCustom >= 1 ? `<button id="ed-export" class="_ed-btn" style="border-color:#a7
     alert(`Snapshot saved — ${_customRoutes.length} routes backed up.`);
   });
   panel.querySelector('#ed-snap-restore')?.addEventListener('click', () => {
-    const snap = localStorage.getItem(_LS_ROUTES_SNAP);
+    const snap = _lsGet(_LS_ROUTES_SNAP, null);
     if (!snap) return;
-    _customRoutes = JSON.parse(snap);
+    _customRoutes = snap;
     localStorage.setItem(_LS_ROUTES, JSON.stringify(_customRoutes));
     _redrawTraffic(); _renderEdPanel(panel);
   });
@@ -1427,7 +1478,7 @@ async function _addGroundPlane() {
 
   // Restore saved plane transform
   const LS_PLANE = 'planeTransform';
-  const savedPlane = JSON.parse(localStorage.getItem(LS_PLANE) || 'null');
+  const savedPlane = _lsGet(LS_PLANE, null);
   _planeGroup.scale.set(savedPlane?.sx ?? (_cfg.plane?.scale?.[0] ?? 62.0), 1, savedPlane?.sz ?? (_cfg.plane?.scale?.[1] ?? 39.5));
   _planeGroup.position.set(savedPlane?.px ?? (_cfg.plane?.position?.[0] ?? 1.61), 0, savedPlane?.pz ?? (_cfg.plane?.position?.[2] ?? -4.30));
 
@@ -1890,6 +1941,11 @@ async function boot() {
     _allContacts = contacts;
     renderPins(points);
     renderPointList(points);
+    const deepId = new URLSearchParams(location.search).get('id');
+    if (deepId) {
+      const pt = points.find(p => p.id === deepId);
+      if (pt) selectPoint(pt);
+    }
   }
 
   // Load splat in background — scene is already usable without it

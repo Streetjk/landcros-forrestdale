@@ -862,7 +862,7 @@
     if (window.innerWidth > MOBILE_BP) return;
     const panel = document.getElementById('side-panel');
     const presets = document.getElementById('cam-presets');
-    if (!presets) return;
+    if (!panel || !presets) return;
     const isOpen = panel.classList.contains('sheet-mid') || panel.classList.contains('sheet-full');
     presets.style.bottom = isOpen ? 'calc(22vh + 8px)' : '44px';
   }
