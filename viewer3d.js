@@ -93,7 +93,7 @@ controls.zoomSpeed     = 0.6;
 controls.panSpeed      = 0.7;
 controls.minDistance = 3;
 controls.maxDistance = 80;
-controls.minPolarAngle = THREE.MathUtils.degToRad(2);
+controls.minPolarAngle = 0;
 controls.maxPolarAngle = THREE.MathUtils.degToRad(85);
 // Stop auto-orbit the moment the user grabs the camera
 controls.addEventListener('start', stopAutoOrbit);
