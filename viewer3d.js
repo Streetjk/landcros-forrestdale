@@ -351,7 +351,7 @@ function _buildCamButtons(cfg) {
   // Speed limit sign — decorative, non-functional
   const speedBtn = document.createElement('div');
   speedBtn.className = 'cam-preset-btn speed-limit-sign';
-  speedBtn.innerHTML = `<div class="icon-wrap"><svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><defs><radialGradient id="spd-glow" cx="40%" cy="35%" r="60%"><stop offset="0%" stop-color="#ffffff" stop-opacity="0.25"/><stop offset="100%" stop-color="#000000" stop-opacity="0.06"/></radialGradient></defs><circle cx="12" cy="12" r="11.5" fill="#ffffff" stroke="#c0392b" stroke-width="0.8"/><circle cx="12" cy="12" r="10.2" fill="none" stroke="#dc2626" stroke-width="2.4"/><circle cx="12" cy="12" r="7.8" fill="#ffffff" stroke="none"/><text x="11.3" y="17" text-anchor="middle" font-family="Arial,sans-serif" font-weight="900" font-size="9" fill="#111111" stroke="none" letter-spacing="-0.3">10</text><circle cx="12" cy="12" r="11.5" fill="url(#spd-glow)" stroke="none" pointer-events="none"/></svg></div><span class="label-wrap">Speed limit</span>`;
+  speedBtn.innerHTML = `<div class="icon-wrap"><img src="speedlimit.png" alt="Speed limit 10"></div><span class="label-wrap">Speed limit</span>`;
   wrap.appendChild(speedBtn);
 }
 
