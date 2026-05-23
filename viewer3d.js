@@ -6,6 +6,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
 import { Sky } from 'three/addons/objects/Sky.js';
+import { initComparison, updateComparison, comparisonNeedsRender } from './splat-compare.js';
 
 // ── Site config (loaded from data/config.json in boot()) ──────────────────
 let _cfg = {};
@@ -104,7 +105,26 @@ camera.position.set(0.00, _initY, 0.00);
 controls.target.set(0.00, 0.00, 0.00);
 controls.update();
 
-const _debugMode = new URLSearchParams(location.search).get('debug') === '1';
+const _params = new URLSearchParams(location.search);
+const _debugMode = _params.get('debug') === '1';
+
+function _parseRoute() {
+  const model = _params.get('model');
+  const models = (_params.get('models') || '').split(',').map(s => s.trim()).filter(Boolean);
+  if (model && !models.includes(model)) models.unshift(model);
+  const cp = _params.get('compare');
+  const compare = cp === 'true' ? true : cp === 'false' ? false : models.length >= 2 ? true : null;
+  return { models, compare };
+}
+function _modelById(id) { return (_cfg.models || []).find(m => m.id === id); }
+function _isComparisonOnly() {
+  return _cfg.scene?.type === 'comparison-only' || _cfg.comparison?.mode === 'only';
+}
+function _resolveModels(route) {
+  const ids = route.models.length ? route.models
+    : _cfg.comparison?.defaultModelIds || [];
+  return ids.map(_modelById).filter(Boolean);
+}
 
 // ── Editor state ───────────────────────────────────────────────────────────
 const _LS_LABELS  = 'sn_labels';
@@ -273,7 +293,7 @@ function animate() {
   }
 
   const now = performance.now();
-  if (_idleFrames > IDLE_AFTER && now - _lastRenderMs < IDLE_INTERVAL) return;
+  if (_idleFrames > IDLE_AFTER && now - _lastRenderMs < IDLE_INTERVAL && !comparisonNeedsRender()) return;
   _lastRenderMs = now;
 
   _updateCamHud();
@@ -297,8 +317,11 @@ function animate() {
     }
   }
 
-  if (_splatViewer) _splatViewer.update();
-  renderer.render(scene, camera);
+  const compActive = updateComparison();
+  if (!compActive) {
+    if (_splatViewer) _splatViewer.update();
+    renderer.render(scene, camera);
+  }
   css2d.render(scene, camera);
 }
 animate();
@@ -348,11 +371,6 @@ function _buildCamButtons(cfg) {
     wrap.appendChild(btn);
   });
 
-  // Speed limit sign — decorative, non-functional
-  const speedBtn = document.createElement('div');
-  speedBtn.className = 'cam-preset-btn speed-limit-sign';
-  speedBtn.innerHTML = `<div class="icon-wrap"><img src="speedlimit2.png" alt="Speed limit 10"></div><span class="label-wrap">Speed limit</span>`;
-  wrap.appendChild(speedBtn);
 }
 
 function _applyBranding(cfg) {
@@ -1285,6 +1303,25 @@ ${nCustom >= 1 ? `<button id="ed-export" class="_ed-btn" style="border-color:#a7
         ${_jsonOff && nCustom===0 ? `<button id="ed-restore" class="_ed-btn" style="border-color:#6b7280;color:#9ca3af">↺ Restore default routes</button>` : ''}
       </div>
     `}
+
+    ${_splatViewer ? `
+    <div style="font-weight:600;color:#facc15;margin:14px 0 6px;font-size:11px">SPLAT TRANSFORM</div>
+    <div style="font-size:10px;color:#6b7280;margin-bottom:6px">Fine-tune rotation after auto-level</div>
+    ${['rx','ry','rz'].map((axis, i) => {
+      const cur = _splatViewer.splatMesh.rotation.toArray()[i];
+      const label = axis.toUpperCase();
+      return `<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
+        <span style="color:#9ca3af;width:20px;font-size:10px">${label}</span>
+        <input type="range" data-splat-axis="${i}" min="-0.1" max="0.1" step="0.001" value="0"
+          style="flex:1;accent-color:#60a5fa">
+        <span data-splat-val="${i}" style="color:#fff;font-size:10px;width:62px;text-align:right">${cur.toFixed(4)}</span>
+      </div>`;
+    }).join('')}
+    <div style="display:flex;gap:6px;margin-top:6px">
+      <button id="ed-splat-reset" class="_ed-btn" style="border-color:#6b7280;color:#9ca3af;flex:1">Reset</button>
+      <button id="ed-splat-copy" class="_ed-btn" style="border-color:#34d399;color:#34d399;flex:1">Copy rotation</button>
+    </div>
+    ` : ''}
   `;
 
   // Style shared buttons
@@ -1420,6 +1457,42 @@ ${nCustom >= 1 ? `<button id="ed-export" class="_ed-btn" style="border-color:#a7
     localStorage.setItem('sn_road_w', _roadWidth);
     _redrawTraffic(); _renderEdPanel(panel);
   });
+
+  // Splat transform sliders — apply delta rotation in real time
+  if (_splatViewer) {
+    const baseRot = _splatViewer.splatMesh.rotation.toArray().slice(0, 3);
+    const _saveSplatRot = () => {
+      const r = _splatViewer.splatMesh.rotation;
+      localStorage.setItem('sn_splat_rot', JSON.stringify([+r.x.toFixed(4), +r.y.toFixed(4), +r.z.toFixed(4)]));
+    };
+    panel.querySelectorAll('input[data-splat-axis]').forEach(slider => {
+      slider.addEventListener('input', () => {
+        const i = parseInt(slider.dataset.splatAxis);
+        const delta = parseFloat(slider.value);
+        const r = _splatViewer.splatMesh.rotation.toArray();
+        r[i] = baseRot[i] + delta;
+        _splatViewer.splatMesh.rotation.set(r[0], r[1], r[2]);
+        const valEl = panel.querySelector(`[data-splat-val="${i}"]`);
+        if (valEl) valEl.textContent = (baseRot[i] + delta).toFixed(4);
+        _saveSplatRot();
+      });
+    });
+    panel.querySelector('#ed-splat-reset')?.addEventListener('click', () => {
+      _splatViewer.splatMesh.rotation.set(baseRot[0], baseRot[1], baseRot[2]);
+      panel.querySelectorAll('input[data-splat-axis]').forEach(s => { s.value = 0; });
+      panel.querySelectorAll('[data-splat-val]').forEach((v, i) => { v.textContent = baseRot[i].toFixed(4); });
+      _saveSplatRot();
+    });
+    panel.querySelector('#ed-splat-copy')?.addEventListener('click', async (e) => {
+      const r = _splatViewer.splatMesh.rotation;
+      const json = JSON.stringify({ rotation: [+r.x.toFixed(4), +r.y.toFixed(4), +r.z.toFixed(4)] }, null, 2);
+      try {
+        await navigator.clipboard.writeText(json);
+        e.target.textContent = 'Copied!';
+        setTimeout(() => { e.target.textContent = 'Copy rotation'; }, 2000);
+      } catch { /* ignore */ }
+    });
+  }
 }
 
 // ── Road network ───────────────────────────────────────────────────────────
@@ -1747,6 +1820,94 @@ vec4 _triTex(sampler2D t, vec3 p, vec3 w) {
   }
 }
 
+async function loadComparisonScene(route) {
+  if (_Q.skipSplat) return;
+  const selected = _resolveModels(route);
+  if (selected.length < 2) { loadSplatBackground(); return; }
+
+  if (_Q.sky) {
+    const sky = new Sky();
+    sky.scale.setScalar(10000);
+    sky.renderOrder = -1;
+    scene.add(sky);
+    const sun = new THREE.Vector3();
+    const su = sky.material.uniforms;
+    su['turbidity'].value       = 5;
+    su['rayleigh'].value        = 1.0;
+    su['mieCoefficient'].value  = 0.003;
+    su['mieDirectionalG'].value = 0.96;
+    const phi   = THREE.MathUtils.degToRad(82);
+    const theta = THREE.MathUtils.degToRad(200);
+    sun.setFromSphericalCoords(1, phi, theta);
+    su['sunPosition'].value.copy(sun);
+    const sunLight = new THREE.DirectionalLight(0xfff0d0, 1.4);
+    sunLight.position.copy(sun).multiplyScalar(60);
+    scene.add(sunLight);
+  }
+
+  const wrap = document.getElementById('splat-progress');
+  const msg  = document.getElementById('splat-msg');
+  if (wrap) wrap.style.display = 'flex';
+  if (msg)  msg.textContent = 'Loading comparison…';
+  if (_planeGroup) _planeGroup.visible = false;
+
+  const compCfg = {
+    ..._cfg,
+    comparison: {
+      ...(_cfg.comparison || {}),
+      enabled: true,
+      models: selected,
+    },
+  };
+  const splatRot = _cfg.splat?.rotation || [3.260, -1.779, 0.122];
+
+  try {
+    await initComparison(compCfg, scene, renderer, camera, splatRot);
+    controls.minDistance = 1;
+    controls.maxDistance = 100;
+    controls.enabled = true;
+    _camAnimating = false;
+
+    const _intro = _cfg.camera?.introAnimation ?? {};
+    const lookAt = new THREE.Vector3(0, 0, 0);
+    const startSph = new THREE.Spherical().setFromVector3(camera.position);
+    const endSph = new THREE.Spherical(
+      _intro.radius ?? 19.55,
+      THREE.MathUtils.degToRad(_intro.phi ?? 80.9),
+      THREE.MathUtils.degToRad(_intro.theta ?? -25.9),
+    );
+    const prog = { t: 0 };
+    controls.enabled = false;
+    _camAnimating = true;
+    _camTween = gsap.to(prog, {
+      t: 1, duration: 3.0, delay: 0.4, ease: 'power2.inOut',
+      onUpdate() {
+        camera.position.setFromSpherical(new THREE.Spherical(
+          THREE.MathUtils.lerp(startSph.radius, endSph.radius, prog.t),
+          THREE.MathUtils.lerp(startSph.phi, endSph.phi, prog.t),
+          THREE.MathUtils.lerp(startSph.theta, endSph.theta, prog.t),
+        ));
+        camera.lookAt(lookAt);
+      },
+      onComplete() {
+        controls.target.copy(lookAt);
+        controls.enabled = true;
+        _camAnimating = false;
+        _camTween = null;
+        controls.update();
+      },
+    });
+  } catch (e) {
+    console.warn('[comparison] init failed:', e);
+    if (_planeGroup) _planeGroup.visible = true;
+  }
+
+  if (msg)  msg.textContent = 'Comparison ready';
+  const bar = document.getElementById('splat-bar');
+  if (bar) bar.style.width = '100%';
+  setTimeout(() => { if (wrap) wrap.style.display = 'none'; }, 1200);
+}
+
 async function loadSplatBackground() {
   if (_Q.skipSplat) return; // save-data / 2G: skip the large splat download entirely
   const _splatAsset = _cfg.assets?.splat;
@@ -1799,11 +1960,6 @@ async function loadSplatBackground() {
       scale = 40 / span;
     }
 
-    // Pass 2: GS3D Gaussian rendering — requires cross-origin isolation (COEP/COOP
-    // headers). Skip on static hosts like GitHub Pages where the service worker
-    // may not have activated; fall through to the point cloud fallback instead.
-    if (!window.crossOriginIsolated) throw new Error('GS3D requires cross-origin isolation');
-
     if (msg) msg.textContent = `Loading ${ext}… 0%`;
     const GS3D = await import('@mkkellogg/gaussian-splats-3d');
     const sv = new GS3D.Viewer({
@@ -1831,7 +1987,8 @@ async function loadSplatBackground() {
     ]);
 
     sv.splatMesh.scale.setScalar(scale);
-    const [sr0, sr1, sr2] = _cfg.splat?.rotation ?? [3.260, -1.779, 0.122];
+    const savedRot = _lsGet('sn_splat_rot', null);
+    const [sr0, sr1, sr2] = savedRot || _cfg.splat?.rotation || [3.260, -1.779, 0.122];
     sv.splatMesh.rotation.set(sr0, sr1, sr2);
     const [so0, so1, so2] = _cfg.splat?.centerOffset ?? [0, -1.70, -1.3];
     sv.splatMesh.position.set(-cx * scale + so0, so1, cz * scale + so2);
@@ -1842,6 +1999,10 @@ async function loadSplatBackground() {
     if (sv.splatMesh.material) sv.splatMesh.material.depthTest = true;
     scene.add(sv.splatMesh);
     _splatViewer = sv;
+
+    if (_cfg.comparison?.enabled) {
+      sv.splatMesh.visible = false;
+    }
 
     controls.minDistance = 1;
     controls.maxDistance = 100;
@@ -1887,6 +2048,16 @@ async function loadSplatBackground() {
     if (msg) msg.textContent = 'Splat ready';
     if (bar) bar.style.width = '100%';
     setTimeout(() => { if (wrap) wrap.style.display = 'none'; }, 1200);
+
+    if (_cfg.comparison?.enabled) {
+      if (_planeGroup) _planeGroup.visible = false;
+      const splatRot = savedRot || _cfg.splat?.rotation || [3.260, -1.779, 0.122];
+      initComparison(_cfg, scene, renderer, camera, splatRot).catch(e => {
+        console.warn('[splat-compare] init failed:', e);
+        sv.splatMesh.visible = true;
+        if (_planeGroup) _planeGroup.visible = true;
+      });
+    }
     return;
   } catch (err) {
     console.warn('Splat load failed:', err);
@@ -1914,16 +2085,23 @@ async function boot() {
   _buildCamButtons(_cfg);
   _applyBranding(_cfg);
 
+  const _route = _parseRoute();
+  const _compOnly = _isComparisonOnly();
+  const _showOverlays = _cfg.scene?.showSiteOverlays !== false && !_compOnly;
+
   document.getElementById('load-msg').textContent = 'Loading site data…';
 
-  const [geoRes, trafficRes, roadsRes] = await Promise.all([
-    fetch('./data/buildings.geojson').then(r => r.json()).catch(() => null),
-    fetch('./data/traffic.json').then(r => r.json()).catch(() => null),
-    fetch('./data/roads.json').then(r => r.json()).catch(() => null),
-  ]);
+  let geoRes = null, trafficRes = null, roadsRes = null;
+  if (_showOverlays) {
+    [geoRes, trafficRes, roadsRes] = await Promise.all([
+      fetch('./data/buildings.geojson').then(r => r.json()).catch(() => null),
+      fetch('./data/traffic.json').then(r => r.json()).catch(() => null),
+      fetch('./data/roads.json').then(r => r.json()).catch(() => null),
+    ]);
+  }
   document.getElementById('load-fill').style.width = '30%';
   document.getElementById('load-msg').textContent = 'Loading satellite…';
-  await _addGroundPlane();
+  if (_showOverlays && !_cfg.comparison?.enabled) await _addGroundPlane();
 
   document.getElementById('load-fill').style.width = '70%';
   document.getElementById('load-msg').textContent = 'Building scene…';
@@ -1944,9 +2122,8 @@ async function boot() {
   window._v3d = { renderer, camera, controls, _raycaster, _pickGround, renderPins, removePin, updatePinHighlight, latlngToScene, pins: _pins };
   window.dispatchEvent(new CustomEvent('viewer3d:ready'));
 
-  // viewer3d.html: load pins/contacts — always start fresh (clear any ?id= from URL)
-  if (!document.getElementById('admin-controls')) {
-    history.replaceState(null, '', location.pathname);
+  // viewer3d.html: load pins/contacts
+  if (!document.getElementById('admin-controls') && _showOverlays) {
     const [points, contacts] = await Promise.all([
       fetch('./data/points.json').then(r => r.json()).catch(() => []),
       fetch('./data/contacts.json').then(r => r.json()).catch(() => []),
@@ -1956,8 +2133,12 @@ async function boot() {
     renderPointList(points);
   }
 
-  // Load splat in background — scene is already usable without it
-  loadSplatBackground();
+  // Load scene — comparison-only skips primary splat entirely
+  if (_compOnly) {
+    loadComparisonScene(_route);
+  } else {
+    loadSplatBackground();
+  }
 }
 
 boot();

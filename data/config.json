@@ -3,8 +3,13 @@
   "site": {
     "name": "LANDCROS FORRESTDALE",
     "title": "Site Navigator",
-    "address": "107 Allen Rd, Forrestdale",
-    "logo": "https://hitachikenki.scene7.com/is/image/hitachikenki/LANDCROS%20logo_orange_RGB-1"
+    "address": "Mentone La, Greenfields",
+    "logo": "./logo.png"
+  },
+  "scene": {
+    "type": "comparison-only",
+    "showSiteOverlays": false,
+    "defaultRoute": "gallery"
   },
   "assets": {
     "satellite": "./assets/satellite.png",
@@ -17,6 +22,38 @@
   "splat": {
     "rotation": [3.260, -1.779, 0.122],
     "centerOffset": [0, -1.70, -1.3]
+  },
+  "models": [
+    {
+      "id": "mandurah-1",
+      "label": "Greenfield March 2025",
+      "description": "Drone scan A",
+      "splat": "./assets/gs_Mandurah_1.splat",
+      "thumbnail": "./assets/thumbnails/mandurah-1.jpg",
+      "tags": ["comparison"],
+      "transform": { "rotation": [3.1384, 0.2134, -0.0616], "position": [2.27, -2.19, -4.395], "scale": 10.9 }
+    },
+    {
+      "id": "mandurah-2",
+      "label": "Greenfield April 2025",
+      "description": "Drone scan B",
+      "splat": "./assets/gs_Mandurah_2.splat",
+      "thumbnail": "./assets/thumbnails/mandurah-2.jpg",
+      "tags": ["comparison"],
+      "transform": { "rotation": [-0.0355, -0.4107, -3.1112], "position": [-1.723, -4.665, -6.055], "scale": 8.6863 }
+    }
+  ],
+  "comparison": {
+    "enabled": true,
+    "mode": "only",
+    "defaultModelIds": ["mandurah-1", "mandurah-2"],
+    "maxModels": 2,
+    "background": {
+      "splat": "./assets/background.splat",
+      "transform": { "rotation": [-0.0355, -0.4107, -3.1112], "position": [-1.723, -4.665, -6.055], "scale": 8.6863 }
+    },
+    "globalTilt": [0.025, 0, -0.055],
+    "slider": { "orientation": "vertical", "startPosition": 0.5 }
   },
   "camera": {
     "initial": {

@@ -8,7 +8,7 @@
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=block" rel="stylesheet">
 
   <!-- Importmap must come before any module scripts -->
   <script type="importmap">
@@ -16,7 +16,8 @@
     "imports": {
       "three": "https://cdn.jsdelivr.net/npm/three@0.167.1/build/three.module.js",
       "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.167.1/examples/jsm/",
-      "@mkkellogg/gaussian-splats-3d": "https://esm.sh/@mkkellogg/gaussian-splats-3d@0.4.7?external=three"
+      "@mkkellogg/gaussian-splats-3d": "https://esm.sh/@mkkellogg/gaussian-splats-3d@0.4.7?external=three",
+      "svd-js": "https://esm.sh/svd-js@1.1.1"
     }
   }
   </script>
@@ -101,6 +102,7 @@
       width: auto;
       max-width: 220px;
       object-fit: contain;
+      filter: brightness(0) invert(1);
     }
 
     .load-site-name {
@@ -764,9 +766,9 @@
 
     <div id="loading">
       <div class="load-logo-mark">
-        <img src="https://hitachikenki.scene7.com/is/image/hitachikenki/LANDCROS%20logo_orange_RGB-1" alt="Landcros">
+        <img src="./logo.png" alt="Logo">
       </div>
-      <div class="load-site-sub">Forrestdale</div>
+      <div class="load-site-sub">Mentone La, Greenfields</div>
       <div class="load-bar"><div class="load-fill" id="load-fill"></div></div>
       <div class="load-msg" id="load-msg">Initialising…</div>
     </div>
@@ -791,8 +793,8 @@
   <div id="cam-presets"></div>
 
   <div id="site-brand" style="position:fixed;top:16px;right:16px;z-index:40;pointer-events:none;display:flex;flex-direction:column;align-items:center;gap:4px;">
-    <img id="site-logo" src="" alt="Company logo" style="height:44px;width:auto;opacity:0.9;display:none;">
-    <div id="site-address" style="font:500 18px 'Inter','DM Sans',sans-serif;color:rgba(255,255,255,0.9);text-shadow:0 1px 4px rgba(0,0,0,0.85);text-align:center;">107 Allen Rd, Forrestdale</div>
+    <img id="site-logo" src="" alt="Company logo" style="height:44px;width:auto;opacity:0.9;display:none;filter:brightness(0) invert(1);">
+    <div id="site-address" style="font:500 18px 'Inter','DM Sans',sans-serif;color:rgba(255,255,255,0.9);text-shadow:0 1px 4px rgba(0,0,0,0.85);text-align:center;">Mentone La, Greenfields</div>
   </div>
 
   <!-- Pull-tab: always visible on desktop/tablet, hidden on mobile -->
