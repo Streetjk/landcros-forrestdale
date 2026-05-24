@@ -1854,8 +1854,9 @@ vec4 _triTex(sampler2D t, vec3 p, vec3 w) {
   }
 }
 
-async function loadComparisonScene(route) {
+async function loadComparisonScene(route, opts = {}) {
   if (_Q.skipSplat) return;
+  const { onProgress } = opts;
   const selected = _resolveModels(route);
   if (selected.length < 2) { loadSplatBackground(); return; }
 
@@ -1881,8 +1882,8 @@ async function loadComparisonScene(route) {
 
   const wrap = document.getElementById('splat-progress');
   const msg  = document.getElementById('splat-msg');
-  if (wrap) wrap.style.display = 'flex';
-  if (msg)  msg.textContent = 'Loading comparison…';
+  if (!onProgress && wrap) wrap.style.display = 'flex';
+  if (!onProgress && msg)  msg.textContent = 'Loading comparison…';
   if (_planeGroup) _planeGroup.visible = false;
 
   const compCfg = {
@@ -1896,7 +1897,9 @@ async function loadComparisonScene(route) {
   const splatRot = _cfg.splat?.rotation || [3.260, -1.779, 0.122];
 
   try {
-    await initComparison(compCfg, scene, renderer, camera, splatRot);
+    await initComparison(compCfg, scene, renderer, camera, splatRot, onProgress
+      ? (pct) => onProgress(pct)
+      : null);
     controls.minDistance = 1;
     controls.maxDistance = 100;
     controls.enabled = true;
@@ -1936,10 +1939,12 @@ async function loadComparisonScene(route) {
     if (_planeGroup) _planeGroup.visible = true;
   }
 
-  if (msg)  msg.textContent = 'Comparison ready';
-  const bar = document.getElementById('splat-bar');
-  if (bar) bar.style.width = '100%';
-  setTimeout(() => { if (wrap) wrap.style.display = 'none'; }, 1200);
+  if (!onProgress) {
+    if (msg) msg.textContent = 'Comparison ready';
+    const bar = document.getElementById('splat-bar');
+    if (bar) bar.style.width = '100%';
+    setTimeout(() => { if (wrap) wrap.style.display = 'none'; }, 1200);
+  }
 }
 
 function _doIntroAnimation() {
@@ -2186,11 +2191,23 @@ async function boot() {
   _redrawTraffic();
   if (_debugMode) _initEditorUI();
 
-  // Hand bar to splat phase (55–99%) then wait up to 30 s for it to finish.
+  // Hand bar to splat/comparison phase (55–99%) then wait up to 30 s.
   if (!_Q.skipSplat && !_compOnly) {
     document.getElementById('load-fill').style.width = '55%';
     document.getElementById('load-msg').textContent = 'Loading 3D model…';
     await Promise.race([splatPromise, new Promise(r => setTimeout(r, 30000))]);
+  } else if (_compOnly) {
+    document.getElementById('load-fill').style.width = '55%';
+    document.getElementById('load-msg').textContent = 'Loading comparison…';
+    await Promise.race([
+      loadComparisonScene(_route, {
+        onProgress: (pct) => {
+          document.getElementById('load-fill').style.width = (55 + Math.round(pct * 0.44)) + '%';
+          document.getElementById('load-msg').textContent = `Loading comparison… ${pct}%`;
+        },
+      }),
+      new Promise(r => setTimeout(r, 60000)),
+    ]);
   }
 
   // Fade out the site name — "erased by the divider" before screen closes.
@@ -2221,8 +2238,6 @@ async function boot() {
     renderPointList(points);
   }
 
-  // Comparison-only view loads its own scene
-  if (_compOnly) loadComparisonScene(_route);
 }
 
 boot();

@@ -802,7 +802,7 @@ function setEntryVisible(v, visible) {
 // Public API
 // -----------------------------------------------------------------------
 
-export async function initComparison(cfg, sceneRef, rendererRef, cameraRef, rotation) {
+export async function initComparison(cfg, sceneRef, rendererRef, cameraRef, rotation, onProgress) {
   const compCfg = cfg.comparison;
   if (!compCfg?.enabled || !compCfg.models?.length || compCfg.models.length < 2) return;
 
@@ -850,6 +850,7 @@ export async function initComparison(cfg, sceneRef, rendererRef, cameraRef, rota
     _viewers.push(entry);
     _applySaved(entry);
     createPickProxy(entry);
+    if (onProgress) onProgress(Math.round(((i + 1) / compCfg.models.length) * 100));
   }
 
   const bgCfg = compCfg.background;
