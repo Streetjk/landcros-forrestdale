@@ -887,11 +887,17 @@ export async function initComparison(cfg, sceneRef, rendererRef, cameraRef, rota
     });
 
     let splatUrl = model.splat;
+    let splatIsBlob = false;
     if (bounds.rawBuf && model.transform) {
       splatUrl = _filterByWorldY(bounds.rawBuf, _worldMatrix(model.transform, compCfg.globalTilt), noiseFloorY);
+      splatIsBlob = true;
     }
-    await sv.addSplatScene(splatUrl, { showLoadingUI: false, splatAlphaRemovalThreshold: 40 });
-    if (splatUrl !== model.splat) URL.revokeObjectURL(splatUrl);
+    await sv.addSplatScene(splatUrl, {
+      showLoadingUI: false,
+      splatAlphaRemovalThreshold: 40,
+      ...(splatIsBlob ? { format: GS3D.SceneFormat.Splat } : {}),
+    });
+    if (splatIsBlob) URL.revokeObjectURL(splatUrl);
 
     sv.splatMesh.scale.setScalar(bounds.scale);
     sv.splatMesh.rotation.set(sr0, sr1, sr2);
@@ -923,11 +929,17 @@ export async function initComparison(cfg, sceneRef, rendererRef, cameraRef, rota
         gpuAcceleratedSort: false, sharedMemoryForWorkers: false,
       });
       let bgUrl = bgPath;
+      let bgIsBlob = false;
       if (bgBounds.rawBuf && bgT) {
         bgUrl = _filterByWorldY(bgBounds.rawBuf, _worldMatrix(bgT, compCfg.globalTilt), noiseFloorY);
+        bgIsBlob = true;
       }
-      await bgSv.addSplatScene(bgUrl, { showLoadingUI: false, splatAlphaRemovalThreshold: 40 });
-      if (bgUrl !== bgPath) URL.revokeObjectURL(bgUrl);
+      await bgSv.addSplatScene(bgUrl, {
+        showLoadingUI: false,
+        splatAlphaRemovalThreshold: 40,
+        ...(bgIsBlob ? { format: GS3D.SceneFormat.Splat } : {}),
+      });
+      if (bgIsBlob) URL.revokeObjectURL(bgUrl);
 
       const bgT = typeof bgCfg === 'object' ? bgCfg.transform : null;
       if (bgT) {
