@@ -11,3 +11,4 @@ services:
       - path: /*
         name: Cross-Origin-Embedder-Policy
         value: credentialless
+    # deploy trigger 2026-05-24
