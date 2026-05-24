@@ -168,32 +168,46 @@ let _orbitTween = null;
 function startAutoOrbit(target, radius, elevDeg) {
   if (_orbitTween) { _orbitTween.kill(); _orbitTween = null; }
   _orbitTarget.copy(target);
-  const targetElev = elevDeg * Math.PI / 180;
-  _orbitAngle = Math.atan2(
-    camera.position.z - target.z,
-    camera.position.x - target.x
-  );
-  const currentElev = Math.asin(Math.min(1, Math.max(-1,
-    (camera.position.y - target.y) / Math.max(0.01, camera.position.distanceTo(target))
-  )));
-  _orbitElev = currentElev;
-  _orbitRadius = camera.position.distanceTo(target);
   _orbitActive = true;
+
+  const targetElev = (elevDeg ?? 40) * Math.PI / 180;
+  const targetR    = radius ?? AUTO_PAN_RADIUS;
+  const offset     = camera.position.clone().sub(target);
+  const sph        = new THREE.Spherical().setFromVector3(offset);
+  const currentElev = Math.PI / 2 - sph.phi;
+
+  // Brief elevation/radius fly-in (controls disabled for 2 s), then hand off to autoRotate
+  _camAnimating    = true;
   controls.enabled = false;
-  const proxy = { elev: currentElev, r: _orbitRadius };
+  controls.autoRotate = false;
+  const proxy = { elev: currentElev, r: sph.radius };
   _orbitTween = gsap.to(proxy, {
-    elev: targetElev, r: AUTO_PAN_RADIUS, duration: 2, ease: 'power2.inOut',
-    onUpdate: () => { _orbitElev = proxy.elev; _orbitRadius = proxy.r; },
-    onComplete: () => { _orbitTween = null; },
+    elev: targetElev, r: targetR, duration: 2, ease: 'power2.inOut',
+    onUpdate: () => {
+      const s = new THREE.Spherical(proxy.r, Math.PI / 2 - proxy.elev, sph.theta);
+      camera.position.addVectors(target, new THREE.Vector3().setFromSpherical(s));
+      controls.target.copy(target);
+      camera.lookAt(target);
+    },
+    onComplete: () => {
+      _orbitTween   = null;
+      _camAnimating = false;
+      controls.enabled         = true;
+      controls.autoRotate      = true;
+      controls.autoRotateSpeed = 0.3; // ~200 s per orbit, matches old speed
+      controls.target.copy(target);
+      controls.update();
+    },
   });
 }
 
 function stopAutoOrbit() {
   if (_orbitTween) { _orbitTween.kill(); _orbitTween = null; }
   if (!_orbitActive) return;
-  _orbitActive = false;
-  controls.target.copy(_orbitTarget);
-  controls.enabled = true;
+  _orbitActive          = false;
+  _camAnimating         = false;
+  controls.autoRotate   = false;
+  controls.enabled      = true;
   controls.update();
 }
 let _drawPts = [];
@@ -281,19 +295,8 @@ const IDLE_INTERVAL = _Q.idleInterval;
 
 function animate() {
   requestAnimationFrame(animate);
-  if (_orbitActive) {
-    // ~35-second full orbit at 60 fps
-    _orbitAngle += window.innerWidth > 767 ? 0.0005 : 0.001;
-    const flatR = _orbitRadius * Math.cos(_orbitElev);
-    camera.position.set(
-      _orbitTarget.x + flatR * Math.cos(_orbitAngle),
-      _orbitTarget.y + _orbitRadius * Math.sin(_orbitElev),
-      _orbitTarget.z + flatR * Math.sin(_orbitAngle)
-    );
-    controls.target.copy(_orbitTarget);
-    camera.lookAt(_orbitTarget);
-  } else if (!_camAnimating) {
-    controls.update();
+  if (!_camAnimating) {
+    controls.update(); // drives autoRotate when _orbitActive
   }
   if (camera.position.y < 0.5) camera.position.y = 0.5;
 
