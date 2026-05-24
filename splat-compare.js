@@ -928,6 +928,7 @@ export async function initComparison(cfg, sceneRef, rendererRef, cameraRef, rota
         renderer: _renderer, camera: _camera,
         gpuAcceleratedSort: false, sharedMemoryForWorkers: false,
       });
+      const bgT = typeof bgCfg === 'object' ? bgCfg.transform : null;
       let bgUrl = bgPath;
       let bgIsBlob = false;
       if (bgBounds.rawBuf && bgT) {
@@ -941,7 +942,6 @@ export async function initComparison(cfg, sceneRef, rendererRef, cameraRef, rota
       });
       if (bgIsBlob) URL.revokeObjectURL(bgUrl);
 
-      const bgT = typeof bgCfg === 'object' ? bgCfg.transform : null;
       if (bgT) {
         bgSv.splatMesh.rotation.set(bgT.rotation[0], bgT.rotation[1], bgT.rotation[2]);
         bgSv.splatMesh.position.set(bgT.position[0], bgT.position[1], bgT.position[2]);
