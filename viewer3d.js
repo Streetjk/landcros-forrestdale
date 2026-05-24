@@ -269,7 +269,6 @@ function _updateCamHud() {
 
 let _splatViewer = null;
 let _introPlayed = false;
-let _whiteFillMesh = null;
 
 // Idle throttle: render at full rate when active, drop to ~10 fps when still.
 const _prevCamPos = new THREE.Vector3();
@@ -2169,47 +2168,6 @@ async function boot() {
   document.getElementById('load-fill').style.width = '20%';
   document.getElementById('load-msg').textContent = 'Loading satellite…';
   if (_showOverlays && !_cfg.comparison?.enabled) await _addGroundPlane();
-
-  // White fill always added, regardless of mode (covers satellite/soil below splat)
-  {
-    const _savedWhiteY = _lsGet('sn_white_y', -0.5);
-    _whiteFillMesh = new THREE.Mesh(
-      new THREE.PlaneGeometry(600, 600),
-      new THREE.MeshBasicMaterial({ color: 0xffffff, depthWrite: true })
-    );
-    _whiteFillMesh.rotation.x = -Math.PI / 2;
-    _whiteFillMesh.position.y = _savedWhiteY;
-    _whiteFillMesh.renderOrder = 5;
-    scene.add(_whiteFillMesh);
-
-    if (_debugMode) {
-      const hud = document.createElement('div');
-      hud.style.cssText = 'position:fixed;bottom:16px;right:16px;background:rgba(0,0,0,0.7);color:#fff;font:13px monospace;padding:10px 14px;border-radius:8px;z-index:9999;display:flex;flex-direction:column;gap:6px;';
-      const label = document.createElement('div');
-      label.style.cssText = 'font-size:11px;color:#9ca3af;margin-bottom:2px;';
-      label.textContent = 'White Plane Y';
-      const row = document.createElement('div');
-      row.style.cssText = 'display:flex;align-items:center;gap:6px;';
-      const btnStyle = 'background:rgba(255,255,255,0.15);border:none;color:#fff;font:16px monospace;width:28px;height:28px;border-radius:4px;cursor:pointer;';
-      const btnMinus = document.createElement('button');
-      btnMinus.textContent = '−'; btnMinus.style.cssText = btnStyle;
-      const btnPlus  = document.createElement('button');
-      btnPlus.textContent  = '+'; btnPlus.style.cssText = btnStyle;
-      const val = document.createElement('span');
-      val.style.cssText = 'min-width:52px;text-align:center;';
-      val.textContent = _whiteFillMesh.position.y.toFixed(2);
-      const updateWhiteY = (delta) => {
-        _whiteFillMesh.position.y = parseFloat((_whiteFillMesh.position.y + delta).toFixed(2));
-        val.textContent = _whiteFillMesh.position.y.toFixed(2);
-        localStorage.setItem('sn_white_y', JSON.stringify(_whiteFillMesh.position.y));
-      };
-      btnMinus.addEventListener('click', () => updateWhiteY(-0.1));
-      btnPlus.addEventListener('click',  () => updateWhiteY(+0.1));
-      row.append(btnMinus, val, btnPlus);
-      hud.append(label, row);
-      document.body.appendChild(hud);
-    }
-  }
 
   document.getElementById('load-fill').style.width = '40%';
   document.getElementById('load-msg').textContent = 'Building scene…';

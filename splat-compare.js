@@ -829,7 +829,7 @@ export async function initComparison(cfg, sceneRef, rendererRef, cameraRef, rota
       selfDrivenMode: false, useBuiltInControls: false,
       renderer: _renderer, camera: _camera,
       gpuAcceleratedSort: false, sharedMemoryForWorkers: false,
-      splatAlphaRemovalThreshold: 1,
+      splatAlphaRemovalThreshold: 5,
     });
 
     await sv.addSplatScene(model.splat, { showLoadingUI: false });
@@ -862,7 +862,7 @@ export async function initComparison(cfg, sceneRef, rendererRef, cameraRef, rota
         selfDrivenMode: false, useBuiltInControls: false,
         renderer: _renderer, camera: _camera,
         gpuAcceleratedSort: false, sharedMemoryForWorkers: false,
-        splatAlphaRemovalThreshold: 0,
+        splatAlphaRemovalThreshold: 5,
       });
       await bgSv.addSplatScene(bgPath, { showLoadingUI: false });
 
