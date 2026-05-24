@@ -32,13 +32,14 @@ const _align = {
 // -----------------------------------------------------------------------
 
 async function scanSplatData(path) {
-  const result = { scale: 1, cx: 0, cy: 0, cz: 0, rawPositions: null };
+  const result = { scale: 1, cx: 0, cy: 0, cz: 0, rawPositions: null, rawBuf: null };
   if (!path.toLowerCase().endsWith('.splat')) return result;
 
   const rawBuf = await fetch(path).then(r => {
     if (!r.ok) throw new Error(`Failed to scan ${path}: ${r.status}`);
     return r.arrayBuffer();
   });
+  result.rawBuf = rawBuf;
   const count = Math.floor(rawBuf.byteLength / SPLAT_STRIDE);
   if (!count) return result;
 
@@ -70,6 +71,41 @@ async function scanSplatData(path) {
   result.cz = (minZ + maxZ) / 2;
   result.rawPositions = positions;
   return result;
+}
+
+// -----------------------------------------------------------------------
+// World-Y spatial filter — strips splat records whose centre falls below minY
+// after applying the mesh's configTransform + splatGroup globalTilt.
+// Operates on the raw .splat buffer already fetched by scanSplatData.
+
+function _worldMatrix(transform, groupTilt) {
+  const [gr0, gr1, gr2] = groupTilt || [0, 0, 0];
+  const groupMat = new THREE.Matrix4().makeRotationFromEuler(new THREE.Euler(gr0, gr1, gr2));
+  const [rx, ry, rz] = transform.rotation;
+  const [px, py, pz] = transform.position;
+  const s = transform.scale;
+  const meshMat = new THREE.Matrix4().compose(
+    new THREE.Vector3(px, py, pz),
+    new THREE.Quaternion().setFromEuler(new THREE.Euler(rx, ry, rz)),
+    new THREE.Vector3(s, s, s),
+  );
+  return groupMat.multiply(meshMat);
+}
+
+function _filterByWorldY(rawBuf, worldMat, minY) {
+  const count = Math.floor(rawBuf.byteLength / SPLAT_STRIDE);
+  const dv  = new DataView(rawBuf);
+  const src = new Uint8Array(rawBuf);
+  const p   = new THREE.Vector3();
+  const out = new Uint8Array(rawBuf.byteLength);
+  let w = 0;
+  for (let i = 0; i < count; i++) {
+    const o = i * SPLAT_STRIDE;
+    p.set(dv.getFloat32(o, true), dv.getFloat32(o + 4, true), dv.getFloat32(o + 8, true))
+     .applyMatrix4(worldMat);
+    if (p.y >= minY) { out.set(src.subarray(o, o + SPLAT_STRIDE), w++ * SPLAT_STRIDE); }
+  }
+  return URL.createObjectURL(new Blob([out.subarray(0, w * SPLAT_STRIDE)], { type: 'application/octet-stream' }));
 }
 
 // -----------------------------------------------------------------------
@@ -838,6 +874,8 @@ export async function initComparison(cfg, sceneRef, rendererRef, cameraRef, rota
   _splatGroup.rotation.set(gt[0], gt[1], gt[2]);
   _scene.add(_splatGroup);
 
+  const noiseFloorY = compCfg.noiseFloorY ?? -5;
+
   for (let i = 0; i < compCfg.models.length; i++) {
     const model = compCfg.models[i];
     const bounds = await scanSplatData(model.splat);
@@ -848,7 +886,12 @@ export async function initComparison(cfg, sceneRef, rendererRef, cameraRef, rota
       gpuAcceleratedSort: false, sharedMemoryForWorkers: false,
     });
 
-    await sv.addSplatScene(model.splat, { showLoadingUI: false, splatAlphaRemovalThreshold: 40 });
+    let splatUrl = model.splat;
+    if (bounds.rawBuf && model.transform) {
+      splatUrl = _filterByWorldY(bounds.rawBuf, _worldMatrix(model.transform, compCfg.globalTilt), noiseFloorY);
+    }
+    await sv.addSplatScene(splatUrl, { showLoadingUI: false, splatAlphaRemovalThreshold: 40 });
+    if (splatUrl !== model.splat) URL.revokeObjectURL(splatUrl);
 
     sv.splatMesh.scale.setScalar(bounds.scale);
     sv.splatMesh.rotation.set(sr0, sr1, sr2);
@@ -879,7 +922,12 @@ export async function initComparison(cfg, sceneRef, rendererRef, cameraRef, rota
         renderer: _renderer, camera: _camera,
         gpuAcceleratedSort: false, sharedMemoryForWorkers: false,
       });
-      await bgSv.addSplatScene(bgPath, { showLoadingUI: false, splatAlphaRemovalThreshold: 40 });
+      let bgUrl = bgPath;
+      if (bgBounds.rawBuf && bgT) {
+        bgUrl = _filterByWorldY(bgBounds.rawBuf, _worldMatrix(bgT, compCfg.globalTilt), noiseFloorY);
+      }
+      await bgSv.addSplatScene(bgUrl, { showLoadingUI: false, splatAlphaRemovalThreshold: 40 });
+      if (bgUrl !== bgPath) URL.revokeObjectURL(bgUrl);
 
       const bgT = typeof bgCfg === 'object' ? bgCfg.transform : null;
       if (bgT) {
