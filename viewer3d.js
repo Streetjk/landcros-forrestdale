@@ -96,8 +96,7 @@ controls.minDistance = 3;
 controls.maxDistance = 80;
 controls.minPolarAngle = 0;
 controls.maxPolarAngle = THREE.MathUtils.degToRad(85);
-// Stop auto-orbit the moment the user grabs the camera
-controls.addEventListener('start', stopAutoOrbit);
+// Auto-orbit only stops via the button toggle
 
 // Initial camera — matches overhead preset center
 const _initY = window.innerWidth <= 767 ? 26.60 * 1.43 : 26.60;
@@ -180,6 +179,7 @@ function startAutoOrbit(target, radius, elevDeg) {
   _orbitElev = currentElev;
   _orbitRadius = camera.position.distanceTo(target);
   _orbitActive = true;
+  controls.enabled = false;
   const proxy = { elev: currentElev, r: _orbitRadius };
   _orbitTween = gsap.to(proxy, {
     elev: targetElev, r: AUTO_PAN_RADIUS, duration: 2, ease: 'power2.inOut',
@@ -1594,6 +1594,17 @@ async function _addGroundPlane() {
   _planeGroup = new THREE.Group();
   _planeGroup.add(ground);
   scene.add(_planeGroup);
+
+  // White ground fill — renders above satellite and all model layers at y=0;
+  // depthTest keeps splat geometry visible above it.
+  const _whiteFill = new THREE.Mesh(
+    new THREE.PlaneGeometry(600, 600),
+    new THREE.MeshBasicMaterial({ color: 0xffffff, depthWrite: true })
+  );
+  _whiteFill.rotation.x = -Math.PI / 2;
+  _whiteFill.position.y = 0.005;
+  _whiteFill.renderOrder = 5;
+  scene.add(_whiteFill);
 
   // Restore saved plane transform
   const LS_PLANE = 'planeTransform';
