@@ -846,10 +846,9 @@ export async function initComparison(cfg, sceneRef, rendererRef, cameraRef, rota
       selfDrivenMode: false, useBuiltInControls: false,
       renderer: _renderer, camera: _camera,
       gpuAcceleratedSort: false, sharedMemoryForWorkers: false,
-      splatAlphaRemovalThreshold: 40,
     });
 
-    await sv.addSplatScene(model.splat, { showLoadingUI: false });
+    await sv.addSplatScene(model.splat, { showLoadingUI: false, splatAlphaRemovalThreshold: 40 });
 
     sv.splatMesh.scale.setScalar(bounds.scale);
     sv.splatMesh.rotation.set(sr0, sr1, sr2);
@@ -879,9 +878,8 @@ export async function initComparison(cfg, sceneRef, rendererRef, cameraRef, rota
         selfDrivenMode: false, useBuiltInControls: false,
         renderer: _renderer, camera: _camera,
         gpuAcceleratedSort: false, sharedMemoryForWorkers: false,
-        splatAlphaRemovalThreshold: 40,
       });
-      await bgSv.addSplatScene(bgPath, { showLoadingUI: false });
+      await bgSv.addSplatScene(bgPath, { showLoadingUI: false, splatAlphaRemovalThreshold: 40 });
 
       const bgT = typeof bgCfg === 'object' ? bgCfg.transform : null;
       if (bgT) {
