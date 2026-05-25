@@ -837,6 +837,10 @@ async function selectPoint(pt) {
   if (dTheta < -Math.PI) dTheta += 2 * Math.PI;
   const endTheta = startSph.theta + dTheta;
 
+  // Orbit starts immediately from click — theta offset accumulates during fly-to.
+  const orbitStartTime   = performance.now();
+  const orbitRadsPerSec  = 2 * Math.PI * 0.3 / 60; // same speed as controls.autoRotateSpeed 0.3
+
   const prog = { t: 0 };
   _camTween = gsap.to(prog, {
     t: 1,
@@ -846,22 +850,27 @@ async function selectPoint(pt) {
       const { t } = prog;
       const look = startLook.clone().lerp(endLook, t);
       controls.target.copy(look);
+      const orbitOffset = (performance.now() - orbitStartTime) / 1000 * orbitRadsPerSec;
       const sph  = new THREE.Spherical(
         THREE.MathUtils.lerp(startSph.radius, endSph.radius, t),
         THREE.MathUtils.lerp(startSph.phi,    endSph.phi,    t),
-        THREE.MathUtils.lerp(startSph.theta,  endTheta,      t),
+        THREE.MathUtils.lerp(startSph.theta,  endTheta,      t) + orbitOffset,
       );
       camera.position.copy(look).add(new THREE.Vector3().setFromSpherical(sph));
       camera.lookAt(look);
     },
     onComplete() {
       controls.removeEventListener('start', interruptFlyTo);
-      camera.position.copy(targetPos);
       controls.target.copy(pinPos);
       controls.enabled = true;
       _camAnimating = false;
       _camTween = null;
-      startAutoOrbit(pinPos, PIN_RADIUS, PIN_ELEV);
+      // Skip startAutoOrbit's extra fly-in — we're already at the right radius/elevation.
+      _orbitActive = true;
+      _orbitTarget.copy(pinPos);
+      controls.autoRotate      = true;
+      controls.autoRotateSpeed = 0.3;
+      controls.update();
     },
   });
 }
