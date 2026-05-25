@@ -854,7 +854,7 @@ async function selectPoint(pt) {
       const sph  = new THREE.Spherical(
         THREE.MathUtils.lerp(startSph.radius, endSph.radius, t),
         THREE.MathUtils.lerp(startSph.phi,    endSph.phi,    t),
-        THREE.MathUtils.lerp(startSph.theta,  endTheta,      t) + orbitOffset,
+        THREE.MathUtils.lerp(startSph.theta,  endTheta,      t) - orbitOffset,
       );
       camera.position.copy(look).add(new THREE.Vector3().setFromSpherical(sph));
       camera.lookAt(look);
