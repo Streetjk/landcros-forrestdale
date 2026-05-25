@@ -13,6 +13,13 @@ const ROOT    = __dirname;
 const DATA    = path.join(ROOT, 'data');
 const PORT    = parseInt(process.env.PORT || process.argv[2] || '50000', 10);
 
+const VISITS_FILE = path.join(DATA, 'visits.json');
+function _readVisits() {
+  try { return JSON.parse(fs.readFileSync(VISITS_FILE, 'utf8')); }
+  catch { return { total: 0, firstVisit: null, lastVisit: null, points: {} }; }
+}
+function _writeVisits(v) { fs.writeFileSync(VISITS_FILE, JSON.stringify(v, null, 2), 'utf8'); }
+
 const MIME = {
   '.html': 'text/html; charset=utf-8',
   '.js':   'application/javascript; charset=utf-8',
@@ -48,6 +55,34 @@ const server = http.createServer((req, res) => {
       'Access-Control-Allow-Methods': 'POST, GET, HEAD, OPTIONS',
     });
     return res.end();
+  }
+
+  if (req.method === 'GET' && pathname === '/api/visits') {
+    const v = _readVisits();
+    res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+    return res.end(JSON.stringify(v));
+  }
+
+  if (req.method === 'POST' && pathname === '/api/visit') {
+    let body = '';
+    req.on('data', c => body += c);
+    req.on('end', () => {
+      try {
+        const { pointId } = JSON.parse(body || '{}');
+        const v = _readVisits();
+        v.total = (v.total || 0) + 1;
+        if (!v.firstVisit) v.firstVisit = new Date().toISOString();
+        v.lastVisit = new Date().toISOString();
+        if (pointId) v.points[pointId] = (v.points[pointId] || 0) + 1;
+        _writeVisits(v);
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        res.end(JSON.stringify({ ok: true, total: v.total }));
+      } catch (e) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: e.message }));
+      }
+    });
+    return;
   }
 
   if (req.method === 'POST' && pathname === '/api/write') {

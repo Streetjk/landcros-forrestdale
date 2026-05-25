@@ -139,6 +139,29 @@ function _lsGet(key, fallback) {
 
 let _customLabelData = _lsGet(_LS_CUSTOM_LABELS, {});
 
+// ── Visit counter (runs on every page load) ────────────────────────────────
+const _LS_VISITS      = 'sn_visit_count';
+const _LS_FIRST_VISIT = 'sn_first_visit';
+const _LS_LAST_VISIT  = 'sn_last_visit';
+const _LS_PT_VISITS   = 'sn_point_visits';
+{
+  const n = (parseInt(localStorage.getItem(_LS_VISITS) || '0', 10) + 1);
+  localStorage.setItem(_LS_VISITS, String(n));
+  if (!localStorage.getItem(_LS_FIRST_VISIT)) localStorage.setItem(_LS_FIRST_VISIT, new Date().toISOString());
+  localStorage.setItem(_LS_LAST_VISIT, new Date().toISOString());
+  const _ptId = _params.get('id');
+  if (_ptId) {
+    const ptv = _lsGet(_LS_PT_VISITS, {});
+    ptv[_ptId] = (ptv[_ptId] || 0) + 1;
+    localStorage.setItem(_LS_PT_VISITS, JSON.stringify(ptv));
+  }
+  fetch('/api/visit', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ pointId: _ptId || null }),
+  }).catch(() => {});
+}
+
 const _bldRefs = {}; // id → { css2d, name, x, y, z }
 const _allScaleEls = []; // inner elements for all CSS2D labels — zoom scaling target
 // Label positions are baked into buildings.geojson — localStorage overrides
@@ -252,6 +275,50 @@ _camHud.style.cssText = `
   pointer-events:none;user-select:none;min-width:210px;
 `;
 if (_debugMode) document.body.appendChild(_camHud);
+
+// ── Visit stats HUD (debug mode only) ─────────────────────────────────────
+const _visitHud = document.createElement('div');
+_visitHud.style.cssText = `
+  position:fixed;top:16px;left:16px;z-index:998;
+  background:rgba(15,17,23,0.82);backdrop-filter:blur(8px);
+  border:1px solid rgba(255,255,255,0.1);border-radius:8px;
+  padding:8px 12px;font:11px/1.8 'DM Mono',monospace;color:#9ca3af;
+  user-select:none;min-width:210px;
+`;
+if (_debugMode) document.body.appendChild(_visitHud);
+
+async function _updateVisitHud(points = []) {
+  if (!_debugMode) return;
+  const localTotal = parseInt(localStorage.getItem(_LS_VISITS) || '0', 10);
+  const fmtDate = iso => iso ? iso.slice(0, 10) : '—';
+
+  let serverTotal = null, serverPtVisits = {};
+  try {
+    const r = await fetch('/api/visits');
+    if (r.ok) { const d = await r.json(); serverTotal = d.total; serverPtVisits = d.points || {}; }
+  } catch {}
+
+  const ptVisits  = _lsGet(_LS_PT_VISITS, {});
+  const ptLabels  = Object.fromEntries(points.map(p => [p.id, p.label]));
+  const allPtIds  = [...new Set([...Object.keys(ptVisits), ...Object.keys(serverPtVisits)])];
+
+  let html = `<b style="color:#60a5fa">VISITS</b><br>`;
+  if (serverTotal !== null)
+    html += `<span style="color:#34d399">all users  </span> <b style="color:#fff">${serverTotal}</b><br>`;
+  html += `<span style="color:#60a5fa">this device</span> <b style="color:#fff">${localTotal}</b><br>`;
+  html += `first  <b style="color:#fff">${fmtDate(localStorage.getItem(_LS_FIRST_VISIT))}</b><br>`;
+  html += `last   <b style="color:#fff">${fmtDate(localStorage.getItem(_LS_LAST_VISIT))}</b>`;
+
+  if (allPtIds.length) {
+    html += `<div style="margin-top:5px;border-top:1px solid rgba(255,255,255,0.08);padding-top:4px;color:#60a5fa">QR opens</div>`;
+    for (const id of allPtIds) {
+      const label = (ptLabels[id] || id.slice(0, 8) + '…').slice(0, 18);
+      const count = serverTotal !== null ? (serverPtVisits[id] || 0) : (ptVisits[id] || 0);
+      html += `${label.padEnd(18)} <b style="color:#fff">${count}</b><br>`;
+    }
+  }
+  _visitHud.innerHTML = html;
+}
 
 function _updateCamHud() {
   if (!_debugMode) return;
@@ -2235,6 +2302,9 @@ async function boot() {
     _allContacts = contacts;
     renderPins(points);
     renderPointList(points);
+    _updateVisitHud(points);
+  } else if (_debugMode) {
+    _updateVisitHud(await fetch('./data/points.json').then(r => r.json()).catch(() => []));
   }
 
 }
