@@ -43,6 +43,10 @@ const MIME = {
   '.geojson': 'application/json; charset=utf-8',
 };
 
+// Binary/image assets are content-addressed (their content rarely changes after deploy)
+const IMMUTABLE_EXTS = new Set(['.splat', '.ply', '.stl', '.png', '.jpg', '.jpeg', '.webp', '.gif']);
+const POST_BODY_LIMIT = 1_000_000; // 1 MB max for /api/write and /api/visit
+
 function addHeaders(res, extra = {}) {
   // COOP/COEP only on viewer3d so SharedArrayBuffer works; skip for admin
   Object.entries(extra).forEach(([k, v]) => res.setHeader(k, v));
@@ -70,7 +74,8 @@ const server = http.createServer((req, res) => {
 
   if (req.method === 'POST' && pathname === '/api/visit') {
     let body = '';
-    req.on('data', c => body += c);
+    let bodySize = 0;
+    req.on('data', c => { bodySize += c.length; if (bodySize > POST_BODY_LIMIT) { req.destroy(); return; } body += c; });
     req.on('end', () => {
       try {
         const { pointId } = JSON.parse(body || '{}');
@@ -101,7 +106,8 @@ const server = http.createServer((req, res) => {
       return res.end(JSON.stringify({ error: 'Unauthorized' }));
     }
     let body = '';
-    req.on('data', chunk => body += chunk);
+    let bodySize = 0;
+    req.on('data', chunk => { bodySize += chunk.length; if (bodySize > POST_BODY_LIMIT) { req.destroy(); return; } body += chunk; });
     req.on('end', () => {
       try {
         const { path: relPath, data } = JSON.parse(body);
@@ -196,6 +202,10 @@ const server = http.createServer((req, res) => {
     'Cross-Origin-Embedder-Policy': 'credentialless',
   } : {};
 
+  const cacheControl = IMMUTABLE_EXTS.has(ext)
+    ? 'public, max-age=31536000, immutable'
+    : 'no-cache';
+
   // HTTP Range support — required by the Gaussian splat loader for .splat/.ply files
   const rangeHeader = req.headers['range'];
   if (rangeHeader) {
@@ -208,7 +218,7 @@ const server = http.createServer((req, res) => {
         'Content-Range':  `bytes ${start}-${end}/${stat.size}`,
         'Accept-Ranges':  'bytes',
         'Content-Length': end - start + 1,
-        'Cache-Control':  'no-cache',
+        'Cache-Control':  cacheControl,
         ...coopHeaders,
       });
       if (req.method === 'HEAD') return res.end();
@@ -224,7 +234,7 @@ const server = http.createServer((req, res) => {
     'Content-Length': stat.size,
     'Accept-Ranges':  'bytes',
     'ETag':           etag,
-    'Cache-Control':  'no-cache',
+    'Cache-Control':  cacheControl,
     ...coopHeaders,
   };
 

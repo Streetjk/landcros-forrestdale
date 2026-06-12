@@ -66,7 +66,52 @@ window.addEventListener('viewer3d:ready', async () => {
     const scopeEl = e.target.closest('[data-scope-value]');
     if (scopeEl) window._adminSetScope(scopeEl.dataset.scopeValue);
   });
+
+  _loadAnalytics();
 });
+
+async function _loadAnalytics() {
+  const panel = document.getElementById('analytics-panel');
+  if (!panel) return;
+  try {
+    const r = await fetch('/api/visits', { headers: { 'x-admin-token': window.__SN_ADMIN_TOKEN || '' } });
+    if (!r.ok) { panel.innerHTML = '<p style="color:var(--color-text-muted);font-size:0.875rem">Analytics unavailable</p>'; return; }
+    const data = await r.json();
+    const fmt = d => d ? new Date(d).toLocaleDateString('en-AU', { day:'numeric', month:'short', year:'numeric' }) : '—';
+    // Get all known pin labels from the admin's pin list
+    const pinLabels = {};
+    document.querySelectorAll('[data-pt-id]').forEach(el => {
+      const labelEl = el.querySelector('.pt-label');
+      pinLabels[el.dataset.ptId] = labelEl ? labelEl.textContent : el.dataset.ptId;
+    });
+    const pointRows = Object.entries(data.points || {})
+      .sort((a, b) => b[1] - a[1])
+      .map(([id, count]) => {
+        const label = pinLabels[id] || id;
+        const pct = data.total ? Math.round((count / data.total) * 100) : 0;
+        // Escape label for safety
+        const escLabel = label.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+        return `<div class="analytics-row">
+          <span class="analytics-label" title="${escLabel}">${escLabel}</span>
+          <div class="analytics-bar-wrap"><div class="analytics-bar" style="width:${pct}%"></div></div>
+          <span class="analytics-count">${count}</span>
+        </div>`;
+      }).join('');
+    panel.innerHTML = `
+      <div class="analytics-summary">
+        <span class="analytics-stat"><strong>${data.total || 0}</strong> total visits</span>
+        <span class="analytics-stat-sep">·</span>
+        <span class="analytics-stat">First: ${fmt(data.firstVisit)}</span>
+        <span class="analytics-stat-sep">·</span>
+        <span class="analytics-stat">Last: ${fmt(data.lastVisit)}</span>
+      </div>
+      ${pointRows || '<p style="color:var(--color-text-muted);font-size:0.875rem">No pin visits recorded yet.</p>'}
+    `;
+  } catch (e) {
+    panel.innerHTML = '<p style="color:var(--color-text-muted);font-size:0.875rem">Could not load analytics.</p>';
+  }
+}
+window._loadAnalytics = _loadAnalytics;
 
 // ── Personal pin storage ──────────────────────────────────────────────────────
 function _getUserId() {

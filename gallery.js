@@ -1,6 +1,7 @@
 /* SiteNav Gallery — model selection and comparison launcher */
 
 const selected = new Map();   // id → order (1-based)
+const _cardEls = new Map();   // id → card DOM element (avoids unsafe querySelector with user data)
 let models = [];
 let maxCompare = 2;
 let selectionOrder = 0;
@@ -56,6 +57,7 @@ async function boot() {
 
   // Clear skeletons
   grid.innerHTML = '';
+  _cardEls.clear();
 
   // Empty state
   if (!models.length) {
@@ -74,6 +76,7 @@ async function boot() {
   for (let i = 0; i < models.length; i++) {
     const m = models[i];
     const card = createCard(m, i);
+    _cardEls.set(m.id, card);
     grid.appendChild(card);
   }
 
@@ -290,14 +293,14 @@ function showEmptyState() {
 function toggle(id) {
   if (selected.has(id)) {
     selected.delete(id);
-    document.querySelector(`.card[data-id="${id}"]`)?.classList.remove('selected');
+    _cardEls.get(id)?.classList.remove('selected');
     reorderBadges();
   } else {
     if (selected.size >= maxCompare) {
       // Bump oldest: remove first entry
       const firstId = selected.keys().next().value;
       selected.delete(firstId);
-      const oldCard = document.querySelector(`.card[data-id="${firstId}"]`);
+      const oldCard = _cardEls.get(firstId);
       if (oldCard) {
         oldCard.classList.remove('selected');
         // Bump animation
@@ -309,7 +312,7 @@ function toggle(id) {
     }
     selectionOrder++;
     selected.set(id, selectionOrder);
-    document.querySelector(`.card[data-id="${id}"]`)?.classList.add('selected');
+    _cardEls.get(id)?.classList.add('selected');
     reorderBadges();
   }
   updateUI();
@@ -318,7 +321,7 @@ function toggle(id) {
 function reorderBadges() {
   let order = 1;
   for (const [id] of selected) {
-    const card = document.querySelector(`.card[data-id="${id}"]`);
+    const card = _cardEls.get(id);
     if (card) {
       const badge = card.querySelector('.sel-order');
       badge.textContent = order;
@@ -333,7 +336,7 @@ function getModelLabel(id) {
 
 function clearAll() {
   for (const [id] of selected) {
-    document.querySelector(`.card[data-id="${id}"]`)?.classList.remove('selected');
+    _cardEls.get(id)?.classList.remove('selected');
   }
   selected.clear();
   selectionOrder = 0;

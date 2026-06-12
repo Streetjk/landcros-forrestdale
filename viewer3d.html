@@ -376,6 +376,31 @@
     .speed-limit-sign .label-wrap { display: none !important; }
     .speed-limit-sign .icon-wrap img { width: 44px !important; height: 44px !important; opacity: 1; }
 
+    /* ── FEATURE 1 & 2: Nav Tour & Measurement ── */
+    .btn-nav-tour {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 8px 16px; border: none; border-radius: var(--radius-sm);
+      background: var(--color-primary); color: var(--color-text);
+      font-family: var(--font-sans); font-size: var(--text-sm);
+      font-weight: var(--weight-semibold); cursor: pointer;
+      transition: background var(--dur-base);
+    }
+    .btn-nav-tour:hover { background: var(--color-secondary); }
+
+    #measure-chip {
+      position: fixed; bottom: calc(80px + var(--safe-bottom)); left: 50%;
+      transform: translateX(-50%);
+      display: none; align-items: center; gap: 8px;
+      padding: 8px 16px; border: 1px solid var(--color-border);
+      border-radius: var(--radius-pill);
+      background: var(--glass-surface); backdrop-filter: var(--glass-blur);
+      font-size: var(--text-sm); font-weight: var(--weight-semibold);
+      color: var(--color-text); z-index: var(--z-controls);
+      box-shadow: var(--shadow-2);
+    }
+    #btn-measure { cursor: pointer; }
+    #btn-measure.active { background: var(--color-primary) !important; color: var(--color-text) !important; }
+
     /* Keep old .cam-btn style for other buttons like Edit */
     .cam-btn {
       background: rgba(8, 10, 16, 0.82) !important;
@@ -949,6 +974,7 @@
       <div class="nav-label">Camera: <strong id="nav-pos-label">—</strong></div>
       <div class="nav-bar"><div class="nav-bar-fill" id="nav-bar-fill"></div></div>
     </div>
+    <div id="measure-chip"></div>
   </div>
 
   <nav class="camera-presets" id="cam-presets"></nav>
@@ -1012,6 +1038,12 @@
       <div class="detail-section">
         <div class="detail-section-title">Contacts</div>
         <div id="detail-contacts"></div>
+      </div>
+      <div class="detail-section" id="detail-nav-section" style="display:none">
+        <button class="btn-nav-tour" onclick="window.startNav(window._selectedPt)">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          Start Tour
+        </button>
       </div>
     </div>
   </aside>

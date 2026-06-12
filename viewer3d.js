@@ -483,6 +483,22 @@ function _buildCamButtons(cfg) {
     wrap.appendChild(btn);
   });
 
+  // Measurement tool button
+  const mBtn = document.createElement('button');
+  mBtn.className = 'cam-preset-btn';
+  mBtn.id = 'btn-measure';
+  mBtn.title = 'Measure distance';
+  mBtn.innerHTML = `
+    <div class="icon-wrap">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M2 12h20"/><path d="M12 2v20"/><path d="M2 7h5"/><path d="M17 7h5"/><path d="M2 17h5"/><path d="M17 17h5"/>
+      </svg>
+    </div>
+    <span class="label-wrap">Measure</span>
+  `;
+  mBtn.onclick = () => _toggleMeasure(!_measureMode);
+  wrap.appendChild(mBtn);
+
   // Speed limit sign — decorative, site-specific (omitted when config lacks speedLimitSign)
   if (_cfg.site?.speedLimitSign) {
     const speedBtn = document.createElement('div');
@@ -718,6 +734,79 @@ function removePin(id) {
   delete _pins[id];
 }
 
+// ── Measurement tool ─────────────────────────────────────────────────────
+let _measureMode = false;
+let _measurePts = []; // up to 2 THREE.Vector3 world positions
+let _measureLine = null;
+let _measureMarkers = [];
+let _measureChip = null;
+
+function _initMeasure() {
+  _measureChip = document.getElementById('measure-chip');
+}
+
+function _toggleMeasure(on) {
+  _measureMode = on;
+  _clearMeasure();
+  const btn = document.getElementById('btn-measure');
+  if (btn) btn.classList.toggle('active', on);
+  if (_measureChip) _measureChip.style.display = on ? 'flex' : 'none';
+  if (_measureChip && on) _measureChip.textContent = 'Click two points to measure';
+}
+
+function _clearMeasure() {
+  _measurePts = [];
+  if (_measureLine) {
+    scene.remove(_measureLine);
+    _measureLine.geometry?.dispose();
+    _measureLine.material?.dispose();
+    _measureLine = null;
+  }
+  _measureMarkers.forEach(m => {
+    scene.remove(m);
+    m.geometry?.dispose();
+    m.material?.dispose();
+  });
+  _measureMarkers = [];
+}
+
+function _addMeasurePoint(worldPos) {
+  if (_measurePts.length >= 2) _clearMeasure();
+  _measurePts.push(worldPos.clone());
+
+  // Sphere marker
+  const sphere = new THREE.Mesh(
+    new THREE.SphereGeometry(0.12, 8, 8),
+    new THREE.MeshBasicMaterial({ color: 0x14B8A6 })
+  );
+  sphere.position.copy(worldPos);
+  scene.add(sphere);
+  _measureMarkers.push(sphere);
+
+  if (_measurePts.length === 2) {
+    // Draw line between the two points
+    const geo = new THREE.BufferGeometry().setFromPoints(_measurePts);
+    _measureLine = new THREE.Line(geo, new THREE.LineBasicMaterial({ color: 0x14B8A6, linewidth: 2 }));
+    scene.add(_measureLine);
+
+    // Compute real-world distance using scene scale
+    const sceneDist = _measurePts[0].distanceTo(_measurePts[1]);
+    // Scene maps X→40 units and Z→30 units; use per-axis scale for accuracy
+    const planeScale = _cfg.plane?.scale || [62, 39.5];
+    const mPerUnitX = planeScale[0] / 40;
+    const mPerUnitZ = planeScale[1] / 30;
+    const dx = _measurePts[1].x - _measurePts[0].x;
+    const dz = _measurePts[1].z - _measurePts[0].z;
+    const meters = Math.sqrt((dx * mPerUnitX) ** 2 + (dz * mPerUnitZ) ** 2);
+    if (_measureChip) {
+      _measureChip.textContent = meters >= 1000
+        ? `${(meters / 1000).toFixed(2)} km`
+        : `${meters.toFixed(1)} m`;
+    }
+  }
+}
+window._toggleMeasure = _toggleMeasure;
+
 // ── Raycasting (click-to-select) ───────────────────────────────────────────
 
 const _raycaster = new THREE.Raycaster();
@@ -727,6 +816,15 @@ renderer.domElement.addEventListener('click', e => {
   const rect = renderer.domElement.getBoundingClientRect();
   _pointer.x =  (e.clientX - rect.left)  / rect.width  * 2 - 1;
   _pointer.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+
+  // Measurement mode intercepts all clicks
+  if (_measureMode) {
+    _raycaster.setFromCamera(_pointer, camera);
+    const hits = _raycaster.intersectObject(_pickGround);
+    if (hits.length) _addMeasurePoint(hits[0].point);
+    return; // don't select pins in measure mode
+  }
+
   _raycaster.setFromCamera(_pointer, camera);
 
   const meshes = Object.values(_pins).map(p => p.sphere);
@@ -746,6 +844,7 @@ async function selectPoint(pt) {
     showPointList();
     return;
   }
+  window._selectedPt = pt;
   updatePinHighlight(pt.id);
   history.pushState(null, '', `?id=${pt.id}`);
 
@@ -756,6 +855,11 @@ async function selectPoint(pt) {
   document.getElementById('detail-chip').textContent = chipLabel[pt.type] ?? pt.type;
   document.getElementById('detail-label').textContent = pt.label;
   document.getElementById('detail-notes').textContent = pt.notes ?? '';
+
+  const navSection = document.getElementById('detail-nav-section');
+  if (navSection) {
+    navSection.style.display = (pt.routeWaypoints3d?.length > 0) ? 'block' : 'none';
+  }
 
   const contacts = (pt.contactIds ?? []).map(id => _allContacts.find(c => c.id === id)).filter(Boolean);
   const contactsEl = document.getElementById('detail-contacts');
@@ -838,10 +942,12 @@ async function selectPoint(pt) {
   _camAnimating = true;
   const interruptFlyTo = () => {
     controls.removeEventListener('start', interruptFlyTo);
+    window._interruptFlyTo = null;
     if (_camTween) { _camTween.kill(); _camTween = null; }
     controls.enabled = true;
     _camAnimating = false;
   };
+  window._interruptFlyTo = interruptFlyTo;
   controls.addEventListener('start', interruptFlyTo);
   controls.enabled = true;
 
@@ -908,7 +1014,79 @@ window.showPointList = function() {
   history.pushState(null, '', location.pathname);
 };
 
-window.startNav = function() {};
+window.startNav = function(pt) {
+  // pt is the currently selected point (passed from the "Start Tour" button)
+  const waypoints = pt?.routeWaypoints3d || [];
+  const navBar = document.getElementById('nav-bar-fill');
+  const navLabel = document.getElementById('nav-pos-label');
+  const navProgress = document.getElementById('nav-progress');
+
+  // If no waypoints, just fly to the pin (which selectPoint already did)
+  if (!waypoints.length) {
+    if (navLabel) navLabel.textContent = pt?.label || 'Destination';
+    if (navProgress) navProgress.classList.add('visible');
+    if (navBar) navBar.style.width = '100%';
+    setTimeout(() => navProgress?.classList.remove('visible'), 2500);
+    return;
+  }
+
+  // Kill any existing camera tween and clear its stale interrupt listener
+  if (_camTween) { _camTween.kill(); _camTween = null; }
+  // Remove any selectPoint interrupt listener that may be registered
+  if (window._interruptFlyTo) { controls.removeEventListener('start', window._interruptFlyTo); window._interruptFlyTo = null; }
+
+  if (navProgress) navProgress.classList.add('visible');
+  if (navLabel) navLabel.textContent = 'Starting tour…';
+
+  // Build a GSAP timeline that visits each waypoint in sequence
+  const tl = gsap.timeline({
+    onComplete() {
+      _camAnimating = false;
+      if (navProgress) navProgress.classList.remove('visible');
+      controls.removeEventListener('start', interruptTour);
+    },
+  });
+
+  const interruptTour = () => {
+    tl.kill();
+    controls.removeEventListener('start', interruptTour);
+    _camAnimating = false;
+    if (navProgress) navProgress.classList.remove('visible');
+  };
+
+  // Keep controls enabled so user drag fires 'start' and interrupts the tour.
+  // _camAnimating = true prevents other camera code from racing.
+  _camAnimating = true;
+  controls.addEventListener('start', interruptTour);
+
+  const total = waypoints.length;
+  waypoints.forEach((wp, i) => {
+    // Waypoints stored as {x,y,z} objects or [x,z] 2-value ground arrays
+    const pos = Array.isArray(wp)
+      ? new THREE.Vector3(wp[0], 0, wp[1])  // [x,z] ground waypoint
+      : new THREE.Vector3(wp.x ?? 0, wp.y ?? 0, wp.z ?? 0);
+    const prog = { t: 0 };
+    const startPos = i === 0 ? camera.position.clone() : null; // first = current pos
+    tl.to(prog, {
+      t: 1,
+      duration: 2.5,
+      ease: 'power2.inOut',
+      onStart() {
+        if (navLabel) navLabel.textContent = `Waypoint ${i + 1} / ${total}`;
+        if (navBar) navBar.style.width = `${Math.round((i / total) * 100)}%`;
+      },
+      onUpdate() {
+        const from = startPos || camera.position;
+        camera.position.lerp(pos, prog.t);
+        controls.target.lerp(pos, prog.t * 0.3);
+      },
+      onComplete() {
+        if (navBar) navBar.style.width = `${Math.round(((i + 1) / total) * 100)}%`;
+        if (i === total - 1 && navLabel) navLabel.textContent = pt?.label || 'Arrived';
+      },
+    }, i === 0 ? '>' : '+=0.3');
+  });
+};
 
 // ── Point list panel ───────────────────────────────────────────────────────
 
@@ -2153,23 +2331,30 @@ async function loadSplatBackground(opts = {}) {
       splatAlphaRemovalThreshold: 1,
     });
 
-    await Promise.race([
-      sv.addSplatScene(splatPath, {
-        showLoadingUI: false,
-        onProgress: (p) => {
-          const pct = Math.min(99, Math.round(p));
-          if (onProgress) {
-            onProgress(pct);
-          } else {
-            if (bar) bar.style.width = pct + '%';
-            if (msg) msg.textContent = `Loading ${ext}… ${pct}%`;
-          }
-        },
-      }),
-      new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('GS3D timeout')), 15000)
-      ),
-    ]);
+    // Re-use the already-downloaded buffer as a blob URL to avoid a second network fetch.
+    const splatBlobUrl = rawBuf ? URL.createObjectURL(new Blob([rawBuf], { type: 'application/octet-stream' })) : null;
+    try {
+      await Promise.race([
+        sv.addSplatScene(splatBlobUrl || splatPath, {
+          showLoadingUI: false,
+          ...(splatBlobUrl ? { format: GS3D.SceneFormat.Splat } : {}),
+          onProgress: (p) => {
+            const pct = Math.min(99, Math.round(p));
+            if (onProgress) {
+              onProgress(pct);
+            } else {
+              if (bar) bar.style.width = pct + '%';
+              if (msg) msg.textContent = `Loading ${ext}… ${pct}%`;
+            }
+          },
+        }),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('GS3D timeout')), 15000)
+        ),
+      ]);
+    } finally {
+      if (splatBlobUrl) URL.revokeObjectURL(splatBlobUrl);
+    }
 
     sv.splatMesh.scale.setScalar(scale);
     const savedRot = _debugMode ? _lsGet('sn_splat_rot', null) : null;
@@ -2229,7 +2414,25 @@ async function loadSplatBackground(opts = {}) {
 
 async function boot() {
   document.getElementById('load-msg').textContent = 'Loading config…';
-  _cfg = await fetch('./data/config.json').then(r => r.json()).catch(() => ({}));
+  _cfg = await fetch('./data/config.json').then(r => r.json()).catch((err) => {
+    console.error('Config load failed:', err);
+    return {};
+  });
+
+  _initMeasure();
+
+  // Validate required config fields; surface visible error on failure
+  (function _validateConfig(cfg) {
+    const warn = (msg) => {
+      console.warn('[SiteNav config]', msg);
+      const el = document.getElementById('load-msg');
+      if (el) el.textContent = `Config warning: ${msg}`;
+    };
+    if (!cfg || !cfg.site) { warn('Missing "site" block — check config.json'); return; }
+    if (!cfg.assets?.splat) warn('Missing assets.splat — no 3D scene will load');
+    if (cfg.splat?.rotation && (!Array.isArray(cfg.splat.rotation) || cfg.splat.rotation.length !== 3))
+      warn('splat.rotation must be a 3-element array [x,y,z]');
+  })(_cfg);
 
   // Apply config-driven camera initial position
   if (_cfg.camera?.initial) {
