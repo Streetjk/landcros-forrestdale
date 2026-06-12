@@ -9,6 +9,8 @@ const http = require('http');
 const fs   = require('fs');
 const path = require('path');
 
+const ADMIN_TOKEN = process.env.ADMIN_TOKEN || '';
+
 const ROOT      = __dirname;
 const SITE      = process.env.SITE || 'landcros';
 const SITE_DIR  = path.join(ROOT, 'sites', SITE);
@@ -54,7 +56,7 @@ const server = http.createServer((req, res) => {
   if (req.method === 'OPTIONS') {
     res.writeHead(204, {
       'Access-Control-Allow-Origin':  '*',
-      'Access-Control-Allow-Headers': 'Content-Type',
+      'Access-Control-Allow-Headers': 'Content-Type, x-admin-token',
       'Access-Control-Allow-Methods': 'POST, GET, HEAD, OPTIONS',
     });
     return res.end();
@@ -89,6 +91,15 @@ const server = http.createServer((req, res) => {
   }
 
   if (req.method === 'POST' && pathname === '/api/write') {
+    if (!ADMIN_TOKEN) {
+      res.writeHead(503, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ error: 'Write API disabled: set ADMIN_TOKEN env var' }));
+    }
+    const token = req.headers['x-admin-token'] || '';
+    if (!token || token !== ADMIN_TOKEN) {
+      res.writeHead(401, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ error: 'Unauthorized' }));
+    }
     let body = '';
     req.on('data', chunk => body += chunk);
     req.on('end', () => {
@@ -117,6 +128,16 @@ const server = http.createServer((req, res) => {
       }
     });
     return;
+  }
+
+  if (req.method === 'GET' && pathname === '/api/auth-check') {
+    if (!ADMIN_TOKEN) {
+      res.writeHead(503, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ ok: false }));
+    }
+    const token = req.headers['x-admin-token'] || '';
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    return res.end(JSON.stringify({ ok: token === ADMIN_TOKEN }));
   }
 
   // ── Static files ──────────────────────────────────────────────────────

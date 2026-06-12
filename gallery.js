@@ -153,6 +153,12 @@ function createCard(m, index) {
   title.textContent = m.label;
   infoTop.appendChild(title);
 
+  // Fix 3.5 — Date Badge
+  const dateBadge = document.createElement('span');
+  dateBadge.className = 'date-badge';
+  dateBadge.textContent = m.date || m.id;
+  card.appendChild(dateBadge);
+
   // Tag (first tag from array)
   if (m.tags && m.tags.length) {
     const tag = document.createElement('span');

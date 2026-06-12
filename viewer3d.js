@@ -391,6 +391,12 @@ function animate() {
   // Apply to all label types (buildings, pins, zones) via unified array.
   for (const el of _allScaleEls) el.style.transform = `scale(${_finalScale})`;
 
+  // Fix 3.2 — Distance-based fade for pin labels
+  Object.values(_pins).forEach(pin => {
+    const dist = camera.position.distanceTo(pin.group.position) / 100;
+    pin.labelDiv.style.setProperty('--pin-dist', Math.min(dist, 1).toFixed(2));
+  });
+
   // Pulse ground squares on all pins (smooth sine, no abs bounce)
   if (_pinAnimatables.length) {
     const wave  = (Math.sin(now * 0.002) + 1) * 0.5; // 0→1, ~3 s cycle
@@ -646,39 +652,32 @@ function _addPinToScene(pt) {
   svgEl.appendChild(pathEl);
   iconWrap.appendChild(svgEl);
 
-  // Label — fixed pixel offset above the SVG, centered on anchor
-  // Outer div handles position only; inner span is the scale target (same
-  // pattern as building labels) so _allScaleEls doesn't clobber translateX.
+  // Label — Fix 3.2: Unified pin-label component
   const labelDiv = document.createElement('div');
-  labelDiv.style.cssText = `
-    position:absolute;left:50%;transform:translateX(-50%);bottom:44px;
-    pointer-events:auto;cursor:pointer;z-index:100;
-  `;
-  const labelInner = document.createElement('span');
-  const labelBg = isPersonal ? 'rgba(79,106,245,0.80)' : 'rgba(0,177,64,0.80)';
-  labelInner.style.cssText = `
-    display:inline-block;
-    background:${labelBg};backdrop-filter:blur(6px);
-    color:#ffffff;font:600 18px 'DM Sans',sans-serif;
-    padding:4px 8px;border-radius:6px;
-    white-space:nowrap;transform-origin:50% 100%;
-  `;
-  labelInner.textContent = pt.label;
-  labelDiv.appendChild(labelInner);
+  labelDiv.className = 'pin-label';
+  labelDiv.tabIndex = 0;
+  const pinTitle = document.createElement('span');
+  pinTitle.className = 'pin-title';
+  pinTitle.textContent = pt.label;
+  const pinDesc = document.createElement('span');
+  pinDesc.className = 'pin-desc';
+  pinDesc.textContent = pt.notes || pt.type.replace('-', ' ');
+  labelDiv.appendChild(pinTitle);
+  labelDiv.appendChild(pinDesc);
   labelDiv.addEventListener('pointerup', e => {
     e.preventDefault();
     e.stopPropagation();
     selectPoint(pt);
   });
   iconWrap.appendChild(labelDiv);
-  _allScaleEls.push(labelInner);
+  // _allScaleEls.push(labelDiv); // Removed as we now use distance-based fade via CSS variable
 
   const icon = new CSS2DObject(iconWrap);
   icon.position.set(0, 1.3, 0);
   group.add(icon);
 
   scene.add(group);
-  _pins[pt.id] = { group, pinGroup, sphere, icon, svgEl, labelDiv, labelInner, squareMat, squareGroup, pt };
+  _pins[pt.id] = { group, pinGroup, sphere, icon, svgEl, labelDiv, squareMat, squareGroup, pt };
 }
 
 function renderPins(points) {
@@ -2173,7 +2172,7 @@ async function loadSplatBackground(opts = {}) {
     ]);
 
     sv.splatMesh.scale.setScalar(scale);
-    const savedRot = _lsGet('sn_splat_rot', null);
+    const savedRot = _debugMode ? _lsGet('sn_splat_rot', null) : null;
     const [sr0, sr1, sr2] = savedRot || _cfg.splat?.rotation || [3.260, -1.779, 0.122];
     sv.splatMesh.rotation.set(sr0, sr1, sr2);
     const [so0, so1, so2] = _cfg.splat?.centerOffset ?? [0, -1.70, -1.3];
@@ -2208,6 +2207,7 @@ async function loadSplatBackground(opts = {}) {
 
     if (_cfg.comparison?.enabled) {
       if (_planeGroup) _planeGroup.visible = false;
+      const savedRot = _debugMode ? _lsGet('sn_splat_rot', null) : null;
       const splatRot = savedRot || _cfg.splat?.rotation || [3.260, -1.779, 0.122];
       initComparison(_cfg, scene, renderer, camera, splatRot).catch(e => {
         console.warn('[splat-compare] init failed:', e);
@@ -2322,45 +2322,70 @@ async function boot() {
 
   // viewer3d.html: load pins/contacts
   if (!document.getElementById('admin-controls') && _showOverlays) {
-    const [points, contacts] = await Promise.all([
-      fetch('./data/points.json').then(r => r.json()).catch(() => []),
-      fetch('./data/contacts.json').then(r => r.json()).catch(() => []),
-    ]);
-    _allContacts = contacts;
+  const [points, contacts] = await Promise.all([
+    fetch('./data/points.json').then(r => r.json()).catch(() => []),
+    fetch('./data/contacts.json').then(r => r.json()).catch(() => []),
+  ]);
+  _allContacts = contacts;
 
-    // Consume #share=<base64> hash — add the shared pin ephemerally, then select it
-    const hashMatch = window.location.hash.match(/^#share=(.+)$/);
-    if (hashMatch) {
-      try {
-        const shared = JSON.parse(atob(hashMatch[1]));
-        const ephemeral = {
-          id: 'shared-' + Date.now(),
-          label: shared.label ?? 'Shared pin',
-          latlng: shared.latlng,
-          notes: shared.notes ?? '',
-          type: shared.type ?? 'drop-off',
-          scope: 'shared',
-        };
-        renderPins([...points, ephemeral]);
-        renderPointList([...points, ephemeral]);
-        _updateVisitHud(points);
-        // Brief delay so scene settles before flying to the pin
-        setTimeout(() => selectPoint(ephemeral), 800);
-        window.location.hash = '';
-      } catch {
-        renderPins(points);
-        renderPointList(points);
-        _updateVisitHud(points);
-      }
-    } else {
+  // Consume #share=<base64> hash — add the shared pin ephemerally, then select it
+  const hashMatch = window.location.hash.match(/^#share=(.+)$/);
+  if (hashMatch) {
+    try {
+      const shared = JSON.parse(atob(hashMatch[1]));
+      const pos3d = await latlngToScene(shared.latlng[0], shared.latlng[1]);
+      const ephemeral = {
+        id: 'shared-' + Date.now(),
+        label: shared.label ?? 'Shared pin',
+        latlng: shared.latlng,
+        notes: shared.notes ?? '',
+        type: shared.type ?? 'drop-off',
+        scope: 'shared',
+        position3d: pos3d,
+      };
+      renderPins([...points, ephemeral]);
+      renderPointList([...points, ephemeral]);
+      _updateVisitHud(points);
+      // Use replaceState so clearing the hash doesn't fire a hashchange
+      history.replaceState(null, '', location.pathname + location.search);
+      // Brief delay so scene settles before flying to the pin
+      setTimeout(() => selectPoint(ephemeral), 800);
+    } catch {
       renderPins(points);
       renderPointList(points);
       _updateVisitHud(points);
     }
+  } else {
+    renderPins(points);
+    renderPointList(points);
+    _updateVisitHud(points);
+
+    // Fix 1.1 — QR deep-link fly-to
+    const _deepId = _params.get('id');
+    if (_deepId) {
+      const _deepPt = points.find(p => p.id === _deepId);
+      if (_deepPt) {
+        setTimeout(() => selectPoint(_deepPt), 800);
+      }
+    }
+  }
   } else if (_debugMode) {
-    _updateVisitHud(await fetch('./data/points.json').then(r => r.json()).catch(() => []));
+  _updateVisitHud(await fetch('./data/points.json').then(r => r.json()).catch(() => []));
   }
 
-}
+  // Fix 3.6 — Header Bar Branding & Share
+  const headerSiteName = document.getElementById('header-site-name');
+  if (headerSiteName && _cfg.site && _cfg.site.name) headerSiteName.textContent = _cfg.site.name;
+  const headerShareBtn = document.getElementById('header-share-btn');
+  if (headerShareBtn) {
+  headerShareBtn.addEventListener('click', () => {
+    if (navigator.share) {
+      navigator.share({ title: document.title, url: location.href });
+    } else if (window._copyShareLink) {
+      window._copyShareLink();
+    }
+  });
+  }
+  }
 
 boot();

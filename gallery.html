@@ -8,6 +8,65 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600;9..40,700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
   <style>
+    /* ── Fix 3.5 — Gallery Cards + Timeline Scrubber ── */
+    .gallery-card {
+      position: relative; overflow: hidden;
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-lg);
+      background: var(--glass-surface-light);
+      backdrop-filter: var(--glass-blur);
+      -webkit-backdrop-filter: var(--glass-blur);
+      box-shadow: var(--shadow-2); cursor: pointer;
+      transition: transform var(--dur-base) var(--ease-out), box-shadow var(--dur-base) var(--ease-out), border-color var(--dur-base) var(--ease-out);
+    }
+    .gallery-card .date-badge {
+      position: absolute; top: var(--space-2); right: var(--space-2);
+      padding: var(--space-1) var(--space-2);
+      border-radius: var(--radius-sm); background: var(--glass-surface);
+      backdrop-filter: var(--glass-blur);
+      font-size: var(--text-xs); font-weight: var(--weight-semibold); color: var(--color-text);
+      z-index: 5;
+    }
+    .gallery-card:hover { transform: translateY(-4px); box-shadow: var(--shadow-3); border-color: rgba(20,184,166,0.35); }
+    .gallery-card.active { border-color: var(--color-secondary); box-shadow: var(--glow-primary), var(--shadow-3); }
+
+    .timeline-scrubber {
+      position: relative; height: 48px; margin: var(--space-4) var(--space-5);
+      touch-action: none; user-select: none;
+    }
+    .timeline-track {
+      position: absolute; top: 50%; left: 0; right: 0; height: 4px;
+      transform: translateY(-50%); border-radius: var(--radius-pill);
+      background: var(--color-surface-2); box-shadow: inset 0 1px 2px rgba(0,0,0,0.5);
+    }
+    .timeline-track::before {
+      content: ''; position: absolute; inset: 0 auto 0 0;
+      width: calc(var(--progress, 0) * 1%); border-radius: inherit;
+      background: var(--color-primary);
+    }
+    .timeline-tick {
+      position: absolute; top: 50%; width: 10px; height: 10px;
+      transform: translate(-50%, -50%); border-radius: 50%;
+      border: 2px solid var(--color-text-muted); background: var(--color-bg);
+      cursor: pointer;
+      transition: border-color var(--dur-base) var(--ease-out), transform var(--dur-base) var(--ease-out);
+    }
+    .timeline-tick:hover { border-color: var(--color-secondary); }
+    .timeline-tick.active { border-color: var(--color-secondary); background: var(--color-secondary); transform: translate(-50%, -50%) scale(1.2); }
+    .timeline-tick .tick-date {
+      position: absolute; top: calc(100% + var(--space-2)); left: 50%; transform: translateX(-50%);
+      font-size: var(--text-xs); color: var(--color-text-muted); white-space: nowrap;
+    }
+    .timeline-tick.active .tick-date { color: var(--color-secondary); font-weight: var(--weight-semibold); }
+    .timeline-knob {
+      position: absolute; top: 50%; width: 20px; height: 20px;
+      transform: translate(-50%, -50%); border-radius: 50%;
+      border: 3px solid var(--color-secondary); background: var(--color-surface);
+      box-shadow: var(--shadow-2); cursor: grab;
+      transition: box-shadow var(--dur-base) var(--ease-out);
+    }
+    .timeline-knob:active { cursor: grabbing; box-shadow: var(--glow-primary), var(--shadow-2); }
+
     /* ── Reset ──────────────────────────────────── */
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 

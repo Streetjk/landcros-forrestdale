@@ -106,7 +106,7 @@ async function _writeJSON(path, data) {
   }
   const res = await fetch('/api/write', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'x-admin-token': window.__SN_ADMIN_TOKEN || '' },
     body: JSON.stringify({ path, data }),
   });
   if (!res.ok) throw new Error(`Write failed: ${res.status}`);

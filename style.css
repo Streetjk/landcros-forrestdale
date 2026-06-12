@@ -1,40 +1,95 @@
-/* SiteNav — shared design tokens and base styles */
-
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap');
 
 :root {
-  --primary:          #185FA5;
-  --primary-light:    #E6F1FB;
-  --accent:           #1D9E75;
-  --accent-light:     #D1FAE5;
-  --amber:            #854F0B;
-  --amber-light:      #FEF3C7;
-  --red:              #DC2626;
-  --surface:          #ffffff;
-  --surface-secondary:#F1EFE8;
-  --border:           rgba(0, 0, 0, 0.12);
-  --text:             #2C2C2A;
-  --text-secondary:   #5F5E5A;
-  --text-tertiary:    #9CA3AF;
-  --font:             'DM Sans', system-ui, sans-serif;
-  --mono:             'DM Mono', monospace;
-  --radius:           12px;
-  --panel-width:      340px;
+  /* Color */
+  --color-primary: #0F766E;
+  --color-secondary: #14B8A6;
+  --color-accent: #0369A1;
+  --color-bg: #0F172A;
+  --color-surface: #192134;
+  --color-surface-2: #1E2A3F;
+  --color-border: rgba(255, 255, 255, 0.08);
+  --color-text: #FFFFFF;
+  --color-text-muted: #94A3B8;
+  --color-destructive: #DC2626;
+  --glass-surface: rgba(25, 33, 52, 0.85);
+  --glass-surface-light: rgba(30, 42, 63, 0.72);
+  --glass-blur: blur(12px) saturate(140%);
+
+  /* Spacing */
+  --space-1: 4px;  --space-2: 8px;  --space-3: 12px;  --space-4: 16px;
+  --space-5: 24px; --space-6: 32px; --space-7: 48px;
+
+  /* Typography */
+  --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+  --text-xs: 0.75rem; --text-sm: 0.875rem; --text-base: 1rem;
+  --text-lg: 1.125rem; --text-xl: 1.375rem;
+  --leading: 1.5;
+  --weight-light: 300; --weight-regular: 400; --weight-medium: 500; --weight-semibold: 600;
+
+  /* Elevation */
+  --shadow-1: 0 1px 2px rgba(0,0,0,0.3);
+  --shadow-2: 0 4px 12px rgba(0,0,0,0.35);
+  --shadow-3: 0 8px 24px rgba(0,0,0,0.40);
+  --shadow-4: 0 16px 48px rgba(0,0,0,0.50);
+  --glow-primary: 0 0 0 1px rgba(20,184,166,0.4), 0 0 16px rgba(20,184,166,0.25);
+
+  /* Radii */
+  --radius-sm: 6px; --radius-md: 10px; --radius-lg: 16px; --radius-pill: 999px;
+
+  /* Motion */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --dur-fast: 150ms; --dur-base: 200ms; --dur-slow: 300ms;
+
+  /* Z-index */
+  --z-canvas: 0; --z-pins: 10; --z-controls: 20; --z-header: 30;
+  --z-panel: 40; --z-scrim: 50; --z-sheet: 60; --z-dropdown: 70; --z-toast: 80;
+
+  /* Safe areas */
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-top: env(safe-area-inset-top, 0px);
+
+  /* Legacy aliases — maps old variable names to new tokens */
+  --primary: var(--color-primary);
+  --primary-light: #0d4f4a;
+  --secondary: var(--color-secondary);
+  --accent: var(--color-secondary);
+  --accent-light: rgba(20,184,166,0.15);
+  --amber: #92400e;
+  --amber-light: rgba(245,158,11,0.15);
+  --red: var(--color-destructive);
+  --surface: var(--color-surface);
+  --surface-secondary: var(--color-surface-2);
+  --border: var(--color-border);
+  --text: var(--color-text);
+  --text-secondary: var(--color-text-muted);
+  --text-tertiary: #64748B;
+  --font: var(--font-sans);
+  --mono: 'DM Mono', ui-monospace, monospace;
+  --radius: var(--radius-md);
+  --panel-width: 340px;
+  --bg: var(--color-bg);
 }
 
 html, body {
   width: 100%;
   height: 100%;
-  font-family: var(--font);
-  color: var(--text);
-  background: var(--surface-secondary);
+  font-family: var(--font-sans);
+  color: var(--color-text);
+  background: var(--color-bg);
   overflow: hidden;
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; }
 }
 
 /* ── Scrollbar ─────────────────────────────── */
 ::-webkit-scrollbar { width: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+::-webkit-scrollbar-thumb { background: var(--color-border); border-radius: 2px; }
 
 /* ── Buttons ──────────────────────────────── */
 .btn-primary {
