@@ -37,6 +37,28 @@
       position: absolute; top: 16px; left: 16px;
       display: flex; flex-direction: column; gap: 6px; z-index: 10;
     }
+    /* viewer3d.js creates .cam-preset-btn; style them compactly for admin */
+    .cam-preset-btn {
+      background: rgba(15,17,23,0.82); backdrop-filter: blur(8px);
+      border: 1px solid rgba(255,255,255,0.12); color: #e5e7eb;
+      width: 36px; height: 36px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      padding: 0; cursor: pointer; overflow: hidden;
+      transition: background 0.15s, border-color 0.15s;
+      white-space: nowrap; flex-shrink: 0;
+    }
+    .cam-preset-btn .icon-wrap {
+      width: 36px; height: 36px; flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .cam-preset-btn .icon-wrap svg { width: 16px; height: 16px; opacity: 0.8; }
+    .cam-preset-btn .label-wrap { display: none; }
+    .cam-preset-btn:hover  { background: rgba(24,95,165,0.35); border-color: rgba(24,95,165,0.6); }
+    .cam-preset-btn.active { background: rgba(24,95,165,0.45); border-color: #185FA5; color: #fff; }
+    .cam-preset-btn.active .icon-wrap svg { opacity: 1; }
+    /* Speed limit sign is viewer-only decoration, hide in admin */
+    .speed-limit-sign { display: none !important; }
+    /* Legacy rectangular button style (Edit, etc.) */
     .cam-btn {
       background: rgba(15,17,23,0.82); backdrop-filter: blur(8px);
       border: 1px solid rgba(255,255,255,0.12); color: #e5e7eb;

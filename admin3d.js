@@ -336,12 +336,7 @@ function renderDrawerBody() {
     return label.outerHTML;
   }).join('');
 
-  const optionEls = unassigned.map(c => {
-    const opt = document.createElement('option');
-    opt.value = c.id;
-    opt.textContent = c.name + ' — ' + c.role;
-    return opt.outerHTML;
-  }).join('');
+  // unassigned contacts used by the search autocomplete (attached after innerHTML)
 
   const actionButtons = isPersonal
     ? `<button class="btn-secondary" style="flex:1" onclick="window._adminSharePersonal()">Share…</button>`
@@ -366,10 +361,10 @@ function renderDrawerBody() {
       <div id="contact-chips" style="margin-bottom:6px">
         ${chips || '<span style="font-size:12px;color:var(--text-secondary)">None assigned</span>'}
       </div>
-      <select class="form-input" id="contact-picker" style="max-width:280px">
-        <option value="">Add contact…</option>
-        ${optionEls}
-      </select>
+      <div style="position:relative;max-width:280px">
+        <input type="text" class="form-input" id="contact-search" placeholder="Type name or role…" autocomplete="off" style="padding-right:28px">
+        <div id="contact-suggestions" style="display:none;position:absolute;left:0;right:0;top:calc(100% + 2px);z-index:100;background:#1a1d27;border:1px solid rgba(255,255,255,0.15);border-radius:6px;overflow-y:auto;max-height:160px;box-shadow:0 4px 16px rgba(0,0,0,0.5)"></div>
+      </div>
     </div>
     <div class="form-group full">
       <label class="form-label">Notes (optional)</label>
@@ -382,9 +377,39 @@ function renderDrawerBody() {
     </div>
   `;
 
-  document.getElementById('contact-picker').addEventListener('change', e => {
-    window._adminAddContact(e.target.value);
-    e.target.value = '';
+  // Contact search autocomplete
+  const searchInput = document.getElementById('contact-search');
+  const suggestionsEl = document.getElementById('contact-suggestions');
+
+  function _renderSuggestions(q) {
+    const term = q.trim().toLowerCase();
+    const matches = unassigned
+      .filter(c => !term || c.name.toLowerCase().includes(term) || (c.role || '').toLowerCase().includes(term))
+      .slice(0, 8);
+    if (!matches.length) { suggestionsEl.style.display = 'none'; return; }
+    suggestionsEl.innerHTML = '';
+    matches.forEach(c => {
+      const row = document.createElement('div');
+      row.style.cssText = 'padding:8px 12px;cursor:pointer;border-bottom:1px solid rgba(255,255,255,0.06);font-size:13px;';
+      row.innerHTML = `<span style="color:#e5e7eb;font-weight:500">${_esc(c.name)}</span><span style="color:var(--text-secondary);font-size:11px;margin-left:6px">${_esc(c.role || '')}</span>`;
+      row.addEventListener('mousedown', e => {
+        e.preventDefault(); // prevent input blur before click
+        window._adminAddContact(c.id);
+        searchInput.value = '';
+        suggestionsEl.style.display = 'none';
+      });
+      row.addEventListener('mouseover', () => row.style.background = 'rgba(255,255,255,0.06)');
+      row.addEventListener('mouseout',  () => row.style.background = '');
+      suggestionsEl.appendChild(row);
+    });
+    suggestionsEl.style.display = 'block';
+  }
+
+  searchInput.addEventListener('input', e => _renderSuggestions(e.target.value));
+  searchInput.addEventListener('focus', () => _renderSuggestions(searchInput.value));
+  searchInput.addEventListener('blur', () => setTimeout(() => { suggestionsEl.style.display = 'none'; }, 150));
+  searchInput.addEventListener('keydown', e => {
+    if (e.key === 'Escape') { suggestionsEl.style.display = 'none'; searchInput.blur(); }
   });
 }
 

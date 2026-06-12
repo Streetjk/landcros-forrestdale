@@ -2327,9 +2327,36 @@ async function boot() {
       fetch('./data/contacts.json').then(r => r.json()).catch(() => []),
     ]);
     _allContacts = contacts;
-    renderPins(points);
-    renderPointList(points);
-    _updateVisitHud(points);
+
+    // Consume #share=<base64> hash — add the shared pin ephemerally, then select it
+    const hashMatch = window.location.hash.match(/^#share=(.+)$/);
+    if (hashMatch) {
+      try {
+        const shared = JSON.parse(atob(hashMatch[1]));
+        const ephemeral = {
+          id: 'shared-' + Date.now(),
+          label: shared.label ?? 'Shared pin',
+          latlng: shared.latlng,
+          notes: shared.notes ?? '',
+          type: shared.type ?? 'drop-off',
+          scope: 'shared',
+        };
+        renderPins([...points, ephemeral]);
+        renderPointList([...points, ephemeral]);
+        _updateVisitHud(points);
+        // Brief delay so scene settles before flying to the pin
+        setTimeout(() => selectPoint(ephemeral), 800);
+        window.location.hash = '';
+      } catch {
+        renderPins(points);
+        renderPointList(points);
+        _updateVisitHud(points);
+      }
+    } else {
+      renderPins(points);
+      renderPointList(points);
+      _updateVisitHud(points);
+    }
   } else if (_debugMode) {
     _updateVisitHud(await fetch('./data/points.json').then(r => r.json()).catch(() => []));
   }
