@@ -2225,10 +2225,39 @@ async function loadComparisonScene(route, opts = {}) {
 function _doIntroAnimation() {
   if (!_splatViewer || _introPlayed) return;
   _introPlayed = true;
-  // No zoom-in on load — just start slow orbit at current distance.
-  // Zoom only happens when user clicks a pin via selectPoint().
-  controls.autoRotate      = true;
-  controls.autoRotateSpeed = 0.3;
+  controls.enabled = false;
+  _camAnimating = true;
+  const lookAt   = new THREE.Vector3(0, 0, 0);
+  const startSph = new THREE.Spherical().setFromVector3(camera.position);
+  const _intro   = _cfg.camera?.introAnimation ?? {};
+  // Keep radius (distance) fixed — only pan to the configured angle/elevation.
+  // Zoom only happens when a pin is clicked via selectPoint().
+  const endSph = new THREE.Spherical(
+    startSph.radius,
+    THREE.MathUtils.degToRad(_intro.phi   ?? 80.9),
+    THREE.MathUtils.degToRad(_intro.theta ?? -25.9),
+  );
+  const prog = { t: 0 };
+  _camTween = gsap.to(prog, {
+    t: 1, duration: 3.0, delay: 0.4, ease: 'power2.inOut',
+    onUpdate() {
+      camera.position.setFromSpherical(new THREE.Spherical(
+        startSph.radius,
+        THREE.MathUtils.lerp(startSph.phi,   endSph.phi,   prog.t),
+        THREE.MathUtils.lerp(startSph.theta, endSph.theta, prog.t),
+      ));
+      camera.lookAt(lookAt);
+    },
+    onComplete() {
+      controls.target.copy(lookAt);
+      controls.enabled = true;
+      _camAnimating = false;
+      _camTween = null;
+      controls.update();
+      controls.autoRotate      = true;
+      controls.autoRotateSpeed = 0.3;
+    },
+  });
 }
 
 async function loadSplatBackground(opts = {}) {
