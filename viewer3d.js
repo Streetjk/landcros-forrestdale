@@ -359,6 +359,8 @@ const _pinAnimatables = []; // { squareLine, squareMat } — pulsed each frame
 let _lastRenderMs = 0;
 const IDLE_AFTER = _Q.idleAfter;
 const IDLE_INTERVAL = _Q.idleInterval;
+let _pins = {}; // id → { group, pinGroup, sphere, icon, label, squareMat, squareGroup, pt }
+let _selectedId = null;
 
 function animate() {
   requestAnimationFrame(animate);
@@ -607,8 +609,6 @@ window.setCameraPreset = function setCameraPreset(name, duration = 2500) {
 // ── Pin rendering ──────────────────────────────────────────────────────────
 
 const PIN_COLORS = { 'drop-off': 0x185FA5, 'collection': 0x1D9E75, 'both': 0x854F0B };
-let _pins = {}; // id → { group, pinGroup, sphere, icon, label, squareMat, squareGroup, pt }
-let _selectedId = null;
 
 function _addPinToScene(pt) {
   const { x, y, z } = pt.position3d;
