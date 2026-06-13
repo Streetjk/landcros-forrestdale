@@ -25,6 +25,13 @@ function _readVisits() {
 }
 function _writeVisits(v) { fs.writeFileSync(VISITS_FILE, JSON.stringify(v, null, 2), 'utf8'); }
 
+const SHARED_LINKS_FILE = path.join(DATA, 'shared-links.json');
+function _readSharedLinks() {
+  try { return JSON.parse(fs.readFileSync(SHARED_LINKS_FILE, 'utf8')); }
+  catch { return {}; }
+}
+function _writeSharedLinks(l) { fs.writeFileSync(SHARED_LINKS_FILE, JSON.stringify(l, null, 2), 'utf8'); }
+
 const MIME = {
   '.html': 'text/html; charset=utf-8',
   '.js':   'application/javascript; charset=utf-8',
@@ -66,32 +73,40 @@ const server = http.createServer((req, res) => {
     return res.end();
   }
 
-  if (req.method === 'GET' && pathname === '/api/shorten') {
-    const targetUrl = url.searchParams.get('url');
-    if (!targetUrl) {
-      res.writeHead(400, { 'Content-Type': 'application/json' });
-      return res.end(JSON.stringify({ error: 'missing url' }));
-    }
-    try {
-      const https = require('https');
-      const apiUrl = `https://tinyurl.com/api-create.php?url=${encodeURIComponent(targetUrl)}`;
-      https.get(apiUrl, (upstream) => {
-        let data = '';
-        upstream.on('data', c => data += c);
-        upstream.on('end', () => {
-          const short = data.trim();
-          res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
-          res.end(JSON.stringify({ short }));
-        });
-      }).on('error', (e) => {
-        res.writeHead(502, { 'Content-Type': 'application/json' });
+  // ── Share link store ──────────────────────────────────────────────────
+  if (req.method === 'POST' && pathname === '/api/share') {
+    let body = '';
+    let bodySize = 0;
+    req.on('data', c => { bodySize += c.length; if (bodySize > POST_BODY_LIMIT) { req.destroy(); return; } body += c; });
+    req.on('end', () => {
+      try {
+        const pinData = JSON.parse(body);
+        const links = _readSharedLinks();
+        const chars = 'abcdefghijkmnpqrstuvwxyz23456789';
+        let code;
+        do { code = Array.from({ length: 8 }, () => chars[Math.floor(Math.random() * chars.length)]).join(''); }
+        while (links[code]);
+        links[code] = { pinData, created: new Date().toISOString() };
+        _writeSharedLinks(links);
+        const shareUrl = `${req.headers['x-forwarded-proto'] || 'http'}://${req.headers['host']}/viewer3d.html?s=${code}`;
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        res.end(JSON.stringify({ code, url: shareUrl }));
+      } catch (e) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: e.message }));
-      });
-    } catch (e) {
-      res.writeHead(500, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: e.message }));
-    }
+      }
+    });
     return;
+  }
+
+  if (req.method === 'GET' && pathname.startsWith('/api/share/')) {
+    const code = pathname.slice('/api/share/'.length).replace(/[^a-z0-9]/g, '');
+    if (!code) { res.writeHead(400, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ error: 'missing code' })); }
+    const links = _readSharedLinks();
+    const entry = links[code];
+    if (!entry) { res.writeHead(404, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ error: 'not found' })); }
+    res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+    return res.end(JSON.stringify(entry.pinData));
   }
 
   if (req.method === 'GET' && pathname === '/api/visits') {

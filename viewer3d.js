@@ -90,7 +90,7 @@ const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 controls.dampingFactor = 0.06;
 controls.rotateSpeed   = window.innerWidth > 767 ? 0.35 : 0.525;
-controls.zoomSpeed     = 0.6;
+controls.zoomSpeed     = 0.9;
 controls.panSpeed      = 0.7;
 controls.minDistance = 3;
 controls.maxDistance = 80;
@@ -2556,7 +2556,25 @@ async function boot() {
     renderPointList(points);
     _updateVisitHud(points);
 
-    // Fix 1.1 — QR deep-link fly-to
+    // Short-code deep link: ?s=<code> → fetch /api/share/<code>
+    const _shortCode = _params.get('s');
+    if (_shortCode) {
+      try {
+        const _shareResp = await fetch(`/api/share/${encodeURIComponent(_shortCode)}`);
+        if (_shareResp.ok) {
+          const parsed = await _shareResp.json();
+          if (parsed.contacts) {
+            parsed.contacts.forEach(c => {
+              if (!_allContacts.find(a => a.id === c.id)) _allContacts.push(c);
+            });
+          }
+          const _sPt = points.find(p => p.id === parsed.id) ?? { scope: 'shared', ...parsed };
+          setTimeout(() => selectPoint({ ..._sPt, ...parsed, contacts: undefined }), 800);
+        }
+      } catch {}
+    }
+
+    // QR / legacy deep-link fly-to: ?id=<pinId>[&d=<base64>]
     const _deepId = _params.get('id');
     if (_deepId) {
       let _deepPt = points.find(p => p.id === _deepId);

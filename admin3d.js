@@ -555,21 +555,37 @@ window._adminDelete = async () => {
 };
 
 // ── QR / link ─────────────────────────────────────────────────────────────────
-window._adminToggleQR = () => {
+window._adminToggleQR = async () => {
   if (!_editingPoint) return;
   const sec     = document.getElementById('qr-section');
   const visible = sec.style.display !== 'block';
   sec.style.display = visible ? 'block' : 'none';
   if (visible) {
-    const url = `${location.origin}/viewer3d.html?id=${_editingPoint.id}`;
+    let url = `${location.origin}/viewer3d.html?id=${_editingPoint.id}`;
+    try {
+      const allContacts = await getContacts();
+      const contacts = allContacts.filter(c => (_editingPoint.contactIds ?? []).includes(c.id));
+      const pinData = { id: _editingPoint.id, label: _editingPoint.label, type: _editingPoint.type, notes: _editingPoint.notes ?? '', latlng: _editingPoint.latlng, contactIds: _editingPoint.contactIds ?? [], contacts, position3d: _editingPoint.position3d, cameraPreset3d: _editingPoint.cameraPreset3d };
+      const resp = await fetch('/api/share', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(pinData) });
+      const { url: shareUrl } = await resp.json();
+      if (shareUrl) url = shareUrl;
+    } catch {}
     document.getElementById('qr-canvas-wrap').innerHTML = '';
     generateQR(url, 'qr-canvas-wrap');
   }
 };
 
-window._adminDownloadQR = () => {
+window._adminDownloadQR = async () => {
   if (!_editingPoint) return;
-  const url = `${location.origin}/viewer3d.html?id=${_editingPoint.id}`;
+  let url = `${location.origin}/viewer3d.html?id=${_editingPoint.id}`;
+  try {
+    const allContacts = await getContacts();
+    const contacts = allContacts.filter(c => (_editingPoint.contactIds ?? []).includes(c.id));
+    const pinData = { id: _editingPoint.id, label: _editingPoint.label, type: _editingPoint.type, notes: _editingPoint.notes ?? '', latlng: _editingPoint.latlng, contactIds: _editingPoint.contactIds ?? [], contacts, position3d: _editingPoint.position3d, cameraPreset3d: _editingPoint.cameraPreset3d };
+    const resp = await fetch('/api/share', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(pinData) });
+    const { url: shareUrl } = await resp.json();
+    if (shareUrl) url = shareUrl;
+  } catch {}
   downloadQR(url, `sitenav-${_editingPoint.id.slice(0, 8)}.png`);
 };
 
@@ -577,7 +593,8 @@ window._adminCopyLink = async () => {
   if (!_editingPoint) return;
   const allContacts = await getContacts();
   const contacts = allContacts.filter(c => (_editingPoint.contactIds ?? []).includes(c.id));
-  const payload = {
+  const pinData = {
+    id: _editingPoint.id,
     label: _editingPoint.label,
     type: _editingPoint.type,
     notes: _editingPoint.notes ?? '',
@@ -587,14 +604,19 @@ window._adminCopyLink = async () => {
     position3d: _editingPoint.position3d,
     cameraPreset3d: _editingPoint.cameraPreset3d,
   };
-  const longUrl = `${location.origin}/viewer3d.html?id=${_editingPoint.id}&d=${encodeURIComponent(btoa(JSON.stringify(payload)))}`;
   try {
-    const resp = await fetch(`/api/shorten?url=${encodeURIComponent(longUrl)}`);
-    const { short } = await resp.json();
-    navigator.clipboard.writeText(short || longUrl).catch(() => {});
+    const resp = await fetch('/api/share', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(pinData),
+    });
+    const { url } = await resp.json();
+    navigator.clipboard.writeText(url).catch(() => {});
     showToast('Short link copied!');
   } catch {
-    navigator.clipboard.writeText(longUrl).catch(() => {});
+    // fallback: embed data in URL
+    const fallback = `${location.origin}/viewer3d.html?id=${_editingPoint.id}&d=${encodeURIComponent(btoa(JSON.stringify(pinData)))}`;
+    navigator.clipboard.writeText(fallback).catch(() => {});
     showToast('Link copied!');
   }
 };
