@@ -384,9 +384,9 @@ function renderDrawerBody() {
   // unassigned contacts used by the search autocomplete (attached after innerHTML)
 
   const actionButtons = isPersonal
-    ? `<button class="btn-secondary" style="flex:1" onclick="window._adminSharePersonal()">Share…</button>`
-    : `<button class="btn-secondary" style="flex:1" onclick="window._adminToggleQR()">QR code</button>
-       <button class="btn-secondary" style="flex:1" onclick="window._adminCopyLink()">Copy link</button>`;
+    ? `<button class="pin-action-btn action" onclick="window._adminSharePersonal()">Share</button>`
+    : `<button class="pin-action-btn action" onclick="window._adminToggleQR()">QR</button>
+       <button class="pin-action-btn action" onclick="window._adminCopyLink()">Link</button>`;
 
   document.getElementById('drawer-body').innerHTML = `
     <div class="form-group">
@@ -415,10 +415,10 @@ function renderDrawerBody() {
       <label class="form-label">Notes (optional)</label>
       <textarea class="form-input" id="field-notes">${_esc(pt.notes ?? '')}</textarea>
     </div>
-    <div class="full" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
-      <button class="btn-primary" style="width:auto;padding:9px 18px" onclick="window._adminSave()">Save pin</button>
-      <div style="display:flex;gap:8px;flex:1;min-width:180px">${actionButtons}</div>
-      <button class="btn-primary danger" style="width:auto;padding:9px 14px" onclick="window._adminDelete()">Delete</button>
+    <div class="full pin-action-row">
+      <button class="pin-action-btn save" onclick="window._adminSave()">Save</button>
+      ${actionButtons}
+      <button class="pin-action-btn del" onclick="window._adminDelete()">Delete</button>
     </div>
   `;
 

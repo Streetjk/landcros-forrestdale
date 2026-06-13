@@ -167,6 +167,40 @@
     #admin-controls .btn-primary { margin-bottom: 8px; }
     #admin-controls .btn-secondary { margin-bottom: 8px; }
 
+    /* ── Pin action row ── */
+    .pin-action-row {
+      display: flex;
+      gap: 6px;
+      width: 100%;
+      margin-top: 14px;
+    }
+    .pin-action-btn {
+      flex: 1;
+      min-width: 0;
+      padding: 10px 4px;
+      font-size: 12px;
+      font-weight: 600;
+      font-family: var(--font);
+      border-radius: 8px;
+      border: none;
+      cursor: pointer;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      transition: background 0.15s, transform 0.1s;
+      line-height: 1;
+    }
+    .pin-action-btn:active { transform: scale(0.97); }
+    .pin-action-btn.save    { background: var(--primary); color: #fff; }
+    .pin-action-btn.save:hover { background: #0f4a87; }
+    .pin-action-btn.action  { background: transparent; border: 1px solid var(--border); color: var(--text); }
+    .pin-action-btn.action:hover { background: var(--surface-secondary); }
+    .pin-action-btn.del     { background: var(--red); color: #fff; }
+    .pin-action-btn.del:hover { background: #b91c1c; }
+    @media (min-width: 600px) {
+      .pin-action-btn { font-size: 13px; padding: 11px 8px; }
+    }
+
     #point-list { flex: 1; overflow-y: auto; padding: 8px; min-height: 0; }
     .list-section {
       font-size: 10px; font-weight: 600; color: var(--text-secondary);
