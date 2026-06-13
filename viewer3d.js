@@ -2225,38 +2225,10 @@ async function loadComparisonScene(route, opts = {}) {
 function _doIntroAnimation() {
   if (!_splatViewer || _introPlayed) return;
   _introPlayed = true;
-  controls.enabled = false;
-  _camAnimating = true;
-  const lookAt   = new THREE.Vector3(0, 0, 0);
-  const startSph = new THREE.Spherical().setFromVector3(camera.position);
-  const _intro = _cfg.camera?.introAnimation ?? {};
-  const endSph   = new THREE.Spherical(
-    _intro.radius ?? 19.55,
-    THREE.MathUtils.degToRad(_intro.phi   ?? 80.9),
-    THREE.MathUtils.degToRad(_intro.theta ?? -25.9),
-  );
-  const prog     = { t: 0 };
-  _camTween = gsap.to(prog, {
-    t: 1,
-    duration: 3.0,
-    delay: 0.4,
-    ease: 'power2.inOut',
-    onUpdate() {
-      camera.position.setFromSpherical(new THREE.Spherical(
-        THREE.MathUtils.lerp(startSph.radius, endSph.radius, prog.t),
-        THREE.MathUtils.lerp(startSph.phi,    endSph.phi,    prog.t),
-        THREE.MathUtils.lerp(startSph.theta,  endSph.theta,  prog.t),
-      ));
-      camera.lookAt(lookAt);
-    },
-    onComplete() {
-      controls.target.copy(lookAt);
-      controls.enabled = true;
-      _camAnimating = false;
-      _camTween = null;
-      controls.update();
-    },
-  });
+  // No zoom-in on load — just start slow orbit at current distance.
+  // Zoom only happens when user clicks a pin via selectPoint().
+  controls.autoRotate      = true;
+  controls.autoRotateSpeed = 0.3;
 }
 
 async function loadSplatBackground(opts = {}) {
@@ -2411,6 +2383,13 @@ async function boot() {
     console.error('Config load failed:', err);
     return {};
   });
+
+  // Set logo src immediately so the image starts loading while the rest of boot runs
+  const _earlyLogo = _cfg.site?.logo;
+  if (_earlyLogo) {
+    const _ll = document.getElementById('load-logo');
+    if (_ll) _ll.src = _earlyLogo;
+  }
 
   _initMeasure();
 
