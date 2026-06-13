@@ -220,6 +220,7 @@ function startAutoOrbit(target, radius, elevDeg) {
       controls.autoRotateSpeed = 0.3; // ~200 s per orbit, matches old speed
       controls.target.copy(target);
       controls.update();
+      window._syncRotateBtn?.();
     },
   });
 }
@@ -232,7 +233,13 @@ function stopAutoOrbit() {
   controls.autoRotate   = false;
   controls.enabled      = true;
   controls.update();
+  window._syncRotateBtn?.();
 }
+
+window._syncRotateBtn = () => {
+  const btn = document.getElementById('btn-auto-rotate');
+  if (btn) btn.classList.toggle('active', !!controls.autoRotate);
+};
 let _drawPts = [];
 const _drawGrp = new THREE.Group();
 scene.add(_drawGrp);
@@ -442,6 +449,26 @@ function _buildCamButtons(cfg) {
     autopan: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/></svg>`,
     fullscreen: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>`,
   };
+
+  // Auto-rotate toggle — always first
+  const rotBtn = document.createElement('button');
+  rotBtn.className = 'cam-preset-btn';
+  rotBtn.id = 'btn-auto-rotate';
+  rotBtn.title = 'Toggle auto-rotate';
+  rotBtn.innerHTML = `<div class="icon-wrap">${icons.autopan}</div><span class="label-wrap">Rotate</span>`;
+  rotBtn.onclick = () => {
+    if (controls.autoRotate) {
+      stopAutoOrbit();
+      controls.autoRotate = false;
+      window._syncRotateBtn?.();
+    } else {
+      if (_orbitActive) stopAutoOrbit();
+      controls.autoRotate      = true;
+      controls.autoRotateSpeed = 0.3;
+      window._syncRotateBtn?.();
+    }
+  };
+  wrap.appendChild(rotBtn);
 
   (cfg.camera?.presets ?? []).forEach((p, i) => {
     const btn = document.createElement('button');
@@ -2256,6 +2283,7 @@ function _doIntroAnimation() {
       controls.update();
       controls.autoRotate      = true;
       controls.autoRotateSpeed = 0.3;
+      window._syncRotateBtn?.();
     },
   });
 }
