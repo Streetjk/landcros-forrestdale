@@ -494,6 +494,7 @@ function _buildCamButtons(cfg) {
     <span class="label-wrap">Measure</span>
   `;
   mBtn.onclick = () => _toggleMeasure(!_measureMode);
+  mBtn.style.display = 'none';
   wrap.appendChild(mBtn);
 
   // Speed limit sign — decorative, site-specific (omitted when config lacks speedLimitSign)
