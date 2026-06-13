@@ -116,7 +116,8 @@
       width: auto;
       max-width: 220px;
       object-fit: contain;
-      /* no invert — logo uses original brand colours */
+      opacity: 0;
+      transition: opacity 0.2s;
     }
 
     .load-site-name {
@@ -752,7 +753,7 @@
 
     <div id="loading">
       <div class="load-logo-mark">
-        <img id="load-logo" src="" alt="Logo">
+        <img id="load-logo" src="" alt="Logo" onload="this.style.opacity='1'" onerror="this.style.display='none'">
       </div>
       <div class="load-site-sub" id="load-site-sub"></div>
       <div class="load-bar"><div class="load-fill" id="load-fill"></div></div>
