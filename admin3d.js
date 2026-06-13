@@ -621,13 +621,35 @@ window._adminCopyLink = async () => {
   }
 };
 
-window._adminSharePersonal = () => {
+window._adminSharePersonal = async () => {
   if (!_editingPoint) return;
-  const payload = { label: _editingPoint.label, latlng: _editingPoint.latlng, notes: _editingPoint.notes, type: _editingPoint.type };
-  const hash = '#share=' + btoa(JSON.stringify(payload));
-  const url = `${location.origin}/viewer3d.html${hash}`;
-  navigator.clipboard.writeText(url).catch(() => {});
-  showToast('Share link copied!');
+  const allContacts = await getContacts();
+  const contacts = allContacts.filter(c => (_editingPoint.contactIds ?? []).includes(c.id));
+  const pinData = {
+    id: _editingPoint.id,
+    label: _editingPoint.label,
+    type: _editingPoint.type,
+    notes: _editingPoint.notes ?? '',
+    latlng: _editingPoint.latlng,
+    contactIds: _editingPoint.contactIds ?? [],
+    contacts,
+    position3d: _editingPoint.position3d,
+    cameraPreset3d: _editingPoint.cameraPreset3d,
+  };
+  try {
+    const resp = await fetch('/api/share', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(pinData),
+    });
+    const { url } = await resp.json();
+    navigator.clipboard.writeText(url).catch(() => {});
+    showToast('Short link copied!');
+  } catch {
+    const fallback = `${location.origin}/viewer3d.html?id=${_editingPoint.id}&d=${encodeURIComponent(btoa(JSON.stringify(pinData)))}`;
+    navigator.clipboard.writeText(fallback).catch(() => {});
+    showToast('Link copied!');
+  }
 };
 
 // ── Contact manager ───────────────────────────────────────────────────────────
