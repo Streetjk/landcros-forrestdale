@@ -2568,17 +2568,27 @@ async function boot() {
       if (_deepData) {
         try {
           const parsed = JSON.parse(atob(_deepData));
-          // Inline contacts into _allContacts so selectPoint can find them
           if (parsed.contacts) {
             parsed.contacts.forEach(c => {
               if (!_allContacts.find(a => a.id === c.id)) _allContacts.push(c);
             });
           }
-          // Overlay parsed data onto server pin (or use as-is if pin not on server)
           _deepPt = _deepPt
             ? { ..._deepPt, label: parsed.label, type: parsed.type, notes: parsed.notes, contactIds: parsed.contactIds, cameraPreset3d: parsed.cameraPreset3d ?? _deepPt.cameraPreset3d }
             : { id: _deepId, scope: 'shared', position3d: parsed.position3d, ...parsed };
+          // Ephemeral pin not in server list — add it so the marker renders
+          if (!points.find(p => p.id === _deepId)) {
+            renderPins([...points, _deepPt]);
+            renderPointList([...points, _deepPt]);
+          }
         } catch {}
+      } else if (_deepPt) {
+        // Pin found on server but URL has no ?d= — bake data in so future refreshes
+        // survive a server restart (Render ephemeral filesystem)
+        const _pinContacts = _allContacts.filter(c => (_deepPt.contactIds ?? []).includes(c.id));
+        const _payload = { label: _deepPt.label, type: _deepPt.type, notes: _deepPt.notes ?? '', latlng: _deepPt.latlng, contactIds: _deepPt.contactIds ?? [], contacts: _pinContacts, position3d: _deepPt.position3d, cameraPreset3d: _deepPt.cameraPreset3d };
+        const _baked = `?id=${_deepId}&d=${encodeURIComponent(btoa(JSON.stringify(_payload)))}`;
+        history.replaceState(null, '', _baked);
       }
       if (_deepPt) setTimeout(() => selectPoint(_deepPt), 800);
     }
