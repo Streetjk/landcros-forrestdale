@@ -66,6 +66,34 @@ const server = http.createServer((req, res) => {
     return res.end();
   }
 
+  if (req.method === 'GET' && pathname === '/api/shorten') {
+    const targetUrl = url.searchParams.get('url');
+    if (!targetUrl) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ error: 'missing url' }));
+    }
+    try {
+      const https = require('https');
+      const apiUrl = `https://tinyurl.com/api-create.php?url=${encodeURIComponent(targetUrl)}`;
+      https.get(apiUrl, (upstream) => {
+        let data = '';
+        upstream.on('data', c => data += c);
+        upstream.on('end', () => {
+          const short = data.trim();
+          res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+          res.end(JSON.stringify({ short }));
+        });
+      }).on('error', (e) => {
+        res.writeHead(502, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: e.message }));
+      });
+    } catch (e) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: e.message }));
+    }
+    return;
+  }
+
   if (req.method === 'GET' && pathname === '/api/visits') {
     const v = _readVisits();
     res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });

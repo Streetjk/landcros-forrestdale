@@ -254,10 +254,10 @@ function renderPointList(filter = '') {
     !lf || p.label.toLowerCase().includes(lf) || p.type.includes(lf)
   );
 
-  const groups = { 'drop-off': [], 'collection': [], 'both': [] };
+  const groups = { 'drop-off': [], 'collection': [], 'both': [], 'meet-point': [] };
   visibleShared.forEach(p => (groups[p.type] ?? groups['drop-off']).push(p));
-  const dotColor = { 'drop-off': 'var(--primary)', 'collection': 'var(--accent)', 'both': 'var(--amber)' };
-  const typeLabel = { 'drop-off': 'Drop-off', 'collection': 'Collection', 'both': 'Both' };
+  const dotColor = { 'drop-off': 'var(--primary)', 'collection': 'var(--accent)', 'both': 'var(--amber)', 'meet-point': '#f59e0b' };
+  const typeLabel = { 'drop-off': 'Drop-off', 'collection': 'Collection', 'both': 'Both', 'meet-point': 'Meet Point' };
 
   let html = '';
 
@@ -337,7 +337,7 @@ function renderDrawerBody() {
   const allContacts = _contacts.filter(c => c.active);
   const assigned   = _editingContactIds.map(id => allContacts.find(c => c.id === id)).filter(Boolean);
   const unassigned = allContacts.filter(c => !_editingContactIds.includes(c.id));
-  const typeLabel  = { 'drop-off': 'Drop-off', 'collection': 'Collection', 'both': 'Both' };
+  const typeLabel  = { 'drop-off': 'Drop-off', 'collection': 'Collection', 'both': 'Both', 'meet-point': 'Meet Point' };
   const isPersonal = _editingScope === 'personal';
 
   const chips = assigned.map(c => {
@@ -353,7 +353,7 @@ function renderDrawerBody() {
     return span.outerHTML;
   }).join('');
 
-  const typeRadios = ['drop-off', 'collection', 'both'].map(t => {
+  const typeRadios = ['drop-off', 'collection', 'both', 'meet-point'].map(t => {
     const label = document.createElement('label');
     label.style.cssText = 'display:flex;align-items:center;gap:5px;font-size:13px;cursor:pointer';
     const input = document.createElement('input');
@@ -573,11 +573,30 @@ window._adminDownloadQR = () => {
   downloadQR(url, `sitenav-${_editingPoint.id.slice(0, 8)}.png`);
 };
 
-window._adminCopyLink = () => {
+window._adminCopyLink = async () => {
   if (!_editingPoint) return;
-  const url = `${location.origin}/viewer3d.html?id=${_editingPoint.id}`;
-  navigator.clipboard.writeText(url).catch(() => {});
-  showToast('Link copied!');
+  const allContacts = await getContacts();
+  const contacts = allContacts.filter(c => (_editingPoint.contactIds ?? []).includes(c.id));
+  const payload = {
+    label: _editingPoint.label,
+    type: _editingPoint.type,
+    notes: _editingPoint.notes ?? '',
+    latlng: _editingPoint.latlng,
+    contactIds: _editingPoint.contactIds ?? [],
+    contacts,
+    position3d: _editingPoint.position3d,
+    cameraPreset3d: _editingPoint.cameraPreset3d,
+  };
+  const longUrl = `${location.origin}/viewer3d.html?id=${_editingPoint.id}&d=${encodeURIComponent(btoa(JSON.stringify(payload)))}`;
+  try {
+    const resp = await fetch(`/api/shorten?url=${encodeURIComponent(longUrl)}`);
+    const { short } = await resp.json();
+    navigator.clipboard.writeText(short || longUrl).catch(() => {});
+    showToast('Short link copied!');
+  } catch {
+    navigator.clipboard.writeText(longUrl).catch(() => {});
+    showToast('Link copied!');
+  }
 };
 
 window._adminSharePersonal = () => {

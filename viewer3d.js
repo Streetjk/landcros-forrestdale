@@ -604,7 +604,7 @@ window.setCameraPreset = function setCameraPreset(name, duration = 2500) {
 
 // ── Pin rendering ──────────────────────────────────────────────────────────
 
-const PIN_COLORS = { 'drop-off': 0x185FA5, 'collection': 0x1D9E75, 'both': 0x854F0B };
+const PIN_COLORS = { 'drop-off': 0x185FA5, 'collection': 0x1D9E75, 'both': 0x854F0B, 'meet-point': 0xF59E0B };
 
 function _addPinToScene(pt) {
   const { x, y, z } = pt.position3d;
@@ -660,15 +660,17 @@ function _addPinToScene(pt) {
   const pathEl = document.createElementNS('http://www.w3.org/2000/svg', 'path');
   pathEl.setAttribute('fill-rule', 'evenodd');
   pathEl.setAttribute('d', 'M14,1 C7.4,1 2,6.4 2,13 C2,23 14,39 14,39 C14,39 26,23 26,13 C26,6.4 20.6,1 14,1 Z M14,8 a5,5 0 1,0 0.001,0 Z');
-  pathEl.setAttribute('fill', isPersonal ? 'rgba(79,106,245,0.85)' : 'rgba(220,30,30,0.85)');
+  const TYPE_SVG_FILL = { 'drop-off': 'rgba(220,30,30,0.85)', 'collection': 'rgba(0,177,64,0.85)', 'both': 'rgba(133,79,11,0.85)', 'meet-point': 'rgba(245,158,11,0.85)' };
+  pathEl.setAttribute('fill', isPersonal ? 'rgba(79,106,245,0.85)' : (TYPE_SVG_FILL[pt.type] || 'rgba(220,30,30,0.85)'));
   svgEl.appendChild(pathEl);
   iconWrap.appendChild(svgEl);
 
   const labelDiv = document.createElement('div');
   labelDiv.style.cssText = 'position:absolute;left:50%;transform:translateX(-50%);bottom:44px;pointer-events:auto;cursor:pointer;z-index:100;';
   const labelInner = document.createElement('span');
-  const labelBg = isPersonal ? 'rgba(79,106,245,0.80)' : 'rgba(0,177,64,0.80)';
-  labelInner.style.cssText = `display:inline-block;background:${labelBg};backdrop-filter:blur(6px);color:#ffffff;font:600 18px 'DM Sans',sans-serif;padding:4px 8px;border-radius:6px;white-space:nowrap;transform-origin:50% 100%;`;
+  const TYPE_LABEL_BG = { 'drop-off': 'rgba(220,30,30,0.85)', 'collection': 'rgba(0,177,64,0.80)', 'both': 'rgba(133,79,11,0.85)', 'meet-point': 'rgba(245,158,11,0.85)' };
+  const labelBg = isPersonal ? 'rgba(79,106,245,0.80)' : (TYPE_LABEL_BG[pt.type] || 'rgba(220,30,30,0.85)');
+  labelInner.style.cssText = `display:inline-block;background:${labelBg};backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);color:#ffffff;font:600 18px 'DM Sans',sans-serif;padding:4px 8px;border-radius:6px;white-space:nowrap;transform-origin:50% 100%;`;
   labelInner.textContent = pt.label;
   labelDiv.appendChild(labelInner);
   labelDiv.addEventListener('pointerup', e => {
@@ -2557,10 +2559,24 @@ async function boot() {
     // Fix 1.1 — QR deep-link fly-to
     const _deepId = _params.get('id');
     if (_deepId) {
-      const _deepPt = points.find(p => p.id === _deepId);
-      if (_deepPt) {
-        setTimeout(() => selectPoint(_deepPt), 800);
+      let _deepPt = points.find(p => p.id === _deepId);
+      const _deepData = _params.get('d');
+      if (_deepData) {
+        try {
+          const parsed = JSON.parse(atob(_deepData));
+          // Inline contacts into _allContacts so selectPoint can find them
+          if (parsed.contacts) {
+            parsed.contacts.forEach(c => {
+              if (!_allContacts.find(a => a.id === c.id)) _allContacts.push(c);
+            });
+          }
+          // Overlay parsed data onto server pin (or use as-is if pin not on server)
+          _deepPt = _deepPt
+            ? { ..._deepPt, label: parsed.label, type: parsed.type, notes: parsed.notes, contactIds: parsed.contactIds, cameraPreset3d: parsed.cameraPreset3d ?? _deepPt.cameraPreset3d }
+            : { id: _deepId, scope: 'shared', position3d: parsed.position3d, ...parsed };
+        } catch {}
       }
+      if (_deepPt) setTimeout(() => selectPoint(_deepPt), 800);
     }
   }
   } else if (_debugMode) {
