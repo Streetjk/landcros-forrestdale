@@ -74,31 +74,8 @@
     }
     .bottom-sheet-scrim.visible { opacity: 1; pointer-events: auto; }
 
-    #side-panel, .bottom-sheet {
-      position: fixed; left: 0; right: 0; bottom: 0;
-      z-index: var(--z-sheet);
-      display: flex; flex-direction: column;
-      height: calc(56px + var(--safe-bottom));
-      border: 1px solid var(--color-border);
-      border-bottom: none;
-      border-radius: var(--radius-lg) var(--radius-lg) 0 0;
-      background: var(--glass-surface);
-      backdrop-filter: var(--glass-blur);
-      -webkit-backdrop-filter: var(--glass-blur);
-      box-shadow: var(--shadow-4);
-      padding-bottom: var(--safe-bottom);
-      transition: height var(--dur-slow) var(--ease-spring);
-      will-change: height;
-    }
-    .bottom-sheet-handle {
-      flex-shrink: 0; display: flex; align-items: center; justify-content: center; height: 28px; cursor: grab;
-    }
-    .bottom-sheet-handle::before {
-      content: ''; width: 36px; height: 4px; border-radius: var(--radius-pill);
-      background: var(--color-text-muted); opacity: 0.5;
-    }
-    #side-panel.sheet-mid, .bottom-sheet.half  { height: 40vh; }
-    #side-panel.sheet-full, .bottom-sheet.full { height: 90vh; }
+    .bottom-sheet-handle { display: none; }
+    .sheet-peek-cta { display: none; }
 
     /* ── Fix 3.6 — Viewer Header Bar ── */
 
@@ -761,71 +738,6 @@
 
       .panel-handle { display: block; height: 3px !important; margin: 7px auto 0 !important; }
 
-      /* Peek-state CTA: icon only, no text — fits the 36px peek zone */
-      .sheet-peek-cta {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        padding: 4px 24px 9px;
-        cursor: pointer;
-        color: rgba(238,240,244,0.5);
-        font-size: 0;          /* hides "Browse locations" text */
-        transition: color 0.15s;
-        flex-shrink: 0;
-      }
-      .sheet-peek-cta:hover { color: rgba(238,240,244,0.9); }
-      .sheet-peek-cta svg { flex-shrink: 0; }
-
-      /* Hide CTA when sheet is open */
-      #side-panel.sheet-mid  .sheet-peek-cta,
-      #side-panel.sheet-full .sheet-peek-cta { display: none; }
-
-      /* Hide normal header in peek state */
-      #side-panel:not(.sheet-mid):not(.sheet-full) #panel-header { display: none !important; }
-      /* Hide point list / detail in peek state */
-      #side-panel:not(.sheet-mid):not(.sheet-full) #point-list,
-      #side-panel:not(.sheet-mid):not(.sheet-full) #point-detail { visibility: hidden; }
-
-      #side-panel {
-        position: absolute !important;
-        bottom: 0 !important; left: 0 !important; right: 0 !important; top: auto !important;
-        width: 100% !important;
-        height: 85vh !important;
-        border-radius: 28px 28px 0 0 !important;
-        border-left: none !important;
-        border-top: 1px solid rgba(255,255,255,0.1) !important;
-        border-bottom: none !important;
-        box-shadow: 0 -12px 40px rgba(0,0,0,0.6) !important;
-        background: rgba(12, 15, 22, 0.95) !important;
-        backdrop-filter: blur(24px) saturate(160%) !important;
-        -webkit-backdrop-filter: blur(24px) saturate(160%) !important;
-        /* default: peek state — show only 36px */
-        transform: translateY(calc(100% - 36px));
-        transition: transform 420ms cubic-bezier(0.2, 0.8, 0.2, 1);
-        will-change: transform;
-        overflow: hidden;
-        z-index: 30;
-        order: unset !important;
-      }
-      /* Mid snap — ~22% visible */
-      #side-panel.sheet-mid  { transform: translateY(calc(100% - 22vh)); }
-      /* Full snap — fully open */
-      #side-panel.sheet-full { transform: translateY(0); }
-
-      #panel-header {
-        display: flex !important;
-        align-items: center !important;
-        padding: 10px 18px 8px !important;
-        flex-shrink: 0;
-        cursor: pointer;
-      }
-      #panel-header { justify-content: center !important; position: relative; }
-      #panel-header-text { display: block !important; position: absolute; left: 18px; top: 50%; transform: translateY(-50%); }
-      #panel-header-text .panel-site { display: none !important; }
-      #panel-toggle { display: block; margin-left: 0; }
-      #panel-tab { display: none !important; }
-      #side-panel.sheet-mid #panel-toggle,
-      #side-panel.sheet-full #panel-toggle { transform: rotate(180deg); }
 
       #cam-presets {
         top: auto !important;
@@ -980,23 +892,8 @@
   const MOBILE_BP = 767;
 
   // Mobile bottom sheet: peek ↔ mid
-  function _updateCamPresetsBottom() {
-    if (window.innerWidth > MOBILE_BP) return;
-    const panel = document.getElementById('side-panel');
-    const presets = document.getElementById('cam-presets');
-    if (!panel || !presets) return;
-    const isOpen = panel.classList.contains('sheet-mid') || panel.classList.contains('sheet-full');
-    presets.style.bottom = isOpen ? 'calc(22vh + 8px)' : '44px';
-  }
   window.togglePanel = function() {
-    if (window.innerWidth > MOBILE_BP) return;
-    const panel = document.getElementById('side-panel');
-    if (panel.classList.contains('sheet-mid') || panel.classList.contains('sheet-full')) {
-      panel.classList.remove('sheet-full', 'sheet-mid');
-    } else {
-      panel.classList.add('sheet-mid');
-    }
-    _updateCamPresetsBottom();
+    document.getElementById('app').classList.toggle('panel-open');
   };
 
   // Desktop/tablet slide-in panel
