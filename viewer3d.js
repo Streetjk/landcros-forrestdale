@@ -2568,8 +2568,15 @@ async function boot() {
               if (!_allContacts.find(a => a.id === c.id)) _allContacts.push(c);
             });
           }
-          const _sPt = points.find(p => p.id === parsed.id) ?? { scope: 'shared', ...parsed };
-          setTimeout(() => selectPoint({ ..._sPt, ...parsed, contacts: undefined }), 800);
+          const _existing = points.find(p => p.id === parsed.id);
+          const _sPt = _existing
+            ? { ..._existing, ...parsed, contacts: undefined }
+            : { scope: 'shared', ...parsed, contacts: undefined };
+          if (!_existing) {
+            renderPins([...points, _sPt]);
+            renderPointList([...points, _sPt]);
+          }
+          setTimeout(() => selectPoint(_sPt), 800);
         }
       } catch {}
     }

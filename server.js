@@ -88,7 +88,8 @@ const server = http.createServer((req, res) => {
         while (links[code]);
         links[code] = { pinData, created: new Date().toISOString() };
         _writeSharedLinks(links);
-        const shareUrl = `${req.headers['x-forwarded-proto'] || 'http'}://${req.headers['host']}/viewer3d.html?s=${code}`;
+        const proto = req.headers['x-forwarded-proto'] || 'http';
+        const shareUrl = `${proto}://${req.headers['host']}/${code}`;
         res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
         res.end(JSON.stringify({ code, url: shareUrl }));
       } catch (e) {
@@ -187,6 +188,17 @@ const server = http.createServer((req, res) => {
     const token = req.headers['x-admin-token'] || '';
     res.writeHead(200, { 'Content-Type': 'application/json' });
     return res.end(JSON.stringify({ ok: token === ADMIN_TOKEN }));
+  }
+
+  // ── Short-code redirect: /<8-char-code> → viewer3d.html?s=<code> ──────
+  const _shortMatch = /^\/([a-z2-9]{8})$/.exec(pathname);
+  if (_shortMatch && (req.method === 'GET' || req.method === 'HEAD')) {
+    const code = _shortMatch[1];
+    const links = _readSharedLinks();
+    if (links[code]) {
+      res.writeHead(302, { 'Location': `/viewer3d.html?s=${code}` });
+      return res.end();
+    }
   }
 
   // ── Static files ──────────────────────────────────────────────────────
