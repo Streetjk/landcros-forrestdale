@@ -2576,19 +2576,6 @@ async function boot() {
   _updateVisitHud(await fetch('./data/points.json').then(r => r.json()).catch(() => []));
   }
 
-  // Fix 3.6 — Header Bar Branding & Share
-  const headerSiteName = document.getElementById('header-site-name');
-  if (headerSiteName && _cfg.site && _cfg.site.name) headerSiteName.textContent = _cfg.site.name;
-  const headerShareBtn = document.getElementById('header-share-btn');
-  if (headerShareBtn) {
-  headerShareBtn.addEventListener('click', () => {
-    if (navigator.share) {
-      navigator.share({ title: document.title, url: location.href });
-    } else if (window._copyShareLink) {
-      window._copyShareLink();
-    }
-  });
-  }
   }
 
 boot();
