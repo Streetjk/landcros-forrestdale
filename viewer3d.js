@@ -393,11 +393,6 @@ function animate() {
   // Apply to all label types (buildings, pins, zones) via unified array.
   for (const el of _allScaleEls) el.style.transform = `scale(${_finalScale})`;
 
-  // Fix 3.2 — Distance-based fade for pin labels
-  Object.values(_pins).forEach(pin => {
-    const dist = camera.position.distanceTo(pin.group.position) / 100;
-    pin.labelDiv.style.setProperty('--pin-dist', Math.min(dist, 1).toFixed(2));
-  });
 
   // Pulse ground squares on all pins (smooth sine, no abs bounce)
   if (_pinAnimatables.length) {
@@ -668,32 +663,27 @@ function _addPinToScene(pt) {
   svgEl.appendChild(pathEl);
   iconWrap.appendChild(svgEl);
 
-  // Label — Fix 3.2: Unified pin-label component
   const labelDiv = document.createElement('div');
-  labelDiv.className = 'pin-label';
-  labelDiv.tabIndex = 0;
-  const pinTitle = document.createElement('span');
-  pinTitle.className = 'pin-title';
-  pinTitle.textContent = pt.label;
-  const pinDesc = document.createElement('span');
-  pinDesc.className = 'pin-desc';
-  pinDesc.textContent = pt.notes || pt.type.replace('-', ' ');
-  labelDiv.appendChild(pinTitle);
-  labelDiv.appendChild(pinDesc);
+  labelDiv.style.cssText = 'position:absolute;left:50%;transform:translateX(-50%);bottom:44px;pointer-events:auto;cursor:pointer;z-index:100;';
+  const labelInner = document.createElement('span');
+  const labelBg = isPersonal ? 'rgba(79,106,245,0.80)' : 'rgba(0,177,64,0.80)';
+  labelInner.style.cssText = `display:inline-block;background:${labelBg};backdrop-filter:blur(6px);color:#ffffff;font:600 18px 'DM Sans',sans-serif;padding:4px 8px;border-radius:6px;white-space:nowrap;transform-origin:50% 100%;`;
+  labelInner.textContent = pt.label;
+  labelDiv.appendChild(labelInner);
   labelDiv.addEventListener('pointerup', e => {
     e.preventDefault();
     e.stopPropagation();
     selectPoint(pt);
   });
   iconWrap.appendChild(labelDiv);
-  // _allScaleEls.push(labelDiv); // Removed as we now use distance-based fade via CSS variable
+  _allScaleEls.push(labelInner);
 
   const icon = new CSS2DObject(iconWrap);
   icon.position.set(0, 1.3, 0);
   group.add(icon);
 
   scene.add(group);
-  _pins[pt.id] = { group, pinGroup, sphere, icon, svgEl, labelDiv, squareMat, squareGroup, pt };
+  _pins[pt.id] = { group, pinGroup, sphere, icon, svgEl, labelDiv, labelInner, squareMat, squareGroup, pt };
 }
 
 function renderPins(points) {
