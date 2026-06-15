@@ -384,9 +384,9 @@ function renderDrawerBody() {
   // unassigned contacts used by the search autocomplete (attached after innerHTML)
 
   const actionButtons = isPersonal
-    ? `<button class="pin-action-btn action" onclick="window._adminSharePersonal()">Share</button>`
+    ? `<button class="pin-action-btn action" onclick="window._adminShowShareLink()">Share</button>`
     : `<button class="pin-action-btn action" onclick="window._adminToggleQR()">QR</button>
-       <button class="pin-action-btn action" onclick="window._adminCopyLink()">Link</button>`;
+       <button class="pin-action-btn action" onclick="window._adminShowShareLink()">Share</button>`;
 
   document.getElementById('drawer-body').innerHTML = `
     <div class="form-group">
@@ -419,6 +419,13 @@ function renderDrawerBody() {
       <button class="pin-action-btn save" onclick="window._adminSave()">Save</button>
       ${actionButtons}
       <button class="pin-action-btn del" onclick="window._adminDelete()">Delete</button>
+    </div>
+    <div id="share-link-row" style="display:none;padding-top:10px">
+      <label class="form-label">Share link</label>
+      <div class="share-link-field">
+        <input class="form-input" id="share-url-input" readonly>
+        <button class="share-copy-btn" id="share-copy-btn" onclick="window._adminCopyShareUrl()">Copy</button>
+      </div>
     </div>
   `;
 
@@ -554,6 +561,48 @@ window._adminDelete = async () => {
   }
 };
 
+// ── Share link (inline display) ───────────────────────────────────────────────
+window._adminShowShareLink = async () => {
+  if (!_editingPoint) return;
+  const row = document.getElementById('share-link-row');
+  if (!row) return;
+  if (row.style.display !== 'none') { row.style.display = 'none'; return; }
+
+  let url = `${location.origin}/viewer3d.html?id=${_editingPoint.id}`;
+  try {
+    const allContacts = await getContacts();
+    const contacts = allContacts.filter(c => (_editingPoint.contactIds ?? []).includes(c.id));
+    const pinData = {
+      id: _editingPoint.id, label: _editingPoint.label, type: _editingPoint.type,
+      notes: _editingPoint.notes ?? '', latlng: _editingPoint.latlng,
+      contactIds: _editingPoint.contactIds ?? [], contacts,
+      position3d: _editingPoint.position3d, cameraPreset3d: _editingPoint.cameraPreset3d,
+    };
+    const resp = await fetch('/api/share', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(pinData) });
+    const { url: shareUrl } = await resp.json();
+    if (shareUrl) url = shareUrl;
+  } catch {}
+
+  const input = document.getElementById('share-url-input');
+  if (input) input.value = url;
+  row.style.display = 'block';
+};
+
+window._adminCopyShareUrl = () => {
+  const input = document.getElementById('share-url-input');
+  if (!input?.value) return;
+  navigator.clipboard.writeText(input.value).catch(() => {});
+  const btn = document.getElementById('share-copy-btn');
+  if (btn) { btn.textContent = 'Copied!'; setTimeout(() => { btn.textContent = 'Copy'; }, 1500); }
+};
+
+window._toggleInfoBar = () => {
+  const panel = document.getElementById('side-panel');
+  const btn = document.getElementById('panel-fold-btn');
+  const folded = panel.classList.toggle('panel-folded');
+  if (btn) btn.classList.toggle('folded', folded);
+};
+
 // ── QR / link ─────────────────────────────────────────────────────────────────
 window._adminToggleQR = async () => {
   if (!_editingPoint) return;
@@ -587,69 +636,6 @@ window._adminDownloadQR = async () => {
     if (shareUrl) url = shareUrl;
   } catch {}
   downloadQR(url, `sitenav-${_editingPoint.id.slice(0, 8)}.png`);
-};
-
-window._adminCopyLink = async () => {
-  if (!_editingPoint) return;
-  const allContacts = await getContacts();
-  const contacts = allContacts.filter(c => (_editingPoint.contactIds ?? []).includes(c.id));
-  const pinData = {
-    id: _editingPoint.id,
-    label: _editingPoint.label,
-    type: _editingPoint.type,
-    notes: _editingPoint.notes ?? '',
-    latlng: _editingPoint.latlng,
-    contactIds: _editingPoint.contactIds ?? [],
-    contacts,
-    position3d: _editingPoint.position3d,
-    cameraPreset3d: _editingPoint.cameraPreset3d,
-  };
-  try {
-    const resp = await fetch('/api/share', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(pinData),
-    });
-    const { url } = await resp.json();
-    navigator.clipboard.writeText(url).catch(() => {});
-    showToast('Short link copied!');
-  } catch {
-    // fallback: embed data in URL
-    const fallback = `${location.origin}/viewer3d.html?id=${_editingPoint.id}&d=${encodeURIComponent(btoa(JSON.stringify(pinData)))}`;
-    navigator.clipboard.writeText(fallback).catch(() => {});
-    showToast('Link copied!');
-  }
-};
-
-window._adminSharePersonal = async () => {
-  if (!_editingPoint) return;
-  const allContacts = await getContacts();
-  const contacts = allContacts.filter(c => (_editingPoint.contactIds ?? []).includes(c.id));
-  const pinData = {
-    id: _editingPoint.id,
-    label: _editingPoint.label,
-    type: _editingPoint.type,
-    notes: _editingPoint.notes ?? '',
-    latlng: _editingPoint.latlng,
-    contactIds: _editingPoint.contactIds ?? [],
-    contacts,
-    position3d: _editingPoint.position3d,
-    cameraPreset3d: _editingPoint.cameraPreset3d,
-  };
-  try {
-    const resp = await fetch('/api/share', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(pinData),
-    });
-    const { url } = await resp.json();
-    navigator.clipboard.writeText(url).catch(() => {});
-    showToast('Short link copied!');
-  } catch {
-    const fallback = `${location.origin}/viewer3d.html?id=${_editingPoint.id}&d=${encodeURIComponent(btoa(JSON.stringify(pinData)))}`;
-    navigator.clipboard.writeText(fallback).catch(() => {});
-    showToast('Link copied!');
-  }
 };
 
 // ── Contact manager ───────────────────────────────────────────────────────────

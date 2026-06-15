@@ -199,27 +199,54 @@ textarea.form-input      { resize: vertical; min-height: 68px; }
 /* ── Map container ───────────────────────── */
 .map-container { width: 100%; height: 100%; }
 
+/* ── Tablet layout (641–1024px) ─────────── */
+@media (min-width: 641px) and (max-width: 1024px) {
+  :root { --panel-width: 100%; }
+
+  #app { flex-direction: column !important; }
+
+  #canvas-wrap { flex: 1; min-height: 0; order: 0; }
+
+  #side-panel {
+    width: 100% !important;
+    height: 32vh !important;
+    border-left: none !important;
+    border-top: 1px solid var(--border);
+    border-bottom: none !important;
+    order: 1;
+    transition: height 0.25s ease;
+  }
+  #side-panel.panel-folded { height: 52px !important; overflow: hidden; }
+
+  .panel-fold-btn { display: flex !important; }
+
+  #cam-presets { top: 16px !important; bottom: auto !important; }
+
+  #site-brand, #site-address { display: none !important; }
+}
+
 /* ── Mobile layout (≤640px) ─────────────── */
 @media (max-width: 640px) {
   :root { --panel-width: 100%; }
 
   #app { flex-direction: column !important; }
 
+  #canvas-wrap { flex: 1; min-height: 0; order: 0; }
+
   #side-panel {
     width: 100% !important;
-    height: 20vh !important;
+    height: 38vh !important;
     border-left: none !important;
-    border-bottom: 1px solid var(--border);
-    order: -1;
+    border-top: 1px solid var(--border);
+    border-bottom: none !important;
+    order: 1;
+    transition: height 0.25s ease;
   }
+  #side-panel.panel-folded { height: 48px !important; overflow: hidden; }
 
-  #canvas-wrap { flex: 1; min-height: 0; }
+  .panel-fold-btn { display: flex !important; }
 
-  #cam-presets {
-    top: auto !important;
-    bottom: 16px;
-    flex-direction: row !important;
-  }
+  #cam-presets { top: 16px !important; bottom: auto !important; }
 
   #site-brand, #site-address { display: none !important; }
 

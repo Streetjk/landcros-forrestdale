@@ -269,6 +269,32 @@
     .analytics-bar-wrap { height: 6px; background: var(--surface-secondary); border-radius: 10px; overflow: hidden; }
     .analytics-bar { height: 100%; background: var(--primary); border-radius: 10px; transition: width 0.4s ease-out; }
     .analytics-count { font-size: 0.75rem; font-weight: 600; color: var(--text); text-align: right; min-width: 24px; }
+
+    /* ── Share link row ── */
+    .share-link-field { display: flex; gap: 6px; align-items: center; margin-top: 4px; }
+    .share-copy-btn {
+      background: var(--primary); color: #fff;
+      border: none; border-radius: 8px;
+      padding: 9px 14px; font-size: 13px; font-weight: 600;
+      font-family: var(--font); cursor: pointer; white-space: nowrap; flex-shrink: 0;
+      transition: background 0.15s;
+    }
+    .share-copy-btn:hover { background: #0f4a87; }
+    #share-url-input { font-size: 12px; font-family: var(--mono); color: var(--text-secondary); }
+
+    /* ── Panel fold toggle ── */
+    .panel-fold-btn {
+      display: none;
+      width: 30px; height: 30px; border-radius: 8px;
+      border: 1px solid var(--border);
+      background: var(--surface-secondary);
+      color: var(--text-secondary);
+      cursor: pointer; align-items: center; justify-content: center; flex-shrink: 0;
+      transition: background 0.15s, transform 0.25s ease;
+    }
+    .panel-fold-btn:hover { background: var(--surface); }
+    .panel-fold-btn.folded { transform: rotate(180deg); }
+    #panel-header-row { display: flex; align-items: center; justify-content: space-between; }
   </style>
 </head>
 <body>
@@ -312,8 +338,17 @@
   <!-- Admin right panel -->
   <aside id="side-panel">
     <div id="panel-header">
-      <div class="panel-site">SiteNav Admin</div>
-      <div class="panel-title">3D Editor</div>
+      <div id="panel-header-row">
+        <div>
+          <div class="panel-site">SiteNav Admin</div>
+          <div class="panel-title">3D Editor</div>
+        </div>
+        <button id="panel-fold-btn" class="panel-fold-btn" onclick="window._toggleInfoBar()" aria-label="Toggle panel">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M3 5l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+      </div>
     </div>
     <div id="panel-body">
 
