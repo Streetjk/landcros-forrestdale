@@ -656,8 +656,8 @@
       border: 1px solid rgba(255,255,255,0.08) !important;
     }
 
-    /* ── Desktop + tablet (≥768px): fixed overlay panel, hidden by default ── */
-    @media (min-width: 768px) {
+    /* ── Desktop only (≥1025px): fixed overlay panel, hidden by default ── */
+    @media (min-width: 1025px) {
       #panel-tab { display: flex; }
       #panel-close { display: flex; }
 
@@ -685,46 +685,60 @@
       #app.panel-open #site-brand { right: calc(200px + 16px) !important; }
     }
 
-    /* ── Mobile bottom sheet (≤767px) ── */
+    /* ── Mobile + tablet (≤1024px): bottom-fixed panel + horizontal cam row ── */
     @media (max-width: 1024px) {
       .load-site-sub { font-size: 28px; letter-spacing: 0.15em; }
       .load-logo-mark img { height: 50px; }
+      #app { position: relative; }
+      #canvas-wrap { position: absolute; inset: 0; flex: none; }
+
+      .panel-handle { display: block; height: 3px !important; margin: 7px auto 0 !important; }
+      #panel-toggle { display: flex !important; }
+      #panel-tab { display: none !important; }
+      #panel-close { display: none !important; }
+
+      #side-panel {
+        position: fixed !important;
+        bottom: 0 !important;
+        left: 0 !important;
+        right: 0 !important;
+        top: auto !important;
+        width: 100% !important;
+        height: 32vh !important;
+        border-top: 1px solid rgba(255,255,255,0.08) !important;
+        border-left: none !important;
+        border-radius: 16px 16px 0 0 !important;
+        box-shadow: 0 -4px 32px rgba(0,0,0,0.45) !important;
+        transform: none !important;
+        transition: height 0.28s cubic-bezier(0.2, 0.8, 0.2, 1) !important;
+      }
+      #side-panel.panel-folded {
+        height: 52px !important;
+        overflow: hidden;
+      }
+
+      #cam-presets {
+        top: auto !important;
+        left: 16px !important;
+        flex-direction: row !important;
+        gap: 10px;
+        transition: opacity 0.4s ease, bottom 0.28s cubic-bezier(0.2, 0.8, 0.2, 1) !important;
+      }
+      .cam-preset-btn { width: 40px !important; height: 40px !important; }
+      .cam-preset-btn .icon-wrap { width: 40px !important; height: 40px !important; }
+      .speed-limit-sign .icon-wrap img { width: 40px !important; height: 40px !important; }
+      .cam-preset-btn .label-wrap { display: none !important; }
     }
+
+    /* ── Mobile only (≤767px): taller panel + brand size ── */
     @media (max-width: 767px) {
       .load-site-sub { font-size: 22px; letter-spacing: 0.1em; padding: 0 16px; }
       .load-logo-mark img { height: 44px; max-width: 160px; }
       .load-bar { width: 200px; }
-    }
-    @media (max-width: 767px) {
-      #app { position: relative; flex-direction: row !important; }
-      #canvas-wrap { width: 100%; height: 100%; position: absolute; inset: 0; flex: none; min-height: 0; }
 
-      .panel-handle { display: block; height: 3px !important; margin: 7px auto 0 !important; }
+      #side-panel { height: 38vh !important; }
+      #side-panel.panel-folded { height: 48px !important; }
 
-
-      #cam-presets {
-        top: auto !important;
-        bottom: 44px;
-        left: 16px !important;
-        flex-direction: row !important;
-        gap: 10px;
-        transition: opacity 0.4s ease, bottom 420ms cubic-bezier(0.2, 0.8, 0.2, 1) !important;
-      }
-      .cam-preset-btn {
-        width: 40px;
-        height: 40px;
-      }
-      .cam-preset-btn .icon-wrap {
-        width: 40px;
-        height: 40px;
-      }
-      .speed-limit-sign .icon-wrap img { width: 40px !important; height: 40px !important; }
-      .cam-preset-btn .label-wrap {
-        display: none;
-      }
-      #nav-progress { bottom: calc(22vh + 12px); }
-
-      /* Brand: top-right, fixed over canvas */
       #site-brand {
         position: fixed !important;
         top: 16px !important; right: 16px !important;
@@ -734,11 +748,9 @@
       #site-address { font-size: 11px !important; text-align: center !important; }
     }
 
-    /* ── Undo global style.css panel overrides for this page ── */
+    /* ── Undo style.css overrides not applicable to viewer3d ── */
     @media (max-width: 640px) {
-      #app { flex-direction: row !important; }
       #side-panel { order: unset !important; }
-      /* style.css hides #site-brand and #site-address by ID — restore both */
       #site-brand  { display: flex !important; }
       #site-address { display: block !important; }
     }
@@ -793,7 +805,7 @@
   </div>
 
   <aside id="side-panel">
-    <div class="bottom-sheet-handle"></div>
+    <div class="panel-handle"></div>
 
     <!-- Peek-state tap target (mobile only, hidden when sheet open) -->
     <div class="sheet-peek-cta" onclick="togglePanel()">
@@ -854,20 +866,34 @@
 <script>
   const MOBILE_BP = 767;
 
-  // Mobile bottom sheet: peek ↔ mid
+  // Reposition cam buttons just above the panel top edge, with 8px gap.
+  window._updateCamPresetsBottom = function() {
+    if (window.innerWidth >= 1025) return;
+    const presets = document.getElementById('cam-presets');
+    const panel   = document.getElementById('side-panel');
+    if (!presets || !panel) return;
+    presets.style.bottom = (panel.offsetHeight + 8) + 'px';
+  };
+
+  // Mobile + tablet (≤1024px): fold/unfold via panel-folded height transition.
+  // Desktop (≥1025px): slide-in overlay via panel-open transform.
+  function _isBottomSheet() { return window.innerWidth < 1025; }
+
   window.togglePanel = function() {
-    document.getElementById('app').classList.toggle('panel-open');
+    if (_isBottomSheet()) {
+      const panel = document.getElementById('side-panel');
+      panel.classList.toggle('panel-folded');
+      setTimeout(window._updateCamPresetsBottom, 290);
+    } else {
+      document.getElementById('app').classList.toggle('panel-open');
+    }
   };
 
-  // Desktop/tablet slide-in panel
-  window.togglePanelOpen = function() {
-    document.getElementById('app').classList.toggle('panel-open');
-  };
+  window.togglePanelOpen = window.togglePanel;
 
-  // #panel-toggle button handles collapse via its own onclick — no header listener needed
-
-  function _positionMobileBrand() {}
-  window.addEventListener('resize', _positionMobileBrand);
+  window.addEventListener('resize', function() {
+    window._updateCamPresetsBottom();
+  });
 
   window.addEventListener('error', e => {
     const el = document.getElementById('load-msg');

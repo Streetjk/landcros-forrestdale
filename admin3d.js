@@ -561,6 +561,19 @@ window._adminDelete = async () => {
   }
 };
 
+// ── Share link helpers ────────────────────────────────────────────────────────
+async function _buildShareUrl(pt) {
+  const allContacts = await getContacts();
+  const contacts = allContacts.filter(c => (pt.contactIds ?? []).includes(c.id));
+  const pinData = {
+    id: pt.id, label: pt.label, type: pt.type,
+    notes: pt.notes ?? '', latlng: pt.latlng,
+    contactIds: pt.contactIds ?? [], contacts,
+    position3d: pt.position3d, cameraPreset3d: pt.cameraPreset3d,
+  };
+  return `${location.origin}/viewer3d.html?id=${pt.id}&d=${encodeURIComponent(btoa(JSON.stringify(pinData)))}`;
+}
+
 // ── Share link (inline display) ───────────────────────────────────────────────
 window._adminShowShareLink = async () => {
   if (!_editingPoint) return;
@@ -569,19 +582,7 @@ window._adminShowShareLink = async () => {
   if (row.style.display !== 'none') { row.style.display = 'none'; return; }
 
   let url = `${location.origin}/viewer3d.html?id=${_editingPoint.id}`;
-  try {
-    const allContacts = await getContacts();
-    const contacts = allContacts.filter(c => (_editingPoint.contactIds ?? []).includes(c.id));
-    const pinData = {
-      id: _editingPoint.id, label: _editingPoint.label, type: _editingPoint.type,
-      notes: _editingPoint.notes ?? '', latlng: _editingPoint.latlng,
-      contactIds: _editingPoint.contactIds ?? [], contacts,
-      position3d: _editingPoint.position3d, cameraPreset3d: _editingPoint.cameraPreset3d,
-    };
-    const resp = await fetch('/api/share', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(pinData) });
-    const { url: shareUrl } = await resp.json();
-    if (shareUrl) url = shareUrl;
-  } catch {}
+  try { url = await _buildShareUrl(_editingPoint); } catch {}
 
   const input = document.getElementById('share-url-input');
   if (input) input.value = url;
@@ -611,14 +612,7 @@ window._adminToggleQR = async () => {
   sec.style.display = visible ? 'block' : 'none';
   if (visible) {
     let url = `${location.origin}/viewer3d.html?id=${_editingPoint.id}`;
-    try {
-      const allContacts = await getContacts();
-      const contacts = allContacts.filter(c => (_editingPoint.contactIds ?? []).includes(c.id));
-      const pinData = { id: _editingPoint.id, label: _editingPoint.label, type: _editingPoint.type, notes: _editingPoint.notes ?? '', latlng: _editingPoint.latlng, contactIds: _editingPoint.contactIds ?? [], contacts, position3d: _editingPoint.position3d, cameraPreset3d: _editingPoint.cameraPreset3d };
-      const resp = await fetch('/api/share', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(pinData) });
-      const { url: shareUrl } = await resp.json();
-      if (shareUrl) url = shareUrl;
-    } catch {}
+    try { url = await _buildShareUrl(_editingPoint); } catch {}
     document.getElementById('qr-canvas-wrap').innerHTML = '';
     generateQR(url, 'qr-canvas-wrap');
   }
@@ -627,14 +621,7 @@ window._adminToggleQR = async () => {
 window._adminDownloadQR = async () => {
   if (!_editingPoint) return;
   let url = `${location.origin}/viewer3d.html?id=${_editingPoint.id}`;
-  try {
-    const allContacts = await getContacts();
-    const contacts = allContacts.filter(c => (_editingPoint.contactIds ?? []).includes(c.id));
-    const pinData = { id: _editingPoint.id, label: _editingPoint.label, type: _editingPoint.type, notes: _editingPoint.notes ?? '', latlng: _editingPoint.latlng, contactIds: _editingPoint.contactIds ?? [], contacts, position3d: _editingPoint.position3d, cameraPreset3d: _editingPoint.cameraPreset3d };
-    const resp = await fetch('/api/share', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(pinData) });
-    const { url: shareUrl } = await resp.json();
-    if (shareUrl) url = shareUrl;
-  } catch {}
+  try { url = await _buildShareUrl(_editingPoint); } catch {}
   downloadQR(url, `sitenav-${_editingPoint.id.slice(0, 8)}.png`);
 };
 

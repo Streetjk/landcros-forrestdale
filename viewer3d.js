@@ -709,7 +709,7 @@ function _addPinToScene(pt) {
   _allScaleEls.push(labelInner);
 
   const icon = new CSS2DObject(iconWrap);
-  icon.position.set(0, 1.3, 0);
+  icon.position.set(0, 0, 0);
   group.add(icon);
 
   scene.add(group);
@@ -921,15 +921,14 @@ async function selectPoint(pt) {
   document.getElementById('point-list').style.display = 'none';
   document.getElementById('point-detail').classList.add('visible');
 
-  // On mobile bottom sheet — snap to mid state so detail is visible
-  if (window.innerWidth <= 767) {
-    document.getElementById('side-panel')?.classList.add('sheet-mid');
-    document.getElementById('side-panel')?.classList.remove('sheet-full');
+  // On mobile + tablet — expand panel so detail is visible
+  if (window.innerWidth <= 1024) {
+    document.getElementById('side-panel')?.classList.remove('panel-folded');
     window._updateCamPresetsBottom?.();
   }
 
-  // On desktop/tablet — open the overlay panel
-  if (window.innerWidth > 767) {
+  // On desktop — open the overlay panel
+  if (window.innerWidth > 1024) {
     document.getElementById('app')?.classList.add('panel-open');
   }
 
@@ -1029,7 +1028,7 @@ window.showPointList = function() {
   // Collapse panel on mobile and desktop
   const panel = document.getElementById('side-panel');
   if (panel) panel.classList.remove('sheet-mid', 'sheet-full');
-  document.getElementById('app')?.classList.remove('panel-open');
+  if (window.innerWidth > 1024) document.getElementById('app')?.classList.remove('panel-open');
   window._updateCamPresetsBottom?.();
   history.pushState(null, '', location.pathname);
 };
@@ -2546,6 +2545,7 @@ async function boot() {
   setTimeout(() => {
     document.getElementById('app')?.classList.add('scene-ready');
     _doIntroAnimation();
+    window._updateCamPresetsBottom?.();
   }, 700);
 
   // Expose API for admin3d.js and dispatch ready event
