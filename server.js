@@ -126,6 +126,7 @@ const server = http.createServer((req, res) => {
         while (links[code]);
         links[code] = { pinData, created: new Date().toISOString() };
         _writeSharedLinks(links);
+        _gitCommitPush('data/shared-links.json');
         const proto = req.headers['x-forwarded-proto'] || 'http';
         const shareUrl = `${proto}://${req.headers['host']}/${code}`;
         res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
