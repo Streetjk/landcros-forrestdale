@@ -5,9 +5,18 @@
  *
  * For SharePoint/cloud: flip USE_SHAREPOINT=true in db.js and retire this file.
  */
-const http = require('http');
-const fs   = require('fs');
-const path = require('path');
+const http        = require('http');
+const fs          = require('fs');
+const path        = require('path');
+const { exec }    = require('child_process');
+
+// Load .env for local dev (Render sets env vars directly and those take precedence)
+try {
+  fs.readFileSync(path.join(__dirname, '.env'), 'utf8').split('\n').forEach(line => {
+    const m = line.match(/^([A-Z_][A-Z0-9_]*)=(.*)$/);
+    if (m && !process.env[m[1]]) process.env[m[1]] = m[2].trim();
+  });
+} catch {}
 
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN || '';
 
@@ -17,6 +26,35 @@ const SITE_DIR  = path.join(ROOT, 'sites', SITE);
 const DATA      = path.join(SITE_DIR, 'data');
 const SHARED_ASSETS = path.join(ROOT, 'assets');
 const PORT      = parseInt(process.env.PORT || process.argv[2] || '50000', 10);
+
+// ── Auto-commit data changes to GitHub ────────────────────────────────────
+// Requires GITHUB_PAT env var. Runs async — write response is not delayed.
+// Commits tagged [skip render] so Render ignores them (data-only, no rebuild).
+let _gitPushPending = false;
+function _gitCommitPush(relPath) {
+  const pat = process.env.GITHUB_PAT;
+  if (!pat) return;
+  if (_gitPushPending) return;
+  _gitPushPending = true;
+  setTimeout(() => {
+    _gitPushPending = false;
+    const remote = `https://x-access-token:${pat}@github.com/Streetjk/landcros-forrestdale.git`;
+    const msg = `auto: update ${SITE}/${relPath} [skip render]`;
+    const cmd = [
+      `git -C "${ROOT}" config user.email "sitenav-bot@render.com"`,
+      `git -C "${ROOT}" config user.name "SiteNav Bot"`,
+      `git -C "${ROOT}" remote set-url origin "${remote}"`,
+      `git -C "${ROOT}" add -A -- "${path.join('sites', SITE, 'data')}"`,
+      `git -C "${ROOT}" diff --cached --quiet || git -C "${ROOT}" commit -m "${msg}"`,
+      `git -C "${ROOT}" pull --rebase origin HEAD`,
+      `git -C "${ROOT}" push origin HEAD`,
+    ].join(' && ');
+    exec(cmd, (err, _, stderr) => {
+      if (err) console.error('[git-push] failed:', stderr?.trim());
+      else console.log('[git-push] pushed:', msg);
+    });
+  }, 2000);
+}
 
 const VISITS_FILE = path.join(DATA, 'visits.json');
 function _readVisits() {
@@ -170,6 +208,7 @@ const server = http.createServer((req, res) => {
         }
         fs.writeFileSync(target, JSON.stringify(data, null, 2), 'utf8');
         console.log(`[write] ${SITE}/${stripped}`);
+        _gitCommitPush(stripped);
         res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
         res.end(JSON.stringify({ ok: true }));
       } catch (e) {

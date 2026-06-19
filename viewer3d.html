@@ -720,13 +720,14 @@
       #cam-presets {
         top: auto !important;
         left: 16px !important;
+        bottom: calc(32vh + 8px) !important;
         flex-direction: row !important;
         gap: 10px;
         transition: opacity 0.4s ease, bottom 0.28s cubic-bezier(0.2, 0.8, 0.2, 1) !important;
       }
-      .cam-preset-btn { width: 40px !important; height: 40px !important; }
-      .cam-preset-btn .icon-wrap { width: 40px !important; height: 40px !important; }
-      .speed-limit-sign .icon-wrap img { width: 40px !important; height: 40px !important; }
+      .cam-preset-btn { width: 44px !important; height: 44px !important; }
+      .cam-preset-btn .icon-wrap { width: 44px !important; height: 44px !important; }
+      .speed-limit-sign .icon-wrap img { width: 44px !important; height: 44px !important; }
       .cam-preset-btn .label-wrap { display: none !important; }
     }
 
@@ -738,6 +739,8 @@
 
       #side-panel { height: 38vh !important; }
       #side-panel.panel-folded { height: 48px !important; }
+      #cam-presets { bottom: calc(38vh + 8px) !important; }
+      #side-panel { padding-bottom: env(safe-area-inset-bottom, 0px) !important; }
 
       #site-brand {
         position: fixed !important;
@@ -746,6 +749,15 @@
       }
       #site-brand img { height: 28px !important; }
       #site-address { font-size: 11px !important; text-align: center !important; }
+    }
+
+    .list-empty {
+      padding: 20px 16px;
+      text-align: center;
+      color: rgba(238, 240, 244, 0.28);
+      font-size: 11px;
+      font-family: var(--mono);
+      letter-spacing: 0.04em;
     }
 
     /* ── Undo style.css overrides not applicable to viewer3d ── */

@@ -1115,6 +1115,21 @@ function renderPointList(points) {
   dropEl.innerHTML = '';
   colEl.innerHTML  = '';
 
+  const dropHeader = dropEl.previousElementSibling;
+  const colHeader  = colEl.previousElementSibling;
+
+  if (!points.length) {
+    if (dropHeader) dropHeader.style.display = 'none';
+    if (colHeader)  colHeader.style.display  = 'none';
+    dropEl.innerHTML = '<div class="list-empty">No locations configured yet</div>';
+    return;
+  }
+
+  const hasDrop = points.some(pt => pt.type !== 'collection');
+  const hasCol  = points.some(pt => pt.type === 'collection');
+  if (dropHeader) dropHeader.style.display = hasDrop ? '' : 'none';
+  if (colHeader)  colHeader.style.display  = hasCol  ? '' : 'none';
+
   points.forEach(pt => {
     const dot = { 'drop-off': '#185FA5', 'collection': '#1D9E75', 'both': '#854F0B' }[pt.type] ?? '#6b7280';
     const el = document.createElement('div');
