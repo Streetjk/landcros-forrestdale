@@ -235,20 +235,43 @@ textarea.form-input      { resize: vertical; min-height: 68px; }
 
   #side-panel {
     width: 100% !important;
-    height: 38vh !important;
+    height: 30vh !important;
     border-left: none !important;
     border-top: 1px solid var(--border);
     border-bottom: none !important;
     order: 1;
     transition: height 0.25s ease;
   }
-  #side-panel.panel-folded { height: 48px !important; overflow: hidden; }
+
+  /* Folded: float at 30% from bottom so the handle is thumb-reachable, not buried at screen edge */
+  #side-panel.panel-folded {
+    position: fixed !important;
+    bottom: 30% !important;
+    left: 0 !important;
+    right: 0 !important;
+    height: 48px !important;
+    overflow: hidden;
+    border-top: 1px solid var(--border);
+    border-radius: 12px 12px 0 0;
+    box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.45);
+    transition: none;
+  }
 
   .panel-fold-btn { display: flex !important; }
 
-  #cam-presets { top: 16px !important; bottom: auto !important; }
+  /* Camera buttons: horizontal row at bottom of canvas, above the info panel */
+  #cam-presets {
+    top: auto !important;
+    bottom: 8px !important;
+    left: 50% !important;
+    transform: translateX(-50%);
+    flex-direction: row !important;
+  }
 
   #site-brand, #site-address { display: none !important; }
 
   #nav-progress { bottom: 70px; }
+
+  /* Analytics not useful on narrow mobile view */
+  #analytics-section { display: none !important; }
 }

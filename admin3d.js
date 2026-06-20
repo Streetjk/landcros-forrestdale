@@ -602,6 +602,7 @@ window._toggleInfoBar = () => {
   const btn = document.getElementById('panel-fold-btn');
   const folded = panel.classList.toggle('panel-folded');
   if (btn) btn.classList.toggle('folded', folded);
+  requestAnimationFrame(() => window.dispatchEvent(new Event('resize')));
 };
 
 // ── QR / link ─────────────────────────────────────────────────────────────────
