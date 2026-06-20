@@ -68,6 +68,7 @@ window.addEventListener('viewer3d:ready', async () => {
   });
 
   _loadAnalytics();
+  _updateCamPresetsBottom();
 });
 
 async function _loadAnalytics() {
@@ -597,12 +598,21 @@ window._adminCopyShareUrl = () => {
   if (btn) { btn.textContent = 'Copied!'; setTimeout(() => { btn.textContent = 'Copy'; }, 1500); }
 };
 
+function _updateCamPresetsBottom() {
+  if (window.innerWidth > 640) return;
+  const presets = document.getElementById('cam-presets');
+  const panel   = document.getElementById('side-panel');
+  if (!presets || !panel) return;
+  presets.style.bottom = (panel.offsetHeight + 8) + 'px';
+}
+window.addEventListener('resize', _updateCamPresetsBottom);
+
 window._toggleInfoBar = () => {
   const panel = document.getElementById('side-panel');
   const btn = document.getElementById('panel-fold-btn');
   const folded = panel.classList.toggle('panel-folded');
   if (btn) btn.classList.toggle('folded', folded);
-  requestAnimationFrame(() => window.dispatchEvent(new Event('resize')));
+  setTimeout(_updateCamPresetsBottom, 290); // after height transition completes
 };
 
 // ── QR / link ─────────────────────────────────────────────────────────────────

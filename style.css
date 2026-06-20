@@ -226,40 +226,49 @@ textarea.form-input      { resize: vertical; min-height: 68px; }
 }
 
 /* ── Mobile layout (≤640px) ─────────────── */
+/* Mirrors viewer3d.html: canvas fills full viewport, panel is a fixed bottom-sheet overlay */
 @media (max-width: 640px) {
   :root { --panel-width: 100%; }
 
-  #app { flex-direction: column !important; }
+  #app { display: block !important; position: relative !important; }
 
-  #canvas-wrap { flex: 1; min-height: 0; order: 0; }
+  /* Canvas always fills full screen — labels never shift on panel fold/unfold */
+  #canvas-wrap { position: absolute !important; inset: 0 !important; flex: none !important; }
 
+  /* Panel: fixed bottom-sheet, does not affect canvas dimensions */
   #side-panel {
+    position: fixed !important;
+    bottom: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    top: auto !important;
     width: 100% !important;
     height: 30vh !important;
     border-left: none !important;
     border-top: 1px solid var(--border);
     border-bottom: none !important;
-    order: 1;
-    transition: height 0.25s ease;
+    border-radius: 16px 16px 0 0 !important;
+    box-shadow: 0 -4px 32px rgba(0, 0, 0, 0.45) !important;
+    transition: height 0.28s cubic-bezier(0.2, 0.8, 0.2, 1) !important;
   }
-
   #side-panel.panel-folded { height: 48px !important; overflow: hidden; }
 
   .panel-fold-btn { display: flex !important; }
 
-  /* Camera buttons: horizontal row at bottom of canvas, above the info panel */
+  /* Camera buttons: fixed, left-aligned row, JS sets bottom dynamically above panel */
   #cam-presets {
+    position: fixed !important;
     top: auto !important;
-    bottom: 8px !important;
-    left: 50% !important;
-    transform: translateX(-50%);
+    left: 16px !important;
+    bottom: calc(30vh + 8px) !important;
     flex-direction: row !important;
+    transform: none !important;
   }
 
   #site-brand, #site-address { display: none !important; }
 
   #nav-progress { bottom: 70px; }
 
-  /* Analytics not useful on narrow mobile view */
+  /* Analytics removed from mobile view */
   #analytics-section { display: none !important; }
 }
