@@ -685,70 +685,28 @@
       #app.panel-open #site-brand { right: calc(200px + 16px) !important; }
     }
 
-    /* ── Mobile + tablet (≤1024px): bottom-fixed panel + horizontal cam row ── */
+    /* ── Mobile + tablet (≤1024px): viewer-specific components only ── */
+    /* Layout (canvas full-screen, panel fixed bottom-sheet, cam row) is in style.css */
     @media (max-width: 1024px) {
       .load-site-sub { font-size: 28px; letter-spacing: 0.15em; }
       .load-logo-mark img { height: 50px; }
-      #app { position: relative; }
-      #canvas-wrap { position: absolute; inset: 0; flex: none; }
-
       .panel-handle { display: block; height: 3px !important; margin: 7px auto 0 !important; }
-      #panel-toggle { display: flex !important; }
       #panel-tab { display: none !important; }
       #panel-close { display: none !important; }
-
-      #side-panel {
-        position: fixed !important;
-        bottom: 0 !important;
-        left: 0 !important;
-        right: 0 !important;
-        top: auto !important;
-        width: 100% !important;
-        height: 32vh !important;
-        border-top: 1px solid rgba(255,255,255,0.08) !important;
-        border-left: none !important;
-        border-radius: 16px 16px 0 0 !important;
-        box-shadow: 0 -4px 32px rgba(0,0,0,0.45) !important;
-        transform: none !important;
-        transition: height 0.28s cubic-bezier(0.2, 0.8, 0.2, 1) !important;
-      }
-      #side-panel.panel-folded {
-        height: 52px !important;
-        overflow: hidden;
-      }
-
-      #cam-presets {
-        top: auto !important;
-        left: 16px !important;
-        bottom: calc(32vh + 8px) !important;
-        flex-direction: row !important;
-        gap: 10px;
-        transition: opacity 0.4s ease, bottom 0.28s cubic-bezier(0.2, 0.8, 0.2, 1) !important;
-      }
       .cam-preset-btn { width: 44px !important; height: 44px !important; }
       .cam-preset-btn .icon-wrap { width: 44px !important; height: 44px !important; }
       .speed-limit-sign .icon-wrap img { width: 44px !important; height: 44px !important; }
-      .cam-preset-btn .label-wrap { display: none !important; }
     }
 
-    /* ── Mobile only (≤767px): taller panel + brand size ── */
+    /* ── Mobile only (≤767px): viewer-specific sizes + show logo ── */
     @media (max-width: 767px) {
       .load-site-sub { font-size: 22px; letter-spacing: 0.1em; padding: 0 16px; }
       .load-logo-mark img { height: 44px; max-width: 160px; }
       .load-bar { width: 200px; }
-
-      #side-panel { height: 38vh !important; }
-      #side-panel.panel-folded { height: 48px !important; }
-      #cam-presets { bottom: calc(38vh + 8px) !important; }
       #side-panel { padding-bottom: env(safe-area-inset-bottom, 0px) !important; }
-
-      #site-brand {
-        position: fixed !important;
-        top: 16px !important; right: 16px !important;
-        display: flex !important;
-      }
+      #site-brand { position: fixed !important; top: 16px !important; right: 16px !important; display: flex !important; }
       #site-brand img { height: 28px !important; }
-      #site-address { font-size: 11px !important; text-align: center !important; }
+      #site-address { font-size: 11px !important; text-align: center !important; display: block !important; }
     }
 
     .list-empty {
@@ -758,13 +716,6 @@
       font-size: 11px;
       font-family: var(--mono);
       letter-spacing: 0.04em;
-    }
-
-    /* ── Undo style.css overrides not applicable to viewer3d ── */
-    @media (max-width: 640px) {
-      #side-panel { order: unset !important; }
-      #site-brand  { display: flex !important; }
-      #site-address { display: block !important; }
     }
   </style>
 </head>
@@ -875,20 +826,8 @@
 
 </div>
 
+<script src="panel-mobile.js"></script>
 <script>
-  const MOBILE_BP = 767;
-
-  // Reposition cam buttons just above the panel top edge, with 8px gap.
-  window._updateCamPresetsBottom = function() {
-    if (window.innerWidth >= 1025) return;
-    const presets = document.getElementById('cam-presets');
-    const panel   = document.getElementById('side-panel');
-    if (!presets || !panel) return;
-    presets.style.bottom = (panel.offsetHeight + 8) + 'px';
-  };
-
-  // Mobile + tablet (≤1024px): fold/unfold via panel-folded height transition.
-  // Desktop (≥1025px): slide-in overlay via panel-open transform.
   function _isBottomSheet() { return window.innerWidth < 1025; }
 
   window.togglePanel = function() {
@@ -902,10 +841,6 @@
   };
 
   window.togglePanelOpen = window.togglePanel;
-
-  window.addEventListener('resize', function() {
-    window._updateCamPresetsBottom();
-  });
 
   window.addEventListener('error', e => {
     const el = document.getElementById('load-msg');
