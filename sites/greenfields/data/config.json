@@ -4,8 +4,7 @@
     "name": "LANDCROS GREENFIELDS",
     "title": "Site Navigator",
     "address": "Mentone La, Greenfields WA 6210",
-    "logo": "./logo.png",
-    "speedLimitSign": "./assets/speedlimit6.png"
+    "logo": "./logo.png"
   },
   "scene": {
     "type": "comparison-only",
