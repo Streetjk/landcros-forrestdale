@@ -243,19 +243,7 @@ textarea.form-input      { resize: vertical; min-height: 68px; }
     transition: height 0.25s ease;
   }
 
-  /* Folded: float at 30% from bottom so the handle is thumb-reachable, not buried at screen edge */
-  #side-panel.panel-folded {
-    position: fixed !important;
-    bottom: 30% !important;
-    left: 0 !important;
-    right: 0 !important;
-    height: 48px !important;
-    overflow: hidden;
-    border-top: 1px solid var(--border);
-    border-radius: 12px 12px 0 0;
-    box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.45);
-    transition: none;
-  }
+  #side-panel.panel-folded { height: 48px !important; overflow: hidden; }
 
   .panel-fold-btn { display: flex !important; }
 
