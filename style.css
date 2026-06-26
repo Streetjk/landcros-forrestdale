@@ -227,6 +227,9 @@ textarea.form-input      { resize: vertical; min-height: 68px; }
     transform: none !important;
     transition: bottom 0.28s cubic-bezier(0.2, 0.8, 0.2, 1) !important;
   }
+  /* Folded: drive the button position from CSS (same vh units + transition as
+     the panel) so they animate in perfect lockstep with the fold/unfold. */
+  #app:has(#side-panel.panel-folded) #cam-presets { bottom: calc(52px + 8px) !important; }
   .cam-preset-btn .label-wrap { display: none !important; }
   #site-brand, #site-address { display: none !important; }
 }
@@ -236,6 +239,7 @@ textarea.form-input      { resize: vertical; min-height: 68px; }
   #side-panel { height: 38vh !important; }
   #side-panel.panel-folded { height: 48px !important; }
   #cam-presets { bottom: calc(38vh + 8px) !important; }
+  #app:has(#side-panel.panel-folded) #cam-presets { bottom: calc(48px + 8px) !important; }
   #nav-progress { bottom: calc(38vh + 20px); }
   #analytics-section { display: none !important; }
 }
