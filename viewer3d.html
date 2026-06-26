@@ -767,7 +767,7 @@
     </svg>
   </div>
 
-  <aside id="side-panel">
+  <aside id="side-panel" class="panel-folded">
     <div class="panel-handle"></div>
 
     <!-- Peek-state tap target (mobile only, hidden when sheet open) -->
@@ -834,7 +834,7 @@
     if (_isBottomSheet()) {
       const panel = document.getElementById('side-panel');
       panel.classList.toggle('panel-folded');
-      setTimeout(window._updateCamPresetsBottom, 290);
+      window._updateCamPresetsBottom();
     } else {
       document.getElementById('app').classList.toggle('panel-open');
     }
