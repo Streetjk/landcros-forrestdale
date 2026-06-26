@@ -208,7 +208,7 @@ textarea.form-input      { resize: vertical; min-height: 68px; }
   #side-panel {
     position: fixed !important;
     bottom: 0 !important; left: 0 !important; right: 0 !important; top: auto !important;
-    width: 100% !important; height: 32vh !important;
+    width: 100% !important; height: 16vh !important;
     border-left: none !important;
     border-top: 1px solid var(--border);
     border-radius: 16px 16px 0 0 !important;
@@ -222,7 +222,7 @@ textarea.form-input      { resize: vertical; min-height: 68px; }
   #cam-presets {
     position: fixed !important;
     top: auto !important; left: 16px !important;
-    bottom: calc(32vh + 8px) !important;
+    bottom: calc(16vh + 8px) !important;
     flex-direction: row !important; gap: 10px;
     transform: none !important;
     transition: bottom 0.28s cubic-bezier(0.2, 0.8, 0.2, 1) !important;
@@ -236,10 +236,10 @@ textarea.form-input      { resize: vertical; min-height: 68px; }
 
 /* ── Mobile only (≤767px): taller panel ── */
 @media (max-width: 767px) {
-  #side-panel { height: 38vh !important; }
+  #side-panel { height: 19vh !important; }
   #side-panel.panel-folded { height: 48px !important; }
-  #cam-presets { bottom: calc(38vh + 8px) !important; }
+  #cam-presets { bottom: calc(19vh + 8px) !important; }
   #app:has(#side-panel.panel-folded) #cam-presets { bottom: calc(48px + 8px) !important; }
-  #nav-progress { bottom: calc(38vh + 20px); }
+  #nav-progress { bottom: calc(19vh + 20px); }
   #analytics-section { display: none !important; }
 }
