@@ -12,7 +12,8 @@ async function _fetch(path) {
 
 // Write helper — points/contacts are now backed by Supabase (see
 // supabase-db.js); server.js's /api/points and /api/contacts routes handle
-// the upsert. SharePoint migration note below still applies.
+// the upsert, gated by the caller's session cookie (sent automatically on
+// same-origin requests). SharePoint migration note below still applies.
 async function _write(path, method, data) {
   if (USE_SHAREPOINT) {
     // TODO: swap with SP REST — /_api/web/lists/getbytitle('SiteMap...')/items
@@ -20,7 +21,7 @@ async function _write(path, method, data) {
   }
   const res = await fetch(path, {
     method,
-    headers: { 'Content-Type': 'application/json', 'x-admin-token': window.__SN_ADMIN_TOKEN || '' },
+    headers: { 'Content-Type': 'application/json' },
     body: method === 'DELETE' ? undefined : JSON.stringify(data),
   });
   if (!res.ok) throw new Error(`Write failed: ${res.status}`);

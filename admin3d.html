@@ -425,35 +425,163 @@
   <!-- Auth Gate Overlay -->
   <div id="sn-auth-gate" style="position:fixed;inset:0;z-index:9999;background:rgba(15,23,42,0.97);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;font-family:Inter,system-ui,sans-serif;color:#fff;">
     <h2 style="margin:0;font-size:1.25rem;font-weight:600;">SiteNav Admin</h2>
-    <p style="margin:0;color:#94A3B8;font-size:0.875rem;">Enter the admin token to continue</p>
-    <input id="sn-token-input" type="password" placeholder="Admin token" autocomplete="current-password"
-      style="padding:8px 12px;border:1px solid rgba(255,255,255,0.12);border-radius:8px;background:#192134;color:#fff;font-size:0.875rem;width:260px;outline:none;" />
-    <button id="sn-token-submit"
-      style="padding:8px 24px;background:#0F766E;border:none;border-radius:8px;color:#fff;font-weight:600;cursor:pointer;font-size:0.875rem;">
-      Enter
+    <p id="sn-auth-msg" style="margin:0;color:#94A3B8;font-size:0.875rem;max-width:320px;text-align:center;">Sign in with your @hcma.com.au email to continue.</p>
+    <div id="sn-auth-email-row" style="display:flex;gap:8px;">
+      <input id="sn-email-input" type="email" placeholder="name@hcma.com.au" autocomplete="email"
+        style="padding:8px 12px;border:1px solid rgba(255,255,255,0.12);border-radius:8px;background:#192134;color:#fff;font-size:0.875rem;width:260px;outline:none;" />
+      <button id="sn-email-submit"
+        style="padding:8px 24px;background:#0F766E;border:none;border-radius:8px;color:#fff;font-weight:600;cursor:pointer;font-size:0.875rem;">
+        Continue
+      </button>
+    </div>
+    <button id="sn-create-submit"
+      style="display:none;padding:8px 24px;background:#0F766E;border:none;border-radius:8px;color:#fff;font-weight:600;cursor:pointer;font-size:0.875rem;">
+      Create profile
     </button>
-    <p id="sn-token-error" style="margin:0;color:#DC2626;font-size:0.875rem;display:none;">Invalid token</p>
+    <p id="sn-auth-error" style="margin:0;color:#DC2626;font-size:0.875rem;display:none;"></p>
   </div>
+
+  <!-- Signed-in bar (Sign out) + minimal admin panel — shown after the gate is removed -->
+  <div id="sn-auth-bar" style="display:none;position:fixed;top:8px;right:8px;z-index:9998;gap:8px;align-items:center;font-family:Inter,system-ui,sans-serif;">
+    <span id="sn-auth-email-label" style="font-size:0.75rem;color:#94A3B8;"></span>
+    <button id="sn-signout-btn"
+      style="padding:4px 10px;background:#192134;border:1px solid rgba(255,255,255,0.12);border-radius:6px;color:#fff;font-size:0.75rem;cursor:pointer;">
+      Sign out
+    </button>
+  </div>
+  <div id="sn-admin-pending-panel"
+    style="display:none;position:fixed;top:44px;right:8px;z-index:9998;max-width:320px;background:rgba(15,23,42,0.97);border:1px solid rgba(255,255,255,0.12);border-radius:8px;padding:12px;font-family:Inter,system-ui,sans-serif;color:#fff;">
+    <h3 style="margin:0 0 8px;font-size:0.8125rem;font-weight:600;">Pending access requests</h3>
+    <div id="sn-admin-pending-list" style="display:flex;flex-direction:column;gap:6px;font-size:0.75rem;"></div>
+  </div>
+
   <script>
   (function() {
     const gate = document.getElementById('sn-auth-gate');
-    const input = document.getElementById('sn-token-input');
-    const btn = document.getElementById('sn-token-submit');
-    const err = document.getElementById('sn-token-error');
-    async function tryToken() {
-      const t = input.value.trim();
-      if (!t) return;
-      try {
-        const r = await fetch('/api/auth-check', { headers: { 'x-admin-token': t } });
-        const d = await r.json();
-        if (d.ok) { window.__SN_ADMIN_TOKEN = t; gate.remove(); }
-        else { err.style.display = ''; input.select(); }
-      } catch(e) { err.style.display = ''; }
+    const msg = document.getElementById('sn-auth-msg');
+    const emailRow = document.getElementById('sn-auth-email-row');
+    const emailInput = document.getElementById('sn-email-input');
+    const emailBtn = document.getElementById('sn-email-submit');
+    const createBtn = document.getElementById('sn-create-submit');
+    const err = document.getElementById('sn-auth-error');
+    let lastEmail = '';
+
+    function showError(text) { err.textContent = text; err.style.display = ''; }
+    function clearError() { err.style.display = 'none'; }
+
+    function showLoginState(message) {
+      msg.textContent = message;
+      emailRow.style.display = 'flex';
+      createBtn.style.display = 'none';
+      clearError();
     }
-    btn.onclick = tryToken;
-    input.onkeydown = e => { if (e.key === 'Enter') tryToken(); };
-    input.focus();
+    function showPending() {
+      msg.textContent = 'Your access is pending admin approval.';
+      emailRow.style.display = 'none';
+      createBtn.style.display = 'none';
+      clearError();
+    }
+    function showCreatePrompt(email) {
+      msg.textContent = `No profile found for ${email}. Create one?`;
+      emailRow.style.display = 'none';
+      createBtn.style.display = '';
+      clearError();
+    }
+
+    async function afterLogin() {
+      gate.remove();
+      try {
+        const r = await fetch('/api/auth/me');
+        showAuthBar(r.ok ? await r.json() : null);
+      } catch { showAuthBar(null); }
+    }
+
+    async function login() {
+      const email = emailInput.value.trim();
+      if (!email) return;
+      lastEmail = email;
+      clearError();
+      try {
+        const r = await fetch('/api/auth/login', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email }),
+        });
+        const d = await r.json();
+        if (d.status === 'active') afterLogin();
+        else if (d.status === 'pending') showPending();
+        else if (d.status === 'none') showCreatePrompt(email);
+        else showError('Only @hcma.com.au emails may sign in.');
+      } catch { showError('Login failed — try again.'); }
+    }
+
+    async function createProfile() {
+      clearError();
+      try {
+        const r = await fetch('/api/auth/create', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: lastEmail }),
+        });
+        const d = await r.json();
+        if (d.status === 'active') afterLogin();
+        else if (d.status === 'pending') showPending();
+        else showError('Only @hcma.com.au emails may sign in.');
+      } catch { showError('Could not create profile — try again.'); }
+    }
+
+    emailBtn.onclick = login;
+    emailInput.onkeydown = e => { if (e.key === 'Enter') login(); };
+    createBtn.onclick = createProfile;
+
+    // Skip the gate entirely if already logged in.
+    fetch('/api/auth/me').then(r => r.ok ? r.json() : null).then(d => {
+      if (d && d.email) { gate.remove(); showAuthBar(d); }
+      else { showLoginState('Sign in with your @hcma.com.au email to continue.'); emailInput.focus(); }
+    }).catch(() => { showLoginState('Sign in with your @hcma.com.au email to continue.'); emailInput.focus(); });
   })();
+
+  function showAuthBar(info) {
+    const bar = document.getElementById('sn-auth-bar');
+    bar.style.display = 'flex';
+    document.getElementById('sn-auth-email-label').textContent = (info && info.email) || '';
+    document.getElementById('sn-signout-btn').onclick = async () => {
+      await fetch('/api/auth/logout', { method: 'POST' });
+      location.reload();
+    };
+    if (info && (info.role === 'admin' || info.role === 'owner')) loadPendingPanel();
+  }
+
+  async function loadPendingPanel() {
+    const panel = document.getElementById('sn-admin-pending-panel');
+    const list = document.getElementById('sn-admin-pending-list');
+    try {
+      const r = await fetch('/api/admin/pending');
+      if (!r.ok) { panel.style.display = 'none'; return; }
+      const pending = await r.json();
+      panel.style.display = pending.length ? 'block' : 'none';
+      if (!pending.length) return;
+      list.innerHTML = '';
+      pending.forEach(p => {
+        const row = document.createElement('div');
+        row.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:8px;';
+        const span = document.createElement('span');
+        span.textContent = p.email;
+        const btn = document.createElement('button');
+        btn.textContent = 'Approve';
+        btn.style.cssText = 'padding:2px 8px;background:#0F766E;border:none;border-radius:6px;color:#fff;font-size:0.7rem;cursor:pointer;';
+        btn.onclick = async () => {
+          btn.disabled = true;
+          await fetch('/api/admin/approve', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ profileId: p.id }),
+          });
+          loadPendingPanel();
+        };
+        row.appendChild(span);
+        row.appendChild(btn);
+        list.appendChild(row);
+      });
+    } catch { panel.style.display = 'none'; }
+  }
   </script>
 
 <script src="panel-mobile.js"></script>

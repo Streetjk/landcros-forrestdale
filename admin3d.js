@@ -75,7 +75,7 @@ async function _loadAnalytics() {
   const panel = document.getElementById('analytics-panel');
   if (!panel) return;
   try {
-    const r = await fetch('/api/visits', { headers: { 'x-admin-token': window.__SN_ADMIN_TOKEN || '' } });
+    const r = await fetch('/api/visits');
     if (!r.ok) { panel.innerHTML = '<p style="color:var(--color-text-muted);font-size:0.875rem">Analytics unavailable</p>'; return; }
     const data = await r.json();
     const fmt = d => d ? new Date(d).toLocaleDateString('en-AU', { day:'numeric', month:'short', year:'numeric' }) : '—';

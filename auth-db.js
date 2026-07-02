@@ -144,6 +144,24 @@ async function createProfile(email) {
   }
 }
 
+// Enum comparison uses declaration order from 0001_schema.sql: viewer < editor < admin < owner.
+const ROLE_RANK = { viewer: 0, editor: 1, admin: 2, owner: 3 };
+
+async function getSiteRole(profileId, slug) {
+  if (!profileId) return null;
+  const { rows } = await _getPool().query(
+    `select sm.role from site_members sm
+     join sites s on s.id = sm.site_id
+     where sm.user_id = $1 and s.slug = $2`,
+    [profileId, slug]
+  );
+  return rows.length ? rows[0].role : null;
+}
+
+function roleAtLeast(role, min) {
+  return !!role && ROLE_RANK[role] >= ROLE_RANK[min];
+}
+
 async function listPendingProfiles() {
   const { rows } = await _getPool().query(
     "select id, email, display_name, created_at from profiles where status = 'pending' order by created_at"
@@ -260,6 +278,8 @@ module.exports = {
   createProfile,
   listPendingProfiles,
   approveProfile,
+  getSiteRole,
+  roleAtLeast,
   withClaims,
   signSession,
   verifySession,

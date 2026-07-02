@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * SiteNav local dev server — HTTP/1.1, static files + POST /api/write
+ * SiteNav local dev server — HTTP/1.1, static files + Supabase-backed admin API
  * Usage: node server.js [port]   (default 50000)
  *
  * For SharePoint/cloud: flip USE_SHAREPOINT=true in db.js and retire this file.
@@ -8,9 +8,9 @@
 const http        = require('http');
 const fs          = require('fs');
 const path        = require('path');
-const crypto      = require('crypto');
 const { execFile } = require('child_process');
 const sdb         = require('./supabase-db');
+const auth        = require('./auth-db');
 
 // Load .env for local dev (Render sets env vars directly and those take precedence)
 try {
@@ -19,15 +19,6 @@ try {
     if (m && !process.env[m[1]]) process.env[m[1]] = m[2].trim();
   });
 } catch {}
-
-const ADMIN_TOKEN = process.env.ADMIN_TOKEN || '';
-
-function _tokenEq(a, b) {
-  if (typeof a !== 'string' || typeof b !== 'string' || a.length === 0) return false;
-  const ba = Buffer.from(a), bb = Buffer.from(b);
-  if (ba.length !== bb.length) return false;
-  return crypto.timingSafeEqual(ba, bb);
-}
 
 // Generic client error body — logs the real error server-side, never leaks
 // DB/schema/config detail (e.message) to the client.
@@ -42,6 +33,69 @@ const SITE_DIR  = path.join(ROOT, 'sites', SITE);
 const DATA      = path.join(SITE_DIR, 'data');
 const SHARED_ASSETS = path.join(ROOT, 'assets');
 const PORT      = parseInt(process.env.PORT || process.argv[2] || '50000', 10);
+
+// ── Auth (Stage 2b): cookie-carried session, no external dep ──────────────
+// Session token format/signing lives in auth-db.js (signSession/verifySession);
+// this is just the HTTP cookie plumbing.
+const SESSION_COOKIE = 'sn_session';
+const SESSION_MAX_AGE = 43200; // seconds (12h), matches auth-db.js SESSION_TTL_MS
+
+function _getCookie(req, name) {
+  const header = req.headers.cookie;
+  if (!header) return null;
+  for (const part of header.split(';')) {
+    const idx = part.indexOf('=');
+    if (idx === -1) continue;
+    if (part.slice(0, idx).trim() === name) return part.slice(idx + 1).trim();
+  }
+  return null;
+}
+
+function _cookieAttrs(req, maxAge) {
+  const secure = (req.headers['x-forwarded-proto'] || '').toLowerCase() === 'https' ? '; Secure' : '';
+  return `HttpOnly; SameSite=Lax; Path=/; Max-Age=${maxAge}${secure}`;
+}
+
+function _setSessionCookie(req, res, token) {
+  res.setHeader('Set-Cookie', `${SESSION_COOKIE}=${token}; ${_cookieAttrs(req, SESSION_MAX_AGE)}`);
+}
+
+function _clearSessionCookie(req, res) {
+  res.setHeader('Set-Cookie', `${SESSION_COOKIE}=; ${_cookieAttrs(req, 0)}`);
+}
+
+// Verified {profileId, email} for the caller's session cookie, or null.
+function _session(req) {
+  return auth.verifySession(_getCookie(req, SESSION_COOKIE));
+}
+
+// Session + site-role gate shared by the write endpoints below: 401 if no
+// session, 403 if the session's role on SITE is below minRole, else cb(session).
+function _requireRole(req, res, minRole, cb) {
+  const s = _session(req);
+  if (!s) { res.writeHead(401, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'Unauthorized' })); return; }
+  auth.getSiteRole(s.profileId, SITE).then(role => {
+    if (!auth.roleAtLeast(role, minRole)) {
+      res.writeHead(403, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ error: 'Forbidden' }));
+    }
+    cb(s);
+  }).catch(e => {
+    res.writeHead(500, { 'Content-Type': 'application/json' });
+    res.end(_errBody(e));
+  });
+}
+
+// Reads + JSON-parses the request body (shared by the auth POST routes).
+function _readJsonBody(req, cb) {
+  let body = '';
+  let bodySize = 0;
+  req.on('data', c => { bodySize += c.length; if (bodySize > POST_BODY_LIMIT) { req.destroy(); return; } body += c; });
+  req.on('end', () => {
+    try { cb(null, JSON.parse(body || '{}')); }
+    catch (e) { cb(e); }
+  });
+}
 
 // ── Auto-commit data changes to GitHub ────────────────────────────────────
 // Requires GITHUB_PAT env var. Runs async — write response is not delayed.
@@ -101,6 +155,25 @@ function _readSharedLinks() {
 function _writeSharedLinks(l) { fs.writeFileSync(SHARED_LINKS_FILE, JSON.stringify(l, null, 2), 'utf8'); }
 const _shareHits = new Map(); // ip → array of creation timestamps (rolling-hour rate limit)
 
+// Generic per-IP rolling-window rate limit. Returns true (and sends 429) when
+// the caller is over budget. Used to blunt auth enumeration / mass profile
+// creation on the email-only (no-verification) login endpoints.
+const _rlBuckets = new Map();
+function _rateLimited(req, res, bucket, max, windowMs) {
+  const ip  = req.socket.remoteAddress || 'unknown';
+  const key = bucket + ':' + ip;
+  const now = Date.now();
+  const hits = (_rlBuckets.get(key) || []).filter(t => now - t < windowMs);
+  if (hits.length >= max) {
+    res.writeHead(429, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'rate limit' }));
+    return true;
+  }
+  hits.push(now);
+  _rlBuckets.set(key, hits);
+  return false;
+}
+
 const MIME = {
   '.html': 'text/html; charset=utf-8',
   '.js':   'application/javascript; charset=utf-8',
@@ -121,7 +194,7 @@ const MIME = {
 
 // Binary/image assets are content-addressed (their content rarely changes after deploy)
 const IMMUTABLE_EXTS = new Set(['.splat', '.ply', '.stl', '.png', '.jpg', '.jpeg', '.webp', '.gif']);
-const POST_BODY_LIMIT = 1_000_000; // 1 MB max for /api/write and /api/visit
+const POST_BODY_LIMIT = 1_000_000; // 1 MB max for JSON POST bodies (auth, points, contacts, visit)
 
 function addHeaders(res, extra = {}) {
   // COOP/COEP only on viewer3d so SharedArrayBuffer works; skip for admin
@@ -136,10 +209,104 @@ const server = http.createServer((req, res) => {
   if (req.method === 'OPTIONS') {
     res.writeHead(204, {
       'Access-Control-Allow-Origin':  '*',
-      'Access-Control-Allow-Headers': 'Content-Type, x-admin-token',
+      'Access-Control-Allow-Headers': 'Content-Type',
       'Access-Control-Allow-Methods': 'POST, GET, HEAD, OPTIONS',
     });
     return res.end();
+  }
+
+  // ── Auth (Stage 2b): per-user email login, gates the admin surface only ──
+  if (req.method === 'POST' && pathname === '/api/auth/login') {
+    if (_rateLimited(req, res, 'auth-login', 30, 3600000)) return;
+    _readJsonBody(req, (err, { email } = {}) => {
+      if (err) { res.writeHead(400, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ error: 'Invalid JSON' })); }
+      if (!auth.emailAllowed(email)) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({ status: 'denied' }));
+      }
+      auth.checkProfile(email).then(st => {
+        if (st.status === 'active') {
+          _setSessionCookie(req, res, auth.signSession({ profileId: st.profileId, email }));
+        }
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ status: st.status, email }));
+      }).catch(e => {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(_errBody(e));
+      });
+    });
+    return;
+  }
+
+  if (req.method === 'POST' && pathname === '/api/auth/create') {
+    if (_rateLimited(req, res, 'auth-create', 10, 3600000)) return;
+    _readJsonBody(req, (err, { email } = {}) => {
+      if (err) { res.writeHead(400, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ error: 'Invalid JSON' })); }
+      if (!auth.emailAllowed(email)) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        return res.end(JSON.stringify({ status: 'denied' }));
+      }
+      auth.createProfile(email).then(({ status, profileId }) => {
+        if (status === 'active') {
+          _setSessionCookie(req, res, auth.signSession({ profileId, email }));
+        }
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ status }));
+      }).catch(e => {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(_errBody(e));
+      });
+    });
+    return;
+  }
+
+  if (req.method === 'GET' && pathname === '/api/auth/me') {
+    const s = _session(req);
+    if (!s) { res.writeHead(401, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ error: 'Unauthorized' })); }
+    auth.getSiteRole(s.profileId, SITE).then(role => {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ email: s.email, role }));
+    }).catch(e => {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(_errBody(e));
+    });
+    return;
+  }
+
+  if (req.method === 'POST' && pathname === '/api/auth/logout') {
+    _clearSessionCookie(req, res);
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    return res.end(JSON.stringify({ ok: true }));
+  }
+
+  // ── Admin: pending profile approval (admin/owner of SITE only) ──────────
+  if (req.method === 'GET' && pathname === '/api/admin/pending') {
+    _requireRole(req, res, 'admin', () => {
+      auth.listPendingProfiles().then(pending => {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(pending));
+      }).catch(e => {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(_errBody(e));
+      });
+    });
+    return;
+  }
+
+  if (req.method === 'POST' && pathname === '/api/admin/approve') {
+    _requireRole(req, res, 'admin', () => {
+      _readJsonBody(req, (err, { profileId } = {}) => {
+        if (err || !profileId) { res.writeHead(400, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ error: 'profileId is required' })); }
+        auth.approveProfile(profileId).then(() => {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: true }));
+        }).catch(e => {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(_errBody(e));
+        });
+      });
+    });
+    return;
   }
 
   // ── Share link store ──────────────────────────────────────────────────
@@ -247,8 +414,8 @@ const server = http.createServer((req, res) => {
 
   // ── Points/contacts — Supabase-backed admin data path (see supabase-db.js) ─
   // Reads are public (parity with the old static data/points.json &
-  // data/contacts.json files); writes reuse the same ADMIN_TOKEN gate as the
-  // legacy /api/write.
+  // data/contacts.json files); writes require an editor+ session on SITE
+  // (see _requireRole) — replaces the old shared-secret write gate.
   if (pathname === '/api/points' && (req.method === 'GET' || req.method === 'POST')) {
     if (!sdb.isConfigured()) {
       res.writeHead(503, { 'Content-Type': 'application/json' });
@@ -264,31 +431,24 @@ const server = http.createServer((req, res) => {
       });
       return;
     }
-    if (!ADMIN_TOKEN) {
-      res.writeHead(503, { 'Content-Type': 'application/json' });
-      return res.end(JSON.stringify({ error: 'Write API disabled: set ADMIN_TOKEN env var' }));
-    }
-    const token = req.headers['x-admin-token'] || '';
-    if (!token || !_tokenEq(token, ADMIN_TOKEN)) {
-      res.writeHead(401, { 'Content-Type': 'application/json' });
-      return res.end(JSON.stringify({ error: 'Unauthorized' }));
-    }
-    let body = '';
-    let bodySize = 0;
-    req.on('data', c => { bodySize += c.length; if (bodySize > POST_BODY_LIMIT) { req.destroy(); return; } body += c; });
-    req.on('end', () => {
-      (async () => {
-        try {
-          const point = JSON.parse(body);
-          const saved = await sdb.savePoint(SITE, point);
-          console.log(`[points] ${SITE}/${saved.id} saved`);
-          res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
-          res.end(JSON.stringify(saved));
-        } catch (e) {
-          res.writeHead(500, { 'Content-Type': 'application/json' });
-          res.end(_errBody(e));
-        }
-      })();
+    _requireRole(req, res, 'editor', (s) => {
+      let body = '';
+      let bodySize = 0;
+      req.on('data', c => { bodySize += c.length; if (bodySize > POST_BODY_LIMIT) { req.destroy(); return; } body += c; });
+      req.on('end', () => {
+        (async () => {
+          try {
+            const point = JSON.parse(body);
+            const saved = await sdb.savePoint(SITE, point, s.profileId);
+            console.log(`[points] ${SITE}/${saved.id} saved by ${s.profileId}`);
+            res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+            res.end(JSON.stringify(saved));
+          } catch (e) {
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(_errBody(e));
+          }
+        })();
+      });
     });
     return;
   }
@@ -299,22 +459,15 @@ const server = http.createServer((req, res) => {
       res.writeHead(503, { 'Content-Type': 'application/json' });
       return res.end(JSON.stringify({ error: 'Supabase not configured: set SUPABASE_DB_URL' }));
     }
-    if (!ADMIN_TOKEN) {
-      res.writeHead(503, { 'Content-Type': 'application/json' });
-      return res.end(JSON.stringify({ error: 'Write API disabled: set ADMIN_TOKEN env var' }));
-    }
-    const token = req.headers['x-admin-token'] || '';
-    if (!token || !_tokenEq(token, ADMIN_TOKEN)) {
-      res.writeHead(401, { 'Content-Type': 'application/json' });
-      return res.end(JSON.stringify({ error: 'Unauthorized' }));
-    }
-    sdb.deletePoint(SITE, _pointDeleteMatch[1]).then(() => {
-      console.log(`[points] ${SITE}/${_pointDeleteMatch[1]} deleted`);
-      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
-      res.end(JSON.stringify({ ok: true }));
-    }).catch(e => {
-      res.writeHead(500, { 'Content-Type': 'application/json' });
-      res.end(_errBody(e));
+    _requireRole(req, res, 'editor', (s) => {
+      sdb.deletePoint(SITE, _pointDeleteMatch[1], s.profileId).then(() => {
+        console.log(`[points] ${SITE}/${_pointDeleteMatch[1]} deleted by ${s.profileId}`);
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        res.end(JSON.stringify({ ok: true }));
+      }).catch(e => {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(_errBody(e));
+      });
     });
     return;
   }
@@ -334,85 +487,26 @@ const server = http.createServer((req, res) => {
       });
       return;
     }
-    if (!ADMIN_TOKEN) {
-      res.writeHead(503, { 'Content-Type': 'application/json' });
-      return res.end(JSON.stringify({ error: 'Write API disabled: set ADMIN_TOKEN env var' }));
-    }
-    const token = req.headers['x-admin-token'] || '';
-    if (!token || !_tokenEq(token, ADMIN_TOKEN)) {
-      res.writeHead(401, { 'Content-Type': 'application/json' });
-      return res.end(JSON.stringify({ error: 'Unauthorized' }));
-    }
-    let body = '';
-    let bodySize = 0;
-    req.on('data', c => { bodySize += c.length; if (bodySize > POST_BODY_LIMIT) { req.destroy(); return; } body += c; });
-    req.on('end', () => {
-      (async () => {
-        try {
-          const contact = JSON.parse(body);
-          const saved = await sdb.saveContact(SITE, contact);
-          console.log(`[contacts] ${SITE}/${saved.id} saved`);
-          res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
-          res.end(JSON.stringify(saved));
-        } catch (e) {
-          res.writeHead(500, { 'Content-Type': 'application/json' });
-          res.end(_errBody(e));
-        }
-      })();
+    _requireRole(req, res, 'editor', (s) => {
+      let body = '';
+      let bodySize = 0;
+      req.on('data', c => { bodySize += c.length; if (bodySize > POST_BODY_LIMIT) { req.destroy(); return; } body += c; });
+      req.on('end', () => {
+        (async () => {
+          try {
+            const contact = JSON.parse(body);
+            const saved = await sdb.saveContact(SITE, contact, s.profileId);
+            console.log(`[contacts] ${SITE}/${saved.id} saved by ${s.profileId}`);
+            res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+            res.end(JSON.stringify(saved));
+          } catch (e) {
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(_errBody(e));
+          }
+        })();
+      });
     });
     return;
-  }
-
-  if (req.method === 'POST' && pathname === '/api/write') {
-    if (!ADMIN_TOKEN) {
-      res.writeHead(503, { 'Content-Type': 'application/json' });
-      return res.end(JSON.stringify({ error: 'Write API disabled: set ADMIN_TOKEN env var' }));
-    }
-    const token = req.headers['x-admin-token'] || '';
-    if (!token || !_tokenEq(token, ADMIN_TOKEN)) {
-      res.writeHead(401, { 'Content-Type': 'application/json' });
-      return res.end(JSON.stringify({ error: 'Unauthorized' }));
-    }
-    let body = '';
-    let bodySize = 0;
-    req.on('data', chunk => { bodySize += chunk.length; if (bodySize > POST_BODY_LIMIT) { req.destroy(); return; } body += chunk; });
-    req.on('end', () => {
-      try {
-        const { path: relPath, data } = JSON.parse(body);
-        // Client sends "./data/foo.json" — remap to site data dir, reject anything else
-        const stripped = relPath.replace(/^\.?\//, '');
-        if (!stripped.startsWith('data/') && stripped !== 'data') {
-          res.writeHead(403, { 'Content-Type': 'application/json' });
-          return res.end(JSON.stringify({ error: 'Write outside ./data/ forbidden' }));
-        }
-        const filename = stripped.slice('data/'.length);
-        const target = path.join(DATA, filename);
-        // Double-check no traversal
-        if (!target.startsWith(DATA + path.sep) && target !== DATA) {
-          res.writeHead(403, { 'Content-Type': 'application/json' });
-          return res.end(JSON.stringify({ error: 'Write outside ./data/ forbidden' }));
-        }
-        fs.writeFileSync(target, JSON.stringify(data, null, 2), 'utf8');
-        console.log(`[write] ${SITE}/${stripped}`);
-        _gitCommitPush(stripped);
-        res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
-        res.end(JSON.stringify({ ok: true }));
-      } catch (e) {
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(_errBody(e));
-      }
-    });
-    return;
-  }
-
-  if (req.method === 'GET' && pathname === '/api/auth-check') {
-    if (!ADMIN_TOKEN) {
-      res.writeHead(503, { 'Content-Type': 'application/json' });
-      return res.end(JSON.stringify({ ok: false }));
-    }
-    const token = req.headers['x-admin-token'] || '';
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    return res.end(JSON.stringify({ ok: _tokenEq(token, ADMIN_TOKEN) }));
   }
 
   // ── Short-code redirect: /<8-char-code> → viewer3d.html?s=<code> ──────
