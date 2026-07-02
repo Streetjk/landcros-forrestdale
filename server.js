@@ -8,7 +8,8 @@
 const http        = require('http');
 const fs          = require('fs');
 const path        = require('path');
-const { exec }    = require('child_process');
+const crypto      = require('crypto');
+const { execFile } = require('child_process');
 
 // Load .env for local dev (Render sets env vars directly and those take precedence)
 try {
@@ -19,6 +20,13 @@ try {
 } catch {}
 
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN || '';
+
+function _tokenEq(a, b) {
+  if (typeof a !== 'string' || typeof b !== 'string' || a.length === 0) return false;
+  const ba = Buffer.from(a), bb = Buffer.from(b);
+  if (ba.length !== bb.length) return false;
+  return crypto.timingSafeEqual(ba, bb);
+}
 
 const ROOT      = __dirname;
 const SITE      = process.env.SITE || 'landcros';
@@ -38,21 +46,35 @@ function _gitCommitPush(relPath) {
   _gitPushPending = true;
   setTimeout(() => {
     _gitPushPending = false;
-    const remote = `https://x-access-token:${pat}@github.com/Streetjk/landcros-forrestdale.git`;
-    const msg = `auto: update ${SITE}/${relPath} [skip render]`;
-    const cmd = [
-      `git -C "${ROOT}" config user.email "sitenav-bot@render.com"`,
-      `git -C "${ROOT}" config user.name "SiteNav Bot"`,
-      `git -C "${ROOT}" remote set-url origin "${remote}"`,
-      `git -C "${ROOT}" add -A -- "${path.join('sites', SITE, 'data')}"`,
-      `git -C "${ROOT}" diff --cached --quiet || git -C "${ROOT}" commit -m "${msg}"`,
-      `git -C "${ROOT}" pull --rebase origin HEAD`,
-      `git -C "${ROOT}" push origin HEAD`,
-    ].join(' && ');
-    exec(cmd, (err, _, stderr) => {
-      if (err) console.error('[git-push] failed:', stderr?.trim());
-      else console.log('[git-push] pushed:', msg);
+    const remote  = `https://x-access-token:${pat}@github.com/Streetjk/landcros-forrestdale.git`;
+    const msg     = `auto: update ${SITE}/${relPath} [skip render]`;
+    const dataDir = path.join('sites', SITE, 'data');
+    const git = (args) => new Promise((resolve, reject) => {
+      execFile('git', args, (err, _stdout, stderr) => {
+        if (err) { err.stderr = stderr; return reject(err); }
+        resolve();
+      });
     });
+    (async () => {
+      try {
+        await git(['-C', ROOT, 'config', 'user.email', 'sitenav-bot@render.com']);
+        await git(['-C', ROOT, 'config', 'user.name', 'SiteNav Bot']);
+        await git(['-C', ROOT, 'remote', 'set-url', 'origin', remote]);
+        await git(['-C', ROOT, 'add', '-A', '--', dataDir]);
+        try {
+          await git(['-C', ROOT, 'diff', '--cached', '--quiet']);
+          return; // exit 0 → nothing staged, nothing to commit
+        } catch {
+          // non-zero exit → there are staged changes, proceed to commit
+        }
+        await git(['-C', ROOT, 'commit', '-m', msg]);
+        await git(['-C', ROOT, 'pull', '--rebase', 'origin', 'HEAD']);
+        await git(['-C', ROOT, 'push', 'origin', 'HEAD']);
+        console.log('[git-push] pushed:', msg);
+      } catch (err) {
+        console.error('[git-push] failed:', err.stderr?.trim() || err.message);
+      }
+    })();
   }, 2000);
 }
 
@@ -69,6 +91,7 @@ function _readSharedLinks() {
   catch { return {}; }
 }
 function _writeSharedLinks(l) { fs.writeFileSync(SHARED_LINKS_FILE, JSON.stringify(l, null, 2), 'utf8'); }
+const _shareHits = new Map(); // ip → array of creation timestamps (rolling-hour rate limit)
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -119,6 +142,19 @@ const server = http.createServer((req, res) => {
     req.on('end', () => {
       try {
         const pinData = JSON.parse(body);
+        if (JSON.stringify(pinData).length > 100_000) {
+          res.writeHead(413, { 'Content-Type': 'application/json' });
+          return res.end(JSON.stringify({ error: 'pinData too large' }));
+        }
+        const ip = req.socket.remoteAddress;
+        const now = Date.now();
+        const hits = (_shareHits.get(ip) || []).filter(t => now - t < 3_600_000);
+        if (hits.length >= 20) {
+          res.writeHead(429, { 'Content-Type': 'application/json' });
+          return res.end(JSON.stringify({ error: 'rate limit' }));
+        }
+        hits.push(now);
+        _shareHits.set(ip, hits);
         const links = _readSharedLinks();
         const chars = 'abcdefghijkmnpqrstuvwxyz23456789';
         let code;
@@ -145,6 +181,10 @@ const server = http.createServer((req, res) => {
     const links = _readSharedLinks();
     const entry = links[code];
     if (!entry) { res.writeHead(404, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ error: 'not found' })); }
+    if (Date.now() - new Date(entry.created).getTime() > 90 * 24 * 60 * 60 * 1000) {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ error: 'expired' }));
+    }
     res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
     return res.end(JSON.stringify(entry.pinData));
   }
@@ -184,7 +224,7 @@ const server = http.createServer((req, res) => {
       return res.end(JSON.stringify({ error: 'Write API disabled: set ADMIN_TOKEN env var' }));
     }
     const token = req.headers['x-admin-token'] || '';
-    if (!token || token !== ADMIN_TOKEN) {
+    if (!token || !_tokenEq(token, ADMIN_TOKEN)) {
       res.writeHead(401, { 'Content-Type': 'application/json' });
       return res.end(JSON.stringify({ error: 'Unauthorized' }));
     }
@@ -227,7 +267,7 @@ const server = http.createServer((req, res) => {
     }
     const token = req.headers['x-admin-token'] || '';
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    return res.end(JSON.stringify({ ok: token === ADMIN_TOKEN }));
+    return res.end(JSON.stringify({ ok: _tokenEq(token, ADMIN_TOKEN) }));
   }
 
   // ── Short-code redirect: /<8-char-code> → viewer3d.html?s=<code> ──────
@@ -261,7 +301,9 @@ const server = http.createServer((req, res) => {
   }
 
   // Prevent path traversal
-  if (!filePath.startsWith(ROOT)) { res.writeHead(403); return res.end(); }
+  const resolved = path.resolve(filePath);
+  if (resolved !== ROOT && !resolved.startsWith(ROOT + path.sep)) { res.writeHead(403); return res.end(); }
+  filePath = resolved;
 
   // Directory → index.html
   if (fs.existsSync(filePath) && fs.statSync(filePath).isDirectory()) {
