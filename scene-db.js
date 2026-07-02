@@ -55,6 +55,14 @@ async function listSceneObjects(slug) {
   return rows.map(sceneObjectToJson);
 }
 
+// Gates the public (no-auth) read path: unpublished sites' scene objects
+// must not be readable without at least viewer membership (server.js checks
+// that separately when this is false).
+async function isSitePublished(slug) {
+  const { rows } = await _getPool().query('select published from sites where slug = $1', [slug]);
+  return rows.length ? !!rows[0].published : false;
+}
+
 async function saveSceneObject(slug, obj, changedBy = null) {
   const siteId = await getSiteId(slug);
   if (!obj || !obj.id) throw new Error('object.id is required');
@@ -93,6 +101,7 @@ async function deleteSceneObject(slug, id, changedBy = null) {
 
 module.exports = {
   listSceneObjects,
+  isSitePublished,
   saveSceneObject,
   deleteSceneObject,
 };

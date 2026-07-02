@@ -247,6 +247,8 @@ async function onDeleteClick() {
   if (!_selectedId) return;
   const id = _selectedId;
   deselect();
+  clearTimeout(_saveTimers.get(id)); // cancel any pending autosave so it can't recreate the row mid-delete
+  _saveTimers.delete(id);
   const ok = await apiWrite(`/api/sites/${encodeURIComponent(SLUG)}/objects/${encodeURIComponent(id)}`, { method: 'DELETE' });
   if (ok) disposeEntry(id);
   else select(id); // write failed — restore selection so the user can retry

@@ -404,8 +404,9 @@ const server = http.createServer((req, res) => {
   }
 
   // ── Scene objects — drag-drop editor persistence (Phase 2 SLICE 2a) ────
-  // Reads are public (the viewer renders scene objects for any published
-  // site); writes require an editor+ role on :slug (multi-site — see
+  // Reads are public ONLY for published sites (the viewer renders scene
+  // objects for any published site); unpublished sites require viewer+
+  // membership. Writes require an editor+ role on :slug (multi-site — see
   // _requireSiteEditor, distinct from _requireRole's single env-SITE check).
   const SLUG_RE = /^[a-z0-9][a-z0-9-]{1,62}$/;
   const _objectsMatch = /^\/api\/sites\/([^/]+)\/objects$/.exec(pathname);
@@ -413,9 +414,23 @@ const server = http.createServer((req, res) => {
     const slug = _objectsMatch[1];
     if (!SLUG_RE.test(slug)) { res.writeHead(404, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ error: 'not found' })); }
     if (req.method === 'GET') {
-      sceneDb.listSceneObjects(slug).then(objects => {
+      const sendObjects = () => sceneDb.listSceneObjects(slug).then(objects => {
         res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
         res.end(JSON.stringify(objects));
+      }).catch(e => {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(_errBody(e));
+      });
+      const deny = () => { res.writeHead(404, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'not found' })); };
+      sceneDb.isSitePublished(slug).then(published => {
+        if (published) return sendObjects();
+        const s = _session(req);
+        if (!s) return deny();
+        if (auth.isPlatformAdmin(s.email)) return sendObjects();
+        return auth.getSiteRole(s.profileId, slug).then(role => {
+          if (!auth.roleAtLeast(role, 'viewer')) return deny();
+          return sendObjects();
+        });
       }).catch(e => {
         res.writeHead(500, { 'Content-Type': 'application/json' });
         res.end(_errBody(e));
