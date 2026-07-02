@@ -12,6 +12,7 @@ const { execFile } = require('child_process');
 const sdb         = require('./supabase-db');
 const auth        = require('./auth-db');
 const siteAdmin   = require('./site-admin');
+const sceneDb     = require('./scene-db');
 
 // Load .env for local dev (Render sets env vars directly and those take precedence)
 try {
@@ -95,6 +96,26 @@ function _requirePlatformAdmin(req, res) {
   if (!s) { res.writeHead(401, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'auth required' })); return null; }
   if (!auth.isPlatformAdmin(s.email)) { res.writeHead(403, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'platform admin only' })); return null; }
   return s;
+}
+
+// Per-slug editor gate for the scene-object editor (Phase 2 SLICE 2a): unlike
+// _requireRole (which checks only the env-pinned SITE), this checks role on
+// an arbitrary :slug, since the editor is multi-site. Platform admins bypass
+// the per-site role check (they can edit any site, same as _requirePlatformAdmin).
+function _requireSiteEditor(req, res, slug, cb) {
+  const s = _session(req);
+  if (!s) { res.writeHead(401, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'Unauthorized' })); return; }
+  if (auth.isPlatformAdmin(s.email)) { cb(s); return; }
+  auth.getSiteRole(s.profileId, slug).then(role => {
+    if (!auth.roleAtLeast(role, 'editor')) {
+      res.writeHead(403, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ error: 'Forbidden' }));
+    }
+    cb(s);
+  }).catch(e => {
+    res.writeHead(500, { 'Content-Type': 'application/json' });
+    res.end(_errBody(e));
+  });
 }
 
 // Reads + JSON-parses the request body (shared by the auth POST routes).
@@ -375,6 +396,59 @@ const server = http.createServer((req, res) => {
           res.writeHead(404, { 'Content-Type': 'application/json' });
           return res.end(JSON.stringify({ error: 'site not found' }));
         }
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(_errBody(e));
+      });
+    });
+    return;
+  }
+
+  // ── Scene objects — drag-drop editor persistence (Phase 2 SLICE 2a) ────
+  // Reads are public (the viewer renders scene objects for any published
+  // site); writes require an editor+ role on :slug (multi-site — see
+  // _requireSiteEditor, distinct from _requireRole's single env-SITE check).
+  const SLUG_RE = /^[a-z0-9][a-z0-9-]{1,62}$/;
+  const _objectsMatch = /^\/api\/sites\/([^/]+)\/objects$/.exec(pathname);
+  if (_objectsMatch && (req.method === 'GET' || req.method === 'POST')) {
+    const slug = _objectsMatch[1];
+    if (!SLUG_RE.test(slug)) { res.writeHead(404, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ error: 'not found' })); }
+    if (req.method === 'GET') {
+      sceneDb.listSceneObjects(slug).then(objects => {
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        res.end(JSON.stringify(objects));
+      }).catch(e => {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(_errBody(e));
+      });
+      return;
+    }
+    _requireSiteEditor(req, res, slug, (s) => {
+      _readJsonBody(req, (err, obj) => {
+        if (err) { res.writeHead(400, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ error: 'Invalid JSON' })); }
+        sceneDb.saveSceneObject(slug, obj, s.profileId).then(saved => {
+          console.log(`[objects] ${slug}/${saved.id} saved by ${s.profileId}`);
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify(saved));
+        }).catch(e => {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(_errBody(e));
+        });
+      });
+    });
+    return;
+  }
+
+  const _objectDeleteMatch = /^\/api\/sites\/([^/]+)\/objects\/([0-9a-fA-F-]{36})$/.exec(pathname);
+  if (_objectDeleteMatch && req.method === 'DELETE') {
+    const slug = _objectDeleteMatch[1];
+    const id = _objectDeleteMatch[2];
+    if (!SLUG_RE.test(slug)) { res.writeHead(404, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ error: 'not found' })); }
+    _requireSiteEditor(req, res, slug, (s) => {
+      sceneDb.deleteSceneObject(slug, id, s.profileId).then(() => {
+        console.log(`[objects] ${slug}/${id} deleted by ${s.profileId}`);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true }));
+      }).catch(e => {
         res.writeHead(500, { 'Content-Type': 'application/json' });
         res.end(_errBody(e));
       });
