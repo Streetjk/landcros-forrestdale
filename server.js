@@ -11,6 +11,7 @@ const path        = require('path');
 const { execFile } = require('child_process');
 const sdb         = require('./supabase-db');
 const auth        = require('./auth-db');
+const siteAdmin   = require('./site-admin');
 
 // Load .env for local dev (Render sets env vars directly and those take precedence)
 try {
@@ -84,6 +85,16 @@ function _requireRole(req, res, minRole, cb) {
     res.writeHead(500, { 'Content-Type': 'application/json' });
     res.end(_errBody(e));
   });
+}
+
+// Platform-admin gate for the grand-editor portal (/api/sites*): distinct
+// from _requireRole's per-site role check. 401 if no session, 403 if the
+// session's email is not in PLATFORM_ADMIN_EMAILS, else returns the session.
+function _requirePlatformAdmin(req, res) {
+  const s = _session(req);
+  if (!s) { res.writeHead(401, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'auth required' })); return null; }
+  if (!auth.isPlatformAdmin(s.email)) { res.writeHead(403, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'platform admin only' })); return null; }
+  return s;
 }
 
 // Reads + JSON-parses the request body (shared by the auth POST routes).
@@ -304,6 +315,68 @@ const server = http.createServer((req, res) => {
           res.writeHead(500, { 'Content-Type': 'application/json' });
           res.end(_errBody(e));
         });
+      });
+    });
+    return;
+  }
+
+  // ── Platform admin: grand-editor site management (Phase 2 SLICE 1) ─────
+  // Gated by _requirePlatformAdmin (PLATFORM_ADMIN_EMAILS), NOT _requireRole —
+  // this is a platform-level surface, distinct from any single site's login.
+  if (req.method === 'GET' && pathname === '/api/sites') {
+    const s = _requirePlatformAdmin(req, res);
+    if (!s) return;
+    siteAdmin.listAllSites().then(sites => {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(sites));
+    }).catch(e => {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(_errBody(e));
+    });
+    return;
+  }
+
+  if (req.method === 'POST' && pathname === '/api/sites') {
+    const s = _requirePlatformAdmin(req, res);
+    if (!s) return;
+    _readJsonBody(req, (err, { slug, name, title, address, logo } = {}) => {
+      if (err) { res.writeHead(400, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ error: 'Invalid JSON' })); }
+      siteAdmin.createSite({ slug, name, title, address, logo, createdByProfileId: s.profileId }).then(site => {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(site));
+      }).catch(e => {
+        const message = (e && e.message) || '';
+        if (message === 'slug already exists') {
+          res.writeHead(409, { 'Content-Type': 'application/json' });
+          return res.end(JSON.stringify({ error: message }));
+        }
+        if (message === 'invalid slug' || message === 'name is required') {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          return res.end(JSON.stringify({ error: message }));
+        }
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(_errBody(e));
+      });
+    });
+    return;
+  }
+
+  const _publishMatch = /^\/api\/sites\/([a-z0-9][a-z0-9-]{1,62})\/publish$/.exec(pathname);
+  if (_publishMatch && req.method === 'POST') {
+    const s = _requirePlatformAdmin(req, res);
+    if (!s) return;
+    _readJsonBody(req, (err, { published } = {}) => {
+      if (err || typeof published !== 'boolean') { res.writeHead(400, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ error: 'published (boolean) is required' })); }
+      siteAdmin.setPublished(_publishMatch[1], published).then(site => {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(site));
+      }).catch(e => {
+        if (e && e.message === 'site not found') {
+          res.writeHead(404, { 'Content-Type': 'application/json' });
+          return res.end(JSON.stringify({ error: 'site not found' }));
+        }
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(_errBody(e));
       });
     });
     return;

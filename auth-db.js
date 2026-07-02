@@ -304,6 +304,7 @@ function verifySession(token) {
 module.exports = {
   ALLOWED_DOMAIN,
   AUTH_SITE_SLUG,
+  isPlatformAdmin,
   emailAllowed,
   checkProfile,
   createProfile,

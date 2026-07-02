@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SiteNav Platform Admin</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; height: 100%; background: #0f1117; font-family: Inter, system-ui, sans-serif; color: #fff; }
+  a { color: inherit; }
+
+  #app { display: none; max-width: 880px; margin: 0 auto; padding: 32px 24px 80px; }
+  #app.visible { display: block; }
+
+  header.top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 28px; }
+  header.top h1 { font-size: 1.375rem; font-weight: 600; margin: 0; }
+  header.top .sub { color: #94A3B8; font-size: 0.8125rem; margin-top: 4px; }
+  #signout-btn {
+    padding: 6px 14px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 6px; color: #fff; font-size: 0.8125rem; cursor: pointer;
+  }
+  #signout-btn:hover { background: rgba(255,255,255,0.1); }
+
+  section.card {
+    background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 10px; padding: 20px; margin-bottom: 20px;
+  }
+  section.card h2 { font-size: 0.9375rem; font-weight: 600; margin: 0 0 14px; }
+
+  #new-site-form { display: flex; gap: 8px; flex-wrap: wrap; align-items: flex-end; }
+  .field { display: flex; flex-direction: column; gap: 4px; }
+  .field label { font-size: 0.6875rem; color: #94A3B8; text-transform: uppercase; letter-spacing: 0.03em; }
+  .field input {
+    padding: 8px 10px; border: 1px solid rgba(255,255,255,0.12); border-radius: 6px;
+    background: #192134; color: #fff; font-size: 0.875rem; outline: none; min-width: 180px;
+  }
+  .field input:focus { border-color: #0F766E; }
+  #new-site-form button {
+    padding: 8px 18px; background: #0F766E; border: none; border-radius: 6px;
+    color: #fff; font-weight: 600; cursor: pointer; font-size: 0.875rem; height: 36px;
+  }
+  #new-site-form button:hover { background: #0d6a63; }
+  #new-site-error { width: 100%; margin: 0; color: #DC2626; font-size: 0.8125rem; display: none; }
+
+  #sites-list { display: flex; flex-direction: column; gap: 10px; }
+  .site-card {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    padding: 14px 16px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 8px;
+  }
+  .site-info { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+  .site-name { font-size: 0.9375rem; font-weight: 600; }
+  .site-slug { font-size: 0.75rem; color: #94A3B8; font-family: ui-monospace, monospace; }
+  .site-actions { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+  .badge {
+    font-size: 0.6875rem; font-weight: 600; padding: 3px 9px; border-radius: 999px;
+    text-transform: uppercase; letter-spacing: 0.03em;
+  }
+  .badge.published { background: rgba(34,197,94,0.15); color: #4ADE80; }
+  .badge.draft { background: rgba(148,163,184,0.15); color: #94A3B8; }
+  .btn-sm {
+    padding: 6px 12px; border-radius: 6px; font-size: 0.75rem; cursor: pointer;
+    background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); color: #fff;
+  }
+  .btn-sm:hover { background: rgba(255,255,255,0.1); }
+  .open-link { font-size: 0.75rem; color: #60A5FA; text-decoration: none; white-space: nowrap; }
+  .open-link:hover { text-decoration: underline; }
+  #empty-msg { color: #94A3B8; font-size: 0.875rem; }
+
+  /* ── Auth gate overlay ── */
+  #sn-auth-gate {
+    position: fixed; inset: 0; z-index: 9999; background: rgba(15,23,42,0.97);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 16px; text-align: center;
+  }
+  #sn-auth-gate h2 { margin: 0; font-size: 1.25rem; font-weight: 600; }
+  #sn-auth-msg { margin: 0; color: #94A3B8; font-size: 0.875rem; max-width: 340px; }
+  #sn-auth-email-row { display: flex; gap: 8px; }
+  #sn-email-input {
+    padding: 8px 12px; border: 1px solid rgba(255,255,255,0.12); border-radius: 8px;
+    background: #192134; color: #fff; font-size: 0.875rem; width: 260px; outline: none;
+  }
+  #sn-email-submit, #sn-create-submit {
+    padding: 8px 24px; background: #0F766E; border: none; border-radius: 8px;
+    color: #fff; font-weight: 600; cursor: pointer; font-size: 0.875rem;
+  }
+  #sn-create-submit { display: none; }
+  #sn-auth-error { margin: 0; color: #DC2626; font-size: 0.875rem; display: none; }
+  #sn-gate-signout { display: none; }
+</style>
+</head>
+<body>
+
+  <!-- Auth gate overlay -->
+  <div id="sn-auth-gate">
+    <h2>SiteNav Platform Admin</h2>
+    <p id="sn-auth-msg">Sign in with your platform admin email to continue.</p>
+    <div id="sn-auth-email-row">
+      <input id="sn-email-input" type="email" placeholder="name@example.com" autocomplete="email" />
+      <button id="sn-email-submit">Continue</button>
+    </div>
+    <button id="sn-create-submit">Create profile</button>
+    <button id="sn-gate-signout" class="btn-sm">Sign out</button>
+    <p id="sn-auth-error"></p>
+  </div>
+
+  <!-- Main portal -->
+  <div id="app">
+    <header class="top">
+      <div>
+        <h1>SiteNav Platform Admin</h1>
+        <div class="sub" id="whoami"></div>
+      </div>
+      <button id="signout-btn">Sign out</button>
+    </header>
+
+    <section class="card">
+      <h2>＋ New site</h2>
+      <form id="new-site-form">
+        <div class="field">
+          <label for="f-slug">Slug</label>
+          <input id="f-slug" type="text" placeholder="my-site" required pattern="[a-z0-9][a-z0-9-]{1,62}" />
+        </div>
+        <div class="field">
+          <label for="f-name">Name</label>
+          <input id="f-name" type="text" placeholder="My Site" required />
+        </div>
+        <button type="submit">Create</button>
+        <p id="new-site-error"></p>
+      </form>
+    </section>
+
+    <section class="card">
+      <h2>Sites</h2>
+      <div id="sites-list"></div>
+      <p id="empty-msg" style="display:none;">No sites yet.</p>
+    </section>
+  </div>
+
+<script>
+(function() {
+  const gate = document.getElementById('sn-auth-gate');
+  const msg = document.getElementById('sn-auth-msg');
+  const emailRow = document.getElementById('sn-auth-email-row');
+  const emailInput = document.getElementById('sn-email-input');
+  const emailBtn = document.getElementById('sn-email-submit');
+  const createBtn = document.getElementById('sn-create-submit');
+  const gateSignoutBtn = document.getElementById('sn-gate-signout');
+  const err = document.getElementById('sn-auth-error');
+  const app = document.getElementById('app');
+  let lastEmail = '';
+
+  function showError(text) { err.textContent = text; err.style.display = ''; }
+  function clearError() { err.style.display = 'none'; }
+
+  function showLoginState(message) {
+    msg.textContent = message;
+    emailRow.style.display = 'flex';
+    createBtn.style.display = 'none';
+    gateSignoutBtn.style.display = 'none';
+    clearError();
+  }
+  function showPending() {
+    msg.textContent = 'Your access is pending admin approval.';
+    emailRow.style.display = 'none';
+    createBtn.style.display = 'none';
+    gateSignoutBtn.style.display = 'none';
+    clearError();
+  }
+  function showCreatePrompt(email) {
+    msg.textContent = `No profile found for ${email}. Create one?`;
+    emailRow.style.display = 'none';
+    createBtn.style.display = '';
+    gateSignoutBtn.style.display = 'none';
+    clearError();
+  }
+  function showForbidden(email) {
+    msg.textContent = 'Platform admin access required.';
+    emailRow.style.display = 'none';
+    createBtn.style.display = 'none';
+    gateSignoutBtn.style.display = '';
+    clearError();
+  }
+
+  async function checkPlatformAdminAndEnter(email) {
+    const r = await fetch('/api/sites');
+    if (r.status === 401) { showLoginState('Sign in with your platform admin email to continue.'); return; }
+    if (r.status === 403) { showForbidden(email); return; }
+    if (!r.ok) { showError('Could not load sites — try again.'); return; }
+    const sites = await r.json();
+    gate.style.display = 'none';
+    app.classList.add('visible');
+    document.getElementById('whoami').textContent = email || '';
+    renderSites(sites);
+  }
+
+  async function login() {
+    const email = emailInput.value.trim();
+    if (!email) return;
+    lastEmail = email;
+    clearError();
+    try {
+      const r = await fetch('/api/auth/login', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+      });
+      const d = await r.json();
+      if (d.status === 'active') checkPlatformAdminAndEnter(email);
+      else if (d.status === 'pending') showPending();
+      else if (d.status === 'none') showCreatePrompt(email);
+      else showError('Email not recognized.');
+    } catch { showError('Login failed — try again.'); }
+  }
+
+  async function createProfile() {
+    clearError();
+    try {
+      const r = await fetch('/api/auth/create', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: lastEmail }),
+      });
+      const d = await r.json();
+      if (d.status === 'active') checkPlatformAdminAndEnter(lastEmail);
+      else if (d.status === 'pending') showPending();
+      else showError('Email not recognized.');
+    } catch { showError('Could not create profile — try again.'); }
+  }
+
+  emailBtn.onclick = login;
+  emailInput.onkeydown = e => { if (e.key === 'Enter') login(); };
+  createBtn.onclick = createProfile;
+  gateSignoutBtn.onclick = async () => {
+    await fetch('/api/auth/logout', { method: 'POST' });
+    location.reload();
+  };
+
+  document.getElementById('signout-btn').onclick = async () => {
+    await fetch('/api/auth/logout', { method: 'POST' });
+    location.reload();
+  };
+
+  function renderSites(sites) {
+    const list = document.getElementById('sites-list');
+    const emptyMsg = document.getElementById('empty-msg');
+    list.innerHTML = '';
+    if (!sites.length) { emptyMsg.style.display = ''; return; }
+    emptyMsg.style.display = 'none';
+    for (const site of sites) {
+      const card = document.createElement('div');
+      card.className = 'site-card';
+      const badgeClass = site.published ? 'published' : 'draft';
+      const badgeText = site.published ? 'Published' : 'Draft';
+      const toggleLabel = site.published ? 'Unpublish' : 'Publish';
+      card.innerHTML = `
+        <div class="site-info">
+          <div class="site-name">${escapeHtml(site.name)} <span class="badge ${badgeClass}">${badgeText}</span></div>
+          <div class="site-slug">${escapeHtml(site.slug)}</div>
+        </div>
+        <div class="site-actions">
+          <a class="open-link" href="/admin3d.html?site=${encodeURIComponent(site.slug)}">Open editor →</a>
+          <button class="btn-sm toggle-publish">${toggleLabel}</button>
+        </div>
+      `;
+      card.querySelector('.toggle-publish').onclick = async () => {
+        try {
+          await fetch(`/api/sites/${encodeURIComponent(site.slug)}/publish`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ published: !site.published }),
+          });
+          refreshSites();
+        } catch {}
+      };
+      list.appendChild(card);
+    }
+  }
+
+  async function refreshSites() {
+    const r = await fetch('/api/sites');
+    if (!r.ok) return;
+    renderSites(await r.json());
+  }
+
+  document.getElementById('new-site-form').onsubmit = async (e) => {
+    e.preventDefault();
+    const slug = document.getElementById('f-slug').value.trim();
+    const name = document.getElementById('f-name').value.trim();
+    const errEl = document.getElementById('new-site-error');
+    errEl.style.display = 'none';
+    try {
+      const r = await fetch('/api/sites', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ slug, name }),
+      });
+      const d = await r.json();
+      if (!r.ok) {
+        errEl.textContent = d.error || 'Could not create site.';
+        errEl.style.display = '';
+        return;
+      }
+      document.getElementById('f-slug').value = '';
+      document.getElementById('f-name').value = '';
+      refreshSites();
+    } catch {
+      errEl.textContent = 'Could not create site — try again.';
+      errEl.style.display = '';
+    }
+  };
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  }
+
+  // Initial load: figure out where we stand.
+  fetch('/api/auth/me').then(r => r.ok ? r.json() : null).then(d => {
+    if (d && d.email) checkPlatformAdminAndEnter(d.email);
+    else { showLoginState('Sign in with your platform admin email to continue.'); emailInput.focus(); }
+  }).catch(() => { showLoginState('Sign in with your platform admin email to continue.'); emailInput.focus(); });
+})();
+</script>
+</body>
+</html>
