@@ -36,8 +36,23 @@ const ALLOWED_DOMAIN = 'hcma.com.au';
 // every site that happens to list it as a contact.
 const AUTH_SITE_SLUG = process.env.AUTH_SITE_SLUG || 'landcros';
 
+// Explicit platform-admin override emails (comma-separated env). These may log
+// in regardless of domain and are seeded as 'owner' on the auth site — used to
+// bootstrap a platform owner whose email is outside the corporate domain.
+// SECURITY NOTE: login is email-only (no verification), so anyone who knows a
+// listed email could impersonate that owner. Keep this list minimal.
+const PLATFORM_ADMIN_EMAILS = new Set(
+  (process.env.PLATFORM_ADMIN_EMAILS || '')
+    .split(',').map((s) => s.trim().toLowerCase()).filter(Boolean)
+);
+function isPlatformAdmin(email) {
+  return typeof email === 'string' && PLATFORM_ADMIN_EMAILS.has(email.trim().toLowerCase());
+}
+
 function emailAllowed(email) {
   if (!email || typeof email !== 'string') return false;
+  email = email.trim();
+  if (isPlatformAdmin(email)) return true;
   const at = email.lastIndexOf('@');
   if (at === -1) return false;
   return email.slice(at + 1).toLowerCase() === ALLOWED_DOMAIN;
@@ -116,22 +131,38 @@ async function createProfile(email) {
   try {
     await client.query('BEGIN');
     const authSiteId = await _getAuthSiteId(client);
-    const { rows: contactRows } = await client.query(
-      'select distinct site_id from contacts where lower(email) = lower($1) and site_id = $2',
-      [email, authSiteId]
-    );
-    const status = contactRows.length ? 'active' : 'pending';
+    // Platform admins (override list) → active + owner on the auth site.
+    // Otherwise contact-match on the pinned site → active + editor, else pending.
+    let status, memberships, upgradeRole;
+    if (isPlatformAdmin(email)) {
+      status = 'active';
+      memberships = [authSiteId];
+      upgradeRole = 'owner';
+    } else {
+      const { rows: contactRows } = await client.query(
+        'select distinct site_id from contacts where lower(email) = lower($1) and site_id = $2',
+        [email, authSiteId]
+      );
+      status = contactRows.length ? 'active' : 'pending';
+      memberships = contactRows.map((r) => r.site_id);
+      upgradeRole = 'editor';
+    }
     await client.query(
       `insert into profiles (id, email, status) values ($1, $2, $3)
        on conflict (id) do update set email = excluded.email, status = excluded.status
        returning id`,
       [userId, email, status]
     );
-    for (const row of contactRows) {
+    for (const siteId of memberships) {
       await client.query(
-        `insert into site_members (site_id, user_id, role) values ($1, $2, 'editor')
-         on conflict (site_id, user_id) do nothing`,
-        [row.site_id, userId]
+        // Platform-admin bootstrap must set 'owner' even if a row exists;
+        // contact-editor grants use do-nothing to preserve manual promotions.
+        upgradeRole === 'owner'
+          ? `insert into site_members (site_id, user_id, role) values ($1, $2, 'owner')
+             on conflict (site_id, user_id) do update set role = 'owner'`
+          : `insert into site_members (site_id, user_id, role) values ($1, $2, 'editor')
+             on conflict (site_id, user_id) do nothing`,
+        [siteId, userId]
       );
     }
     await client.query('COMMIT');
