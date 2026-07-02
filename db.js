@@ -10,10 +10,27 @@ async function _fetch(path) {
   return res.json();
 }
 
+// Write helper — points/contacts are now backed by Supabase (see
+// supabase-db.js); server.js's /api/points and /api/contacts routes handle
+// the upsert. SharePoint migration note below still applies.
+async function _write(path, method, data) {
+  if (USE_SHAREPOINT) {
+    // TODO: swap with SP REST — /_api/web/lists/getbytitle('SiteMap...')/items
+    throw new Error('SharePoint write not yet implemented');
+  }
+  const res = await fetch(path, {
+    method,
+    headers: { 'Content-Type': 'application/json', 'x-admin-token': window.__SN_ADMIN_TOKEN || '' },
+    body: method === 'DELETE' ? undefined : JSON.stringify(data),
+  });
+  if (!res.ok) throw new Error(`Write failed: ${res.status}`);
+  return method === 'DELETE' ? null : res.json();
+}
+
 // ── Contacts ──────────────────────────────────────────────────────────────
 
 export async function getContacts() {
-  return _fetch(`${DATA_BASE}/contacts.json`);
+  return _fetch('/api/contacts');
 }
 
 export async function getContact(id) {
@@ -22,16 +39,7 @@ export async function getContact(id) {
 }
 
 export async function saveContact(contact) {
-  const all = await getContacts();
-  const idx = all.findIndex(c => c.id === contact.id);
-  if (idx >= 0) {
-    all[idx] = contact;
-  } else {
-    all.push(contact);
-  }
-  await _writeJSON(`${DATA_BASE}/contacts.json`, all);
-  await _appendChangelog({ action: 'save', entityType: 'contact', entityId: contact.id, entityLabel: contact.name });
-  return contact;
+  return _write('/api/contacts', 'POST', contact);
 }
 
 export async function searchContacts(query) {
@@ -47,7 +55,7 @@ export async function searchContacts(query) {
 // ── Points ────────────────────────────────────────────────────────────────
 
 export async function getPoints() {
-  return _fetch(`${DATA_BASE}/points.json`);
+  return _fetch('/api/points');
 }
 
 export async function getPoint(id) {
@@ -56,58 +64,18 @@ export async function getPoint(id) {
 }
 
 export async function savePoint(point) {
-  const all = await getPoints();
-  const idx = all.findIndex(p => p.id === point.id);
   point.updatedAt = new Date().toISOString();
-  if (idx >= 0) {
-    all[idx] = point;
-  } else {
-    all.push(point);
-  }
-  await _writeJSON(`${DATA_BASE}/points.json`, all);
-  await _appendChangelog({ action: 'save', entityType: 'point', entityId: point.id, entityLabel: point.label });
-  return point;
+  return _write('/api/points', 'POST', point);
 }
 
 export async function deletePoint(id) {
-  const all = await getPoints();
-  const point = all.find(p => p.id === id);
-  const filtered = all.filter(p => p.id !== id);
-  await _writeJSON(`${DATA_BASE}/points.json`, filtered);
-  if (point) {
-    await _appendChangelog({ action: 'delete', entityType: 'point', entityId: id, entityLabel: point.label });
-  }
+  await _write(`/api/points/${id}`, 'DELETE');
 }
 
 // ── Changelog ─────────────────────────────────────────────────────────────
-
-async function _appendChangelog(entry) {
-  let log = [];
-  try { log = await _fetch(`${DATA_BASE}/changelog.json`); } catch {}
-  log.push({
-    timestamp: new Date().toISOString(),
-    changedBy: window._spPageContextInfo?.userDisplayName ?? 'browser',
-    ...entry,
-  });
-  await _writeJSON(`${DATA_BASE}/changelog.json`, log);
-}
-
+// Legacy, read-only: the write side moved to Supabase's audit_log table
+// (see supabase-db.js), so this file is frozen at its last git-committed
+// state. No UI currently reads it; kept for API-shape compatibility.
 export async function getChangelog() {
   try { return await _fetch(`${DATA_BASE}/changelog.json`); } catch { return []; }
-}
-
-// ── Write helper ───────────────────────────────────────────────────────────
-// Local dev:   server.py handles POST /api/write → writes to ./data/ on disk.
-// SharePoint:  set USE_SHAREPOINT=true above and implement the SP REST call.
-async function _writeJSON(path, data) {
-  if (USE_SHAREPOINT) {
-    // TODO: swap with SP REST — /_api/web/lists/getbytitle('SiteMap...')/items
-    throw new Error('SharePoint write not yet implemented');
-  }
-  const res = await fetch('/api/write', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'x-admin-token': window.__SN_ADMIN_TOKEN || '' },
-    body: JSON.stringify({ path, data }),
-  });
-  if (!res.ok) throw new Error(`Write failed: ${res.status}`);
 }

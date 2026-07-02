@@ -10,6 +10,7 @@ const fs          = require('fs');
 const path        = require('path');
 const crypto      = require('crypto');
 const { execFile } = require('child_process');
+const sdb         = require('./supabase-db');
 
 // Load .env for local dev (Render sets env vars directly and those take precedence)
 try {
@@ -26,6 +27,13 @@ function _tokenEq(a, b) {
   const ba = Buffer.from(a), bb = Buffer.from(b);
   if (ba.length !== bb.length) return false;
   return crypto.timingSafeEqual(ba, bb);
+}
+
+// Generic client error body — logs the real error server-side, never leaks
+// DB/schema/config detail (e.message) to the client.
+function _errBody(e) {
+  console.error('[api]', (e && e.message) ? e.message : e);
+  return JSON.stringify({ error: 'Internal error' });
 }
 
 const ROOT      = __dirname;
@@ -169,7 +177,7 @@ const server = http.createServer((req, res) => {
         res.end(JSON.stringify({ code, url: shareUrl }));
       } catch (e) {
         res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: e.message }));
+        res.end(_errBody(e));
       }
     });
     return;
@@ -190,6 +198,16 @@ const server = http.createServer((req, res) => {
   }
 
   if (req.method === 'GET' && pathname === '/api/visits') {
+    if (sdb.isConfigured()) {
+      sdb.getVisits(SITE).then(v => {
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        res.end(JSON.stringify(v));
+      }).catch(e => {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(_errBody(e));
+      });
+      return;
+    }
     const v = _readVisits();
     res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
     return res.end(JSON.stringify(v));
@@ -200,20 +218,147 @@ const server = http.createServer((req, res) => {
     let bodySize = 0;
     req.on('data', c => { bodySize += c.length; if (bodySize > POST_BODY_LIMIT) { req.destroy(); return; } body += c; });
     req.on('end', () => {
-      try {
-        const { pointId } = JSON.parse(body || '{}');
-        const v = _readVisits();
-        v.total = (v.total || 0) + 1;
-        if (!v.firstVisit) v.firstVisit = new Date().toISOString();
-        v.lastVisit = new Date().toISOString();
-        if (pointId) v.points[pointId] = (v.points[pointId] || 0) + 1;
-        _writeVisits(v);
+      (async () => {
+        try {
+          const { pointId } = JSON.parse(body || '{}');
+          let total;
+          if (sdb.isConfigured()) {
+            await sdb.recordVisit(SITE, pointId || null);
+            total = (await sdb.getVisits(SITE)).total;
+          } else {
+            const v = _readVisits();
+            v.total = (v.total || 0) + 1;
+            if (!v.firstVisit) v.firstVisit = new Date().toISOString();
+            v.lastVisit = new Date().toISOString();
+            if (pointId) v.points[pointId] = (v.points[pointId] || 0) + 1;
+            _writeVisits(v);
+            total = v.total;
+          }
+          res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+          res.end(JSON.stringify({ ok: true, total }));
+        } catch (e) {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(_errBody(e));
+        }
+      })();
+    });
+    return;
+  }
+
+  // ── Points/contacts — Supabase-backed admin data path (see supabase-db.js) ─
+  // Reads are public (parity with the old static data/points.json &
+  // data/contacts.json files); writes reuse the same ADMIN_TOKEN gate as the
+  // legacy /api/write.
+  if (pathname === '/api/points' && (req.method === 'GET' || req.method === 'POST')) {
+    if (!sdb.isConfigured()) {
+      res.writeHead(503, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ error: 'Supabase not configured: set SUPABASE_DB_URL' }));
+    }
+    if (req.method === 'GET') {
+      sdb.getPoints(SITE).then(points => {
         res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
-        res.end(JSON.stringify({ ok: true, total: v.total }));
-      } catch (e) {
+        res.end(JSON.stringify(points));
+      }).catch(e => {
         res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: e.message }));
-      }
+        res.end(_errBody(e));
+      });
+      return;
+    }
+    if (!ADMIN_TOKEN) {
+      res.writeHead(503, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ error: 'Write API disabled: set ADMIN_TOKEN env var' }));
+    }
+    const token = req.headers['x-admin-token'] || '';
+    if (!token || !_tokenEq(token, ADMIN_TOKEN)) {
+      res.writeHead(401, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ error: 'Unauthorized' }));
+    }
+    let body = '';
+    let bodySize = 0;
+    req.on('data', c => { bodySize += c.length; if (bodySize > POST_BODY_LIMIT) { req.destroy(); return; } body += c; });
+    req.on('end', () => {
+      (async () => {
+        try {
+          const point = JSON.parse(body);
+          const saved = await sdb.savePoint(SITE, point);
+          console.log(`[points] ${SITE}/${saved.id} saved`);
+          res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+          res.end(JSON.stringify(saved));
+        } catch (e) {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(_errBody(e));
+        }
+      })();
+    });
+    return;
+  }
+
+  const _pointDeleteMatch = /^\/api\/points\/([0-9a-fA-F-]{36})$/.exec(pathname);
+  if (_pointDeleteMatch && req.method === 'DELETE') {
+    if (!sdb.isConfigured()) {
+      res.writeHead(503, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ error: 'Supabase not configured: set SUPABASE_DB_URL' }));
+    }
+    if (!ADMIN_TOKEN) {
+      res.writeHead(503, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ error: 'Write API disabled: set ADMIN_TOKEN env var' }));
+    }
+    const token = req.headers['x-admin-token'] || '';
+    if (!token || !_tokenEq(token, ADMIN_TOKEN)) {
+      res.writeHead(401, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ error: 'Unauthorized' }));
+    }
+    sdb.deletePoint(SITE, _pointDeleteMatch[1]).then(() => {
+      console.log(`[points] ${SITE}/${_pointDeleteMatch[1]} deleted`);
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.end(JSON.stringify({ ok: true }));
+    }).catch(e => {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(_errBody(e));
+    });
+    return;
+  }
+
+  if (pathname === '/api/contacts' && (req.method === 'GET' || req.method === 'POST')) {
+    if (!sdb.isConfigured()) {
+      res.writeHead(503, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ error: 'Supabase not configured: set SUPABASE_DB_URL' }));
+    }
+    if (req.method === 'GET') {
+      sdb.getContacts(SITE).then(contacts => {
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        res.end(JSON.stringify(contacts));
+      }).catch(e => {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(_errBody(e));
+      });
+      return;
+    }
+    if (!ADMIN_TOKEN) {
+      res.writeHead(503, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ error: 'Write API disabled: set ADMIN_TOKEN env var' }));
+    }
+    const token = req.headers['x-admin-token'] || '';
+    if (!token || !_tokenEq(token, ADMIN_TOKEN)) {
+      res.writeHead(401, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ error: 'Unauthorized' }));
+    }
+    let body = '';
+    let bodySize = 0;
+    req.on('data', c => { bodySize += c.length; if (bodySize > POST_BODY_LIMIT) { req.destroy(); return; } body += c; });
+    req.on('end', () => {
+      (async () => {
+        try {
+          const contact = JSON.parse(body);
+          const saved = await sdb.saveContact(SITE, contact);
+          console.log(`[contacts] ${SITE}/${saved.id} saved`);
+          res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+          res.end(JSON.stringify(saved));
+        } catch (e) {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(_errBody(e));
+        }
+      })();
     });
     return;
   }
@@ -254,7 +399,7 @@ const server = http.createServer((req, res) => {
         res.end(JSON.stringify({ ok: true }));
       } catch (e) {
         res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: e.message }));
+        res.end(_errBody(e));
       }
     });
     return;
