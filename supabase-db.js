@@ -203,6 +203,7 @@ async function recordVisit(slug, pointId) {
 
 module.exports = {
   isConfigured,
+  pool: _getPool, // exported so auth-db.js can share this pool instead of opening a second one
   getSiteId,
   getPoints,
   savePoint,
