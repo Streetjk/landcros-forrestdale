@@ -50,6 +50,10 @@ async function init() {
   document.getElementById('add-button-btn').addEventListener('click', () => togglePlacing('button'));
   document.getElementById('prop-text').addEventListener('input', onPropTextInput);
   document.getElementById('prop-delete-btn').addEventListener('click', onDeleteClick);
+  document.getElementById('prop-action-type').addEventListener('change', onActionTypeChange);
+  ['prop-action-url', 'prop-action-preset', 'prop-action-title', 'prop-action-body'].forEach(id => {
+    document.getElementById(id).addEventListener('input', onActionFieldInput);
+  });
   document.addEventListener('keydown', onKeydown);
 
   await loadObjects();
@@ -168,7 +172,7 @@ async function createObject(kind, pos) {
     id, kind,
     transform: { position: [pos.x, pos.y, pos.z], rotation: [0, 0, 0], scale: [1, 1, 1] },
     style: {},
-    props: kind === 'label' ? { text: 'New label' } : { label: 'Button', action: 'none' },
+    props: kind === 'label' ? { text: 'New label' } : { label: 'Button', action: { type: 'none' } },
   };
   renderObject(obj);
   select(id);
@@ -208,16 +212,70 @@ function deselect() {
   hidePropertyPanel();
 }
 
+const ACTION_FIELDS = {
+  'open-url':      ['prop-action-url'],
+  'camera-preset': ['prop-action-preset'],
+  'show-panel':    ['prop-action-title', 'prop-action-body'],
+};
+
 function showPropertyPanel(obj) {
   document.getElementById('empty-selection').style.display = 'none';
   document.getElementById('property-panel').style.display = 'flex';
   document.getElementById('prop-kind-label').textContent = obj.kind === 'button' ? 'Button label' : 'Label text';
   document.getElementById('prop-text').value = objectDisplayText(obj);
+
+  const actionGroup = document.getElementById('prop-action-group');
+  actionGroup.style.display = obj.kind === 'button' ? 'flex' : 'none';
+  if (obj.kind === 'button') {
+    // Older buttons stored action as a plain string (e.g. 'none'); normalize to an object.
+    const raw = obj.props.action;
+    const action = (raw && typeof raw === 'object') ? raw : { type: raw || 'none' };
+    document.getElementById('prop-action-type').value = action.type;
+    document.getElementById('prop-action-url').value = action.url ?? '';
+    document.getElementById('prop-action-preset').value = action.preset ?? '';
+    document.getElementById('prop-action-title').value = action.title ?? '';
+    document.getElementById('prop-action-body').value = action.body ?? '';
+    updateActionFieldVisibility(action.type);
+  }
+}
+
+function updateActionFieldVisibility(type) {
+  ['prop-action-url', 'prop-action-preset', 'prop-action-title', 'prop-action-body'].forEach(id => {
+    document.getElementById(id).style.display = 'none';
+  });
+  (ACTION_FIELDS[type] ?? []).forEach(id => { document.getElementById(id).style.display = ''; });
 }
 
 function hidePropertyPanel() {
   document.getElementById('property-panel').style.display = 'none';
   document.getElementById('empty-selection').style.display = 'block';
+}
+
+// ── Action config (button kind only) ────────────────────────────────────
+function onActionTypeChange(e) {
+  if (!_selectedId) return;
+  const entry = _objects.get(_selectedId);
+  if (!entry || entry.obj.kind !== 'button') return;
+  const type = e.target.value;
+  entry.obj.props.action = { type };
+  updateActionFieldVisibility(type);
+  scheduleSave(_selectedId);
+}
+
+function onActionFieldInput() {
+  if (!_selectedId) return;
+  const entry = _objects.get(_selectedId);
+  if (!entry || entry.obj.kind !== 'button') return;
+  const type = document.getElementById('prop-action-type').value;
+  const action = { type };
+  if (type === 'open-url') action.url = document.getElementById('prop-action-url').value;
+  else if (type === 'camera-preset') action.preset = document.getElementById('prop-action-preset').value;
+  else if (type === 'show-panel') {
+    action.title = document.getElementById('prop-action-title').value;
+    action.body = document.getElementById('prop-action-body').value;
+  }
+  entry.obj.props.action = action;
+  scheduleSave(_selectedId);
 }
 
 // ── Move (TransformControls) ────────────────────────────────────────────

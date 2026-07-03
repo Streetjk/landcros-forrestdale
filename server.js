@@ -118,6 +118,33 @@ function _requireSiteEditor(req, res, slug, cb) {
   });
 }
 
+// Shared read gate for scene_objects (Phase 2 SLICE 2a/2b + the public viewer):
+// serves objects if the site is published, else requires a session with
+// platform-admin or viewer+ role on :slug, else 404 (no existence leak).
+function _sendSceneObjects(req, res, slug) {
+  const sendObjects = () => sceneDb.listSceneObjects(slug).then(objects => {
+    res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+    res.end(JSON.stringify(objects));
+  }).catch(e => {
+    res.writeHead(500, { 'Content-Type': 'application/json' });
+    res.end(_errBody(e));
+  });
+  const deny = () => { res.writeHead(404, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'not found' })); };
+  sceneDb.isSitePublished(slug).then(published => {
+    if (published) return sendObjects();
+    const s = _session(req);
+    if (!s) return deny();
+    if (auth.isPlatformAdmin(s.email)) return sendObjects();
+    return auth.getSiteRole(s.profileId, slug).then(role => {
+      if (!auth.roleAtLeast(role, 'viewer')) return deny();
+      return sendObjects();
+    });
+  }).catch(e => {
+    res.writeHead(500, { 'Content-Type': 'application/json' });
+    res.end(_errBody(e));
+  });
+}
+
 // Reads + JSON-parses the request body (shared by the auth POST routes).
 function _readJsonBody(req, cb) {
   let body = '';
@@ -408,33 +435,17 @@ const server = http.createServer((req, res) => {
   // objects for any published site); unpublished sites require viewer+
   // membership. Writes require an editor+ role on :slug (multi-site — see
   // _requireSiteEditor, distinct from _requireRole's single env-SITE check).
+  if (pathname === '/api/scene-objects' && req.method === 'GET') {
+    _sendSceneObjects(req, res, SITE);
+    return;
+  }
   const SLUG_RE = /^[a-z0-9][a-z0-9-]{1,62}$/;
   const _objectsMatch = /^\/api\/sites\/([^/]+)\/objects$/.exec(pathname);
   if (_objectsMatch && (req.method === 'GET' || req.method === 'POST')) {
     const slug = _objectsMatch[1];
     if (!SLUG_RE.test(slug)) { res.writeHead(404, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ error: 'not found' })); }
     if (req.method === 'GET') {
-      const sendObjects = () => sceneDb.listSceneObjects(slug).then(objects => {
-        res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
-        res.end(JSON.stringify(objects));
-      }).catch(e => {
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(_errBody(e));
-      });
-      const deny = () => { res.writeHead(404, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'not found' })); };
-      sceneDb.isSitePublished(slug).then(published => {
-        if (published) return sendObjects();
-        const s = _session(req);
-        if (!s) return deny();
-        if (auth.isPlatformAdmin(s.email)) return sendObjects();
-        return auth.getSiteRole(s.profileId, slug).then(role => {
-          if (!auth.roleAtLeast(role, 'viewer')) return deny();
-          return sendObjects();
-        });
-      }).catch(e => {
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(_errBody(e));
-      });
+      _sendSceneObjects(req, res, slug);
       return;
     }
     _requireSiteEditor(req, res, slug, (s) => {

@@ -368,6 +368,7 @@ const IDLE_AFTER = _Q.idleAfter;
 const IDLE_INTERVAL = _Q.idleInterval;
 let _pins = {}; // id → { group, pinGroup, sphere, icon, label, squareMat, squareGroup, pt }
 let _selectedId = null;
+const _sceneWidgets = new Map(); // id → { obj, anchor, raycastMesh } — read-only 'button' scene_objects (Phase 2 SLICE 4)
 
 function animate() {
   requestAnimationFrame(animate);
@@ -754,6 +755,86 @@ function removePin(id) {
   delete _pins[id];
 }
 
+// ── Scene-object widgets (Phase 2 SLICE 4) — read-only render of 'label' and
+// 'button' scene_objects for visitors. Editing lives in scene-editor.js;
+// this renderer is skipped there (see the add-label-btn guard at call site)
+// to avoid double-rendering the same objects.
+function _sceneObjDisplayText(obj) {
+  return obj.kind === 'button' ? (obj.props?.label ?? '') : (obj.props?.text ?? '');
+}
+
+function _renderSceneWidget(obj) {
+  const [x, y, z] = obj.transform?.position ?? [0, 0, 0];
+  const anchor = new THREE.Object3D();
+  anchor.position.set(x, y, z);
+
+  let raycastMesh = null;
+  if (obj.kind === 'button') {
+    raycastMesh = new THREE.Mesh(
+      new THREE.BoxGeometry(0.4, 0.4, 0.4),
+      new THREE.MeshStandardMaterial({ color: 0x0f766e })
+    );
+    raycastMesh.position.y = 0.2;
+    anchor.add(raycastMesh);
+  }
+
+  const div = document.createElement('div');
+  div.className = 'scene-obj-label';
+  const bg = obj.kind === 'button' ? 'rgba(15,118,110,0.88)' : 'rgba(24,95,165,0.88)';
+  div.style.cssText = `pointer-events:none;white-space:nowrap;font:600 13px 'DM Sans',sans-serif;color:#fff;background:${bg};padding:3px 8px;border-radius:6px;transform:translate(-50%,-130%);`;
+  div.textContent = _sceneObjDisplayText(obj);
+  const css2dObj = new CSS2DObject(div);
+  css2dObj.position.set(0, obj.kind === 'button' ? 0.4 : 0.1, 0);
+  anchor.add(css2dObj);
+
+  scene.add(anchor);
+  _sceneWidgets.set(obj.id, { obj, anchor, raycastMesh });
+}
+
+function renderSceneWidgets(list) {
+  list.filter(o => o.kind === 'label' || o.kind === 'button').forEach(_renderSceneWidget);
+}
+
+// Only http/https may be opened — blocks javascript:/data:/other schemes
+// reaching window.open from editor-authored (not visitor-authored) data.
+function _runWidgetAction(rawAction) {
+  // Older buttons stored action as a plain string (e.g. 'none'); normalize to an object.
+  const action = (rawAction && typeof rawAction === 'object') ? rawAction : { type: rawAction || 'none' };
+  if (!action.type || action.type === 'none') return;
+  if (action.type === 'open-url') {
+    if (/^https?:\/\//i.test(action.url ?? '')) window.open(action.url, '_blank', 'noopener');
+  } else if (action.type === 'camera-preset') {
+    window.setCameraPreset?.(action.preset);
+  } else if (action.type === 'show-panel') {
+    showWidgetDetail(action.title ?? '', action.body ?? '');
+  }
+}
+
+// Reuses the existing point-detail panel (selectPoint/showPointList) rather
+// than a separate widget panel — same open/close chrome, contacts hidden.
+// No-ops on pages without that panel (e.g. admin3d.html has no #point-detail).
+function showWidgetDetail(title, body) {
+  if (!document.getElementById('point-detail')) return;
+  updatePinHighlight(null);
+  document.getElementById('detail-chip').className = 'chip';
+  document.getElementById('detail-chip').textContent = '';
+  document.getElementById('detail-label').textContent = title;
+  document.getElementById('detail-notes').textContent = body;
+  const navSection = document.getElementById('detail-nav-section');
+  if (navSection) navSection.style.display = 'none';
+  const contactsSection = document.getElementById('detail-contacts')?.closest('.detail-section');
+  if (contactsSection) contactsSection.style.display = 'none';
+  else { const el = document.getElementById('detail-contacts'); if (el) el.innerHTML = ''; }
+
+  document.getElementById('point-list').style.display = 'none';
+  document.getElementById('point-detail').classList.add('visible');
+  if (window.innerWidth <= 1024) {
+    document.getElementById('side-panel')?.classList.remove('panel-folded');
+    window._updateCamPresetsBottom?.();
+  }
+  if (window.innerWidth > 1024) document.getElementById('app')?.classList.add('panel-open');
+}
+
 // ── Measurement tool ─────────────────────────────────────────────────────
 let _measureMode = false;
 let _measurePts = []; // up to 2 THREE.Vector3 world positions
@@ -853,6 +934,15 @@ renderer.domElement.addEventListener('click', e => {
     const hitSphere = hits[0].object;
     const pin = Object.values(_pins).find(p => p.sphere === hitSphere);
     if (pin) selectPoint(pin.pt);
+    return;
+  }
+
+  const widgetMeshes = Array.from(_sceneWidgets.values()).map(w => w.raycastMesh).filter(Boolean);
+  const widgetHits = _raycaster.intersectObjects(widgetMeshes);
+  if (widgetHits.length) {
+    const hitMesh = widgetHits[0].object;
+    const widget = Array.from(_sceneWidgets.values()).find(w => w.raycastMesh === hitMesh);
+    if (widget) _runWidgetAction(widget.obj.props?.action);
   }
 });
 
@@ -880,6 +970,9 @@ async function selectPoint(pt) {
   if (navSection) {
     navSection.style.display = (pt.routeWaypoints3d?.length > 0) ? 'block' : 'none';
   }
+
+  const contactsSection = document.getElementById('detail-contacts')?.closest('.detail-section');
+  if (contactsSection) contactsSection.style.display = '';
 
   const contacts = (pt.contactIds ?? []).map(id => _allContacts.find(c => c.id === id)).filter(Boolean);
   const contactsEl = document.getElementById('detail-contacts');
@@ -2566,6 +2659,13 @@ async function boot() {
   // Expose API for admin3d.js and dispatch ready event
   window._v3d = { renderer, camera, controls, _raycaster, _pickGround, renderPins, removePin, upsertPin, updatePinHighlight, latlngToScene, pins: _pins };
   window.dispatchEvent(new CustomEvent('viewer3d:ready'));
+
+  // Scene-object widgets (Phase 2 SLICE 4): skip on editor.html (#add-label-btn)
+  // — scene-editor.js renders these itself with edit affordances; rendering
+  // them here too would double them up.
+  if (!document.getElementById('add-label-btn')) {
+    fetch('/api/scene-objects').then(r => r.ok ? r.json() : []).catch(() => []).then(renderSceneWidgets);
+  }
 
   // viewer3d.html: load pins/contacts
   if (!document.getElementById('admin-controls') && _showOverlays) {
