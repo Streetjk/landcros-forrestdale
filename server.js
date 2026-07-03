@@ -24,6 +24,10 @@ const sdb         = require('./supabase-db');
 const auth        = require('./auth-db');
 const siteAdmin   = require('./site-admin');
 const sceneDb     = require('./scene-db');
+const submissionsDb = require('./submissions-db');
+const eventsDb      = require('./events-db');
+const webhooksDb    = require('./webhooks-db');
+const webhookDelivery = require('./webhook-delivery');
 
 // Generic client error body — logs the real error server-side, never leaks
 // DB/schema/config detail (e.message) to the client.
@@ -101,16 +105,16 @@ function _requirePlatformAdmin(req, res) {
   return s;
 }
 
-// Per-slug editor gate for the scene-object editor (Phase 2 SLICE 2a): unlike
-// _requireRole (which checks only the env-pinned SITE), this checks role on
-// an arbitrary :slug, since the editor is multi-site. Platform admins bypass
-// the per-site role check (they can edit any site, same as _requirePlatformAdmin).
-function _requireSiteEditor(req, res, slug, cb) {
+// Per-slug role gate: unlike _requireRole (which checks only the env-pinned
+// SITE), this checks role on an arbitrary :slug, since the editor/webhook
+// admin surfaces are multi-site. Platform admins bypass the per-site role
+// check (they can edit any site, same as _requirePlatformAdmin).
+function _requireSiteRole(req, res, slug, minRole, cb) {
   const s = _session(req);
   if (!s) { res.writeHead(401, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'Unauthorized' })); return; }
   if (auth.isPlatformAdmin(s.email)) { cb(s); return; }
   auth.getSiteRole(s.profileId, slug).then(role => {
-    if (!auth.roleAtLeast(role, 'editor')) {
+    if (!auth.roleAtLeast(role, minRole)) {
       res.writeHead(403, { 'Content-Type': 'application/json' });
       return res.end(JSON.stringify({ error: 'Forbidden' }));
     }
@@ -119,6 +123,17 @@ function _requireSiteEditor(req, res, slug, cb) {
     res.writeHead(500, { 'Content-Type': 'application/json' });
     res.end(_errBody(e));
   });
+}
+
+// Phase 2 SLICE 2a: editor+ role on :slug.
+function _requireSiteEditor(req, res, slug, cb) {
+  _requireSiteRole(req, res, slug, 'editor', cb);
+}
+
+// Phase 3: admin+ role on :slug — gates webhook CRUD (webhooks.secret must
+// never be readable/writable below admin).
+function _requireSiteAdmin(req, res, slug, cb) {
+  _requireSiteRole(req, res, slug, 'admin', cb);
 }
 
 // Shared read gate for scene_objects (Phase 2 SLICE 2a/2b + the public viewer):
@@ -141,6 +156,40 @@ function _sendSceneObjects(req, res, slug) {
     return auth.getSiteRole(s.profileId, slug).then(role => {
       if (!auth.roleAtLeast(role, 'viewer')) return deny();
       return sendObjects();
+    });
+  }).catch(e => {
+    res.writeHead(500, { 'Content-Type': 'application/json' });
+    res.end(_errBody(e));
+  });
+}
+
+// Shared public-submission handler for both /api/submissions (env SITE) and
+// /api/sites/:slug/submissions — rate-limited per-IP, gated on published,
+// same no-existence-leak shape as _sendSceneObjects.
+function _handleSubmissionPost(req, res, slug) {
+  if (_rateLimited(req, res, 'submission-create', 20, 3600000)) return;
+  sceneDb.isSitePublished(slug).then(published => {
+    if (!published) { res.writeHead(404, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ error: 'not found' })); }
+    _readJsonBody(req, (err, body) => {
+      if (err) { res.writeHead(400, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ error: 'Invalid JSON' })); }
+      submissionsDb.createSubmission(slug, body).then(({ siteId, submission }) => {
+        // Awaited (not fire-and-forget): the submission is the event source
+        // for Phase 3 automation, so a failure here should be visible in the
+        // same request rather than silently dropped after the 200 is sent.
+        return eventsDb.emitEvent(siteId, 'submission.created', submission).catch(e => {
+          console.error('[submissions] event emission failed:', e.message);
+        }).then(() => {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ id: submission.id }));
+        });
+      }).catch(e => {
+        if (e instanceof submissionsDb.SubmissionCapError) {
+          res.writeHead(429, { 'Content-Type': 'application/json' });
+          return res.end(JSON.stringify({ error: 'rate limit' }));
+        }
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Invalid submission' }));
+      });
     });
   }).catch(e => {
     res.writeHead(500, { 'Content-Type': 'application/json' });
@@ -217,12 +266,26 @@ function _readSharedLinks() {
 function _writeSharedLinks(l) { fs.writeFileSync(SHARED_LINKS_FILE, JSON.stringify(l, null, 2), 'utf8'); }
 const _shareHits = new Map(); // ip → array of creation timestamps (rolling-hour rate limit)
 
+// Render sits in front as a reverse proxy, so req.socket.remoteAddress is
+// always Render's edge, not the client — every visitor would share one
+// bucket. Render appends the real client IP as the last hop of
+// x-forwarded-for; a client-supplied prefix on that header is spoofable, but
+// the last hop is the one Render itself added and can be trusted.
+function _clientIp(req) {
+  const xff = req.headers['x-forwarded-for'];
+  if (xff) {
+    const parts = xff.split(',').map(s => s.trim()).filter(Boolean);
+    if (parts.length) return parts[parts.length - 1];
+  }
+  return req.socket.remoteAddress || 'unknown';
+}
+
 // Generic per-IP rolling-window rate limit. Returns true (and sends 429) when
 // the caller is over budget. Used to blunt auth enumeration / mass profile
 // creation on the email-only (no-verification) login endpoints.
 const _rlBuckets = new Map();
 function _rateLimited(req, res, bucket, max, windowMs) {
-  const ip  = req.socket.remoteAddress || 'unknown';
+  const ip  = _clientIp(req);
   const key = bucket + ':' + ip;
   const now = Date.now();
   const hits = (_rlBuckets.get(key) || []).filter(t => now - t < windowMs);
@@ -480,6 +543,87 @@ const server = http.createServer((req, res) => {
       }).catch(e => {
         res.writeHead(500, { 'Content-Type': 'application/json' });
         res.end(_errBody(e));
+      });
+    });
+    return;
+  }
+
+  // ── Submissions — public "drop a pin + notes" (Phase 3) ─────────────────
+  // Public insert only, gated on the site being published (same no-existence-
+  // leak shape as _sendSceneObjects). Rate-limited per-IP; submissions-db.js
+  // also caps total submissions per site per rolling day.
+  if (pathname === '/api/submissions' && req.method === 'POST') {
+    _handleSubmissionPost(req, res, SITE);
+    return;
+  }
+  const _submissionsMatch = /^\/api\/sites\/([^/]+)\/submissions$/.exec(pathname);
+  if (_submissionsMatch && req.method === 'POST') {
+    const slug = _submissionsMatch[1];
+    if (!SLUG_RE.test(slug)) { res.writeHead(404, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ error: 'not found' })); }
+    _handleSubmissionPost(req, res, slug);
+    return;
+  }
+
+  // ── Webhooks — site-admin CRUD (Phase 3) ────────────────────────────────
+  // admin+ role required (webhooks.secret is an HMAC key — kept out of the
+  // editor role's reach). Secret is generated server-side and returned only
+  // once, at creation; list/update responses never include it.
+  const _webhooksMatch = /^\/api\/sites\/([^/]+)\/webhooks$/.exec(pathname);
+  if (_webhooksMatch && (req.method === 'GET' || req.method === 'POST')) {
+    const slug = _webhooksMatch[1];
+    if (!SLUG_RE.test(slug)) { res.writeHead(404, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ error: 'not found' })); }
+    _requireSiteAdmin(req, res, slug, (s) => {
+      if (req.method === 'GET') {
+        webhooksDb.listWebhooks(slug).then(list => {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify(list));
+        }).catch(e => {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(_errBody(e));
+        });
+        return;
+      }
+      _readJsonBody(req, (err, body) => {
+        if (err) { res.writeHead(400, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ error: 'Invalid JSON' })); }
+        webhooksDb.createWebhook(slug, body, s.profileId).then(created => {
+          console.log(`[webhooks] ${slug}/${created.id} created by ${s.profileId}`);
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify(created));
+        }).catch(e => {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: e.message || 'Invalid webhook' }));
+        });
+      });
+    });
+    return;
+  }
+
+  const _webhookItemMatch = /^\/api\/sites\/([^/]+)\/webhooks\/([0-9a-fA-F-]{36})$/.exec(pathname);
+  if (_webhookItemMatch && (req.method === 'PATCH' || req.method === 'DELETE')) {
+    const slug = _webhookItemMatch[1];
+    const id = _webhookItemMatch[2];
+    if (!SLUG_RE.test(slug)) { res.writeHead(404, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ error: 'not found' })); }
+    _requireSiteAdmin(req, res, slug, (s) => {
+      if (req.method === 'DELETE') {
+        webhooksDb.deleteWebhook(slug, id, s.profileId).then(() => {
+          console.log(`[webhooks] ${slug}/${id} deleted by ${s.profileId}`);
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: true }));
+        }).catch(e => {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(_errBody(e));
+        });
+        return;
+      }
+      _readJsonBody(req, (err, body) => {
+        if (err) { res.writeHead(400, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ error: 'Invalid JSON' })); }
+        webhooksDb.updateWebhook(slug, id, body, s.profileId).then(updated => {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify(updated));
+        }).catch(e => {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: e.message || 'Invalid webhook' }));
+        });
       });
     });
     return;
@@ -804,3 +948,12 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(`  Admin 3D: http://192.168.50.95:${PORT}/admin3d.html`);
   console.log(`  Viewer:   http://192.168.50.95:${PORT}/viewer3d.html`);
 });
+
+// Phase 3: outbound webhook delivery worker. runDeliveryTick() no-ops if a
+// previous tick is still running (see webhook-delivery.js's _running guard),
+// so a slow batch can't overlap the next tick and re-select the same rows.
+if (sdb.isConfigured()) {
+  setInterval(() => {
+    webhookDelivery.runDeliveryTick().catch(e => console.error('[webhook-delivery] unhandled:', e.message));
+  }, 15000);
+}

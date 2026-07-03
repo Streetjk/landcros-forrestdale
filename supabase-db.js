@@ -205,6 +205,8 @@ module.exports = {
   isConfigured,
   pool: _getPool, // exported so auth-db.js can share this pool instead of opening a second one
   getSiteId,
+  j, // exported so other data-access modules (submissions-db.js, events-db.js) don't duplicate it
+  appendAudit: _appendAudit, // exported so new modules reuse this instead of a third copy (scene-db.js already has one)
   getPoints,
   savePoint,
   deletePoint,

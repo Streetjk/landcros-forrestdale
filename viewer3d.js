@@ -797,7 +797,7 @@ function renderSceneWidgets(list) {
 
 // Only http/https may be opened — blocks javascript:/data:/other schemes
 // reaching window.open from editor-authored (not visitor-authored) data.
-function _runWidgetAction(rawAction) {
+function _runWidgetAction(rawAction, obj) {
   // Older buttons stored action as a plain string (e.g. 'none'); normalize to an object.
   const action = (rawAction && typeof rawAction === 'object') ? rawAction : { type: rawAction || 'none' };
   if (!action.type || action.type === 'none') return;
@@ -807,12 +807,28 @@ function _runWidgetAction(rawAction) {
     window.setCameraPreset?.(action.preset);
   } else if (action.type === 'show-panel') {
     showWidgetDetail(action.title ?? '', action.body ?? '');
+  } else if (action.type === 'submit-report') {
+    showSubmitReportForm(action.title ?? '', obj?.transform?.position ?? null);
   }
 }
 
 // Reuses the existing point-detail panel (selectPoint/showPointList) rather
 // than a separate widget panel — same open/close chrome, contacts hidden.
 // No-ops on pages without that panel (e.g. admin3d.html has no #point-detail).
+// Shared "open the detail panel" chrome for the two non-pin panel uses below
+// (widget show-panel, submit-report form). selectPoint() has its own copy —
+// it interleaves this with history.pushState + the camera fly-to tween, so
+// isn't a clean fit for this helper.
+function _openDetailPanel() {
+  document.getElementById('point-list').style.display = 'none';
+  document.getElementById('point-detail').classList.add('visible');
+  if (window.innerWidth <= 1024) {
+    document.getElementById('side-panel')?.classList.remove('panel-folded');
+    window._updateCamPresetsBottom?.();
+  }
+  if (window.innerWidth > 1024) document.getElementById('app')?.classList.add('panel-open');
+}
+
 function showWidgetDetail(title, body) {
   if (!document.getElementById('point-detail')) return;
   updatePinHighlight(null);
@@ -826,13 +842,71 @@ function showWidgetDetail(title, body) {
   if (contactsSection) contactsSection.style.display = 'none';
   else { const el = document.getElementById('detail-contacts'); if (el) el.innerHTML = ''; }
 
-  document.getElementById('point-list').style.display = 'none';
-  document.getElementById('point-detail').classList.add('visible');
-  if (window.innerWidth <= 1024) {
-    document.getElementById('side-panel')?.classList.remove('panel-folded');
-    window._updateCamPresetsBottom?.();
-  }
-  if (window.innerWidth > 1024) document.getElementById('app')?.classList.add('panel-open');
+  _openDetailPanel();
+}
+
+// Phase 3: visitor-facing "report an issue" form for a submit-report button.
+// POSTs to /api/submissions (site-agnostic, mirrors /api/scene-objects —
+// the server infers its own deployment's site from env SITE). All user text
+// goes through the fetch body, never innerHTML — same XSS-safe convention
+// the rest of this codebase uses.
+function showSubmitReportForm(title, position3d) {
+  if (!document.getElementById('point-detail')) return;
+  updatePinHighlight(null);
+  document.getElementById('detail-chip').className = 'chip';
+  document.getElementById('detail-chip').textContent = '';
+  document.getElementById('detail-label').textContent = title || 'Report an issue';
+  const navSection = document.getElementById('detail-nav-section');
+  if (navSection) navSection.style.display = 'none';
+  const contactsSection = document.getElementById('detail-contacts')?.closest('.detail-section');
+  if (contactsSection) contactsSection.style.display = 'none';
+
+  const notesEl = document.getElementById('detail-notes');
+  notesEl.textContent = ''; // clears any prior content/children (form, plain text, etc.)
+
+  const textarea = document.createElement('textarea');
+  textarea.rows = 4;
+  textarea.placeholder = 'Describe the issue…';
+  textarea.style.cssText = 'width:100%;margin-top:8px;font:inherit;box-sizing:border-box;';
+
+  const submitBtn = document.createElement('button');
+  submitBtn.textContent = 'Submit report';
+  submitBtn.className = 'btn-primary';
+  submitBtn.style.cssText = 'margin-top:8px;';
+
+  const statusEl = document.createElement('div');
+  statusEl.style.cssText = 'margin-top:6px;font-size:12px;color:var(--text-secondary)';
+
+  submitBtn.addEventListener('click', async () => {
+    submitBtn.disabled = true;
+    statusEl.textContent = 'Submitting…';
+    try {
+      const r = await fetch('/api/submissions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pointLabel: title, position3d, meta: { notes: textarea.value } }),
+      });
+      if (r.ok) {
+        statusEl.textContent = 'Thanks — report submitted.';
+        textarea.value = '';
+      } else if (r.status === 429) {
+        statusEl.textContent = 'Too many reports right now — try again later.';
+        submitBtn.disabled = false;
+      } else {
+        statusEl.textContent = 'Could not submit — try again later.';
+        submitBtn.disabled = false;
+      }
+    } catch {
+      statusEl.textContent = 'Network error — try again later.';
+      submitBtn.disabled = false;
+    }
+  });
+
+  notesEl.appendChild(textarea);
+  notesEl.appendChild(submitBtn);
+  notesEl.appendChild(statusEl);
+
+  _openDetailPanel();
 }
 
 // ── Measurement tool ─────────────────────────────────────────────────────
@@ -942,7 +1016,7 @@ renderer.domElement.addEventListener('click', e => {
   if (widgetHits.length) {
     const hitMesh = widgetHits[0].object;
     const widget = Array.from(_sceneWidgets.values()).find(w => w.raycastMesh === hitMesh);
-    if (widget) _runWidgetAction(widget.obj.props?.action);
+    if (widget) _runWidgetAction(widget.obj.props?.action, widget.obj);
   }
 });
 

@@ -216,6 +216,7 @@ const ACTION_FIELDS = {
   'open-url':      ['prop-action-url'],
   'camera-preset': ['prop-action-preset'],
   'show-panel':    ['prop-action-title', 'prop-action-body'],
+  'submit-report': ['prop-action-title'],
 };
 
 function showPropertyPanel(obj) {
@@ -273,6 +274,8 @@ function onActionFieldInput() {
   else if (type === 'show-panel') {
     action.title = document.getElementById('prop-action-title').value;
     action.body = document.getElementById('prop-action-body').value;
+  } else if (type === 'submit-report') {
+    action.title = document.getElementById('prop-action-title').value;
   }
   entry.obj.props.action = action;
   scheduleSave(_selectedId);
