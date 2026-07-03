@@ -9,18 +9,21 @@ const http        = require('http');
 const fs          = require('fs');
 const path        = require('path');
 const { execFile } = require('child_process');
-const sdb         = require('./supabase-db');
-const auth        = require('./auth-db');
-const siteAdmin   = require('./site-admin');
-const sceneDb     = require('./scene-db');
 
-// Load .env for local dev (Render sets env vars directly and those take precedence)
+// Load .env for local dev (Render sets env vars directly and those take precedence).
+// Must run before requiring auth-db.js — it reads PLATFORM_ADMIN_EMAILS into a
+// module-level const at require time, so loading .env after would be too late.
 try {
   fs.readFileSync(path.join(__dirname, '.env'), 'utf8').split('\n').forEach(line => {
     const m = line.match(/^([A-Z_][A-Z0-9_]*)=(.*)$/);
     if (m && !process.env[m[1]]) process.env[m[1]] = m[2].trim();
   });
 } catch {}
+
+const sdb         = require('./supabase-db');
+const auth        = require('./auth-db');
+const siteAdmin   = require('./site-admin');
+const sceneDb     = require('./scene-db');
 
 // Generic client error body — logs the real error server-side, never leaks
 // DB/schema/config detail (e.message) to the client.
