@@ -765,6 +765,18 @@
       #site-brand  { display: flex !important; }
       #site-address { display: block !important; }
     }
+
+    /* style.css hides #site-brand/#site-address for the whole ≤1024px range
+       (shared with viewer3d.html/admin3d.html); this page wants both visible
+       at every width. The ≤767px block above already restores #site-brand,
+       but not #site-address, and the ≤640px block above only restores
+       #site-address that narrow — leaving #site-address hidden for
+       641–767px, and BOTH hidden for 768–1024px ("tablet"). Match style.css's
+       own breakpoint here so neither gap exists. */
+    @media (max-width: 1024px) {
+      #site-brand { display: flex !important; }
+      #site-address { display: block !important; }
+    }
   </style>
 </head>
 <body>
