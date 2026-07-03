@@ -3,7 +3,7 @@ services:
   - type: web
     name: landcros-forrestdale
     runtime: node
-    buildCommand: echo ok
+    buildCommand: npm ci
     startCommand: node server.js
     envVars:
       - key: SITE
