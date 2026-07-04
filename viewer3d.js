@@ -96,7 +96,19 @@ controls.minDistance = 3;
 controls.maxDistance = 80;
 controls.minPolarAngle = 0;
 controls.maxPolarAngle = THREE.MathUtils.degToRad(85);
-// Auto-orbit only stops via the button toggle
+// Any direct manual interaction with the camera (drag/pan/zoom on the
+// canvas) stops auto-rotate, however it was started (intro animation on
+// load, the rotate button, or orbit-around-a-pin). Doesn't fire during
+// scripted camera tweens (setCameraPreset/selectPoint/startNav all set
+// controls.enabled = false while animating, and OrbitControls skips firing
+// 'start' while disabled), so this can't fight with those.
+controls.addEventListener('start', () => {
+  if (_orbitActive) { stopAutoOrbit(); return; }
+  if (controls.autoRotate) {
+    controls.autoRotate = false;
+    window._syncRotateBtn?.();
+  }
+});
 
 // Initial camera — matches overhead preset center
 const _initY = window.innerWidth <= 767 ? 26.60 * 1.43 : 26.60;
@@ -227,13 +239,17 @@ function startAutoOrbit(target, radius, elevDeg) {
 
 function stopAutoOrbit() {
   if (_orbitTween) { _orbitTween.kill(); _orbitTween = null; }
+  // Always turn off autoRotate, even if it was only on via the simple button
+  // toggle / intro animation (neither sets _orbitActive) — every caller of
+  // stopAutoOrbit() means "make sure rotation is off", not just "tear down
+  // an active orbit-around-a-pin".
+  controls.autoRotate = false;
+  window._syncRotateBtn?.();
   if (!_orbitActive) return;
   _orbitActive          = false;
   _camAnimating         = false;
-  controls.autoRotate   = false;
   controls.enabled      = true;
   controls.update();
-  window._syncRotateBtn?.();
 }
 
 window._syncRotateBtn = () => {
