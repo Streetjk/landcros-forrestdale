@@ -28,6 +28,7 @@ const submissionsDb = require('./submissions-db');
 const eventsDb      = require('./events-db');
 const webhooksDb    = require('./webhooks-db');
 const webhookDelivery = require('./webhook-delivery');
+const scriptsDb     = require('./scripts-db');
 
 // Generic client error body — logs the real error server-side, never leaks
 // DB/schema/config detail (e.message) to the client.
@@ -623,6 +624,74 @@ const server = http.createServer((req, res) => {
         }).catch(e => {
           res.writeHead(400, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ error: e.message || 'Invalid webhook' }));
+        });
+      });
+    });
+    return;
+  }
+
+  // ── Scripts — site-admin CRUD (Phase 2 Slice 4 remainder) ───────────────
+  // admin+ role required — scripts are admin-authored, security-sensitive
+  // behavior (same trust tier as webhooks), not the general editor+ tier
+  // scene objects otherwise use. Unlike webhooks.secret, script source is
+  // not a secret: it's embedded into /api/scene-objects (see scene-db.js's
+  // listSceneObjects LEFT JOIN) so the public viewer can run it — no
+  // separate public read route needed.
+  const _scriptsMatch = /^\/api\/sites\/([^/]+)\/scripts$/.exec(pathname);
+  if (_scriptsMatch && (req.method === 'GET' || req.method === 'POST')) {
+    const slug = _scriptsMatch[1];
+    if (!SLUG_RE.test(slug)) { res.writeHead(404, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ error: 'not found' })); }
+    _requireSiteAdmin(req, res, slug, (s) => {
+      if (req.method === 'GET') {
+        scriptsDb.listScripts(slug).then(list => {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify(list));
+        }).catch(e => {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(_errBody(e));
+        });
+        return;
+      }
+      _readJsonBody(req, (err, body) => {
+        if (err) { res.writeHead(400, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ error: 'Invalid JSON' })); }
+        scriptsDb.createScript(slug, body, s.profileId).then(created => {
+          console.log(`[scripts] ${slug}/${created.id} created by ${s.profileId}`);
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify(created));
+        }).catch(e => {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: e.message || 'Invalid script' }));
+        });
+      });
+    });
+    return;
+  }
+
+  const _scriptItemMatch = /^\/api\/sites\/([^/]+)\/scripts\/([0-9a-fA-F-]{36})$/.exec(pathname);
+  if (_scriptItemMatch && (req.method === 'PATCH' || req.method === 'DELETE')) {
+    const slug = _scriptItemMatch[1];
+    const id = _scriptItemMatch[2];
+    if (!SLUG_RE.test(slug)) { res.writeHead(404, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ error: 'not found' })); }
+    _requireSiteAdmin(req, res, slug, (s) => {
+      if (req.method === 'DELETE') {
+        scriptsDb.deleteScript(slug, id, s.profileId).then(() => {
+          console.log(`[scripts] ${slug}/${id} deleted by ${s.profileId}`);
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: true }));
+        }).catch(e => {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(_errBody(e));
+        });
+        return;
+      }
+      _readJsonBody(req, (err, body) => {
+        if (err) { res.writeHead(400, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ error: 'Invalid JSON' })); }
+        scriptsDb.updateScript(slug, id, body, s.profileId).then(updated => {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify(updated));
+        }).catch(e => {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: e.message || 'Invalid script' }));
         });
       });
     });

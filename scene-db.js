@@ -31,6 +31,7 @@ function sceneObjectToJson(r) {
     style: r.style,
     props: r.props,
     scriptId: r.script_id,
+    scriptSource: r.script_source ?? null, // joined in by listSceneObjects for 'widget' kind
     zIndex: r.z_index,
     createdAt: r.created_at,
     updatedAt: r.updated_at,
@@ -48,8 +49,18 @@ async function _appendAudit(siteId, changedBy, action, entityType, entityId, ent
 
 async function listSceneObjects(slug) {
   const siteId = await getSiteId(slug);
+  // LEFT JOIN scripts: a widget's script source rides along on the same
+  // fetch the viewer already makes for scene_objects — no separate public
+  // scripts-read route needed, same published/no-existence-leak gate applies.
+  // The FK (scene_objects_script_id_fkey, see 0006_scripts.sql) already
+  // requires script_id to belong to the same site — the join's explicit
+  // `and s.site_id = o.site_id` is defense in depth, not the only guard.
   const { rows } = await _getPool().query(
-    'select * from scene_objects where site_id = $1 order by z_index, created_at',
+    `select o.*, s.source as script_source
+     from scene_objects o
+     left join scripts s on s.id = o.script_id and s.site_id = o.site_id
+     where o.site_id = $1
+     order by o.z_index, o.created_at`,
     [siteId]
   );
   return rows.map(sceneObjectToJson);

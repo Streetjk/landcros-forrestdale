@@ -771,13 +771,16 @@ function removePin(id) {
   delete _pins[id];
 }
 
-// ── Scene-object widgets (Phase 2 SLICE 4) — read-only render of 'label' and
-// 'button' scene_objects for visitors. Editing lives in scene-editor.js;
-// this renderer is skipped there (see the add-label-btn guard at call site)
-// to avoid double-rendering the same objects.
+// ── Scene-object widgets (Phase 2 SLICE 4) — read-only render of 'label',
+// 'button', and 'widget' scene_objects for visitors. Editing lives in
+// scene-editor.js; this renderer is skipped there (see the add-label-btn
+// guard at call site) to avoid double-rendering the same objects.
 function _sceneObjDisplayText(obj) {
-  return obj.kind === 'button' ? (obj.props?.label ?? '') : (obj.props?.text ?? '');
+  if (obj.kind === 'button' || obj.kind === 'widget') return obj.props?.label ?? '';
+  return obj.props?.text ?? '';
 }
+
+const _WIDGET_COLORS = { button: 0x0f766e, widget: 0x7c3aed };
 
 function _renderSceneWidget(obj) {
   const [x, y, z] = obj.transform?.position ?? [0, 0, 0];
@@ -785,10 +788,10 @@ function _renderSceneWidget(obj) {
   anchor.position.set(x, y, z);
 
   let raycastMesh = null;
-  if (obj.kind === 'button') {
+  if (obj.kind === 'button' || obj.kind === 'widget') {
     raycastMesh = new THREE.Mesh(
       new THREE.BoxGeometry(0.4, 0.4, 0.4),
-      new THREE.MeshStandardMaterial({ color: 0x0f766e })
+      new THREE.MeshStandardMaterial({ color: _WIDGET_COLORS[obj.kind] })
     );
     raycastMesh.position.y = 0.2;
     anchor.add(raycastMesh);
@@ -796,11 +799,11 @@ function _renderSceneWidget(obj) {
 
   const div = document.createElement('div');
   div.className = 'scene-obj-label';
-  const bg = obj.kind === 'button' ? 'rgba(15,118,110,0.88)' : 'rgba(24,95,165,0.88)';
+  const bg = obj.kind === 'widget' ? 'rgba(124,58,237,0.88)' : obj.kind === 'button' ? 'rgba(15,118,110,0.88)' : 'rgba(24,95,165,0.88)';
   div.style.cssText = `pointer-events:none;white-space:nowrap;font:600 13px 'DM Sans',sans-serif;color:#fff;background:${bg};padding:3px 8px;border-radius:6px;transform:translate(-50%,-130%);`;
   div.textContent = _sceneObjDisplayText(obj);
   const css2dObj = new CSS2DObject(div);
-  css2dObj.position.set(0, obj.kind === 'button' ? 0.4 : 0.1, 0);
+  css2dObj.position.set(0, (obj.kind === 'button' || obj.kind === 'widget') ? 0.4 : 0.1, 0);
   anchor.add(css2dObj);
 
   scene.add(anchor);
@@ -808,17 +811,21 @@ function _renderSceneWidget(obj) {
 }
 
 function renderSceneWidgets(list) {
-  list.filter(o => o.kind === 'label' || o.kind === 'button').forEach(_renderSceneWidget);
+  list.filter(o => o.kind === 'label' || o.kind === 'button' || o.kind === 'widget').forEach(_renderSceneWidget);
 }
 
 // Only http/https may be opened — blocks javascript:/data:/other schemes
 // reaching window.open from editor-authored (not visitor-authored) data.
+function _isHttpUrl(url) {
+  return /^https?:\/\//i.test(url ?? '');
+}
+
 function _runWidgetAction(rawAction, obj) {
   // Older buttons stored action as a plain string (e.g. 'none'); normalize to an object.
   const action = (rawAction && typeof rawAction === 'object') ? rawAction : { type: rawAction || 'none' };
   if (!action.type || action.type === 'none') return;
   if (action.type === 'open-url') {
-    if (/^https?:\/\//i.test(action.url ?? '')) window.open(action.url, '_blank', 'noopener');
+    if (_isHttpUrl(action.url)) window.open(action.url, '_blank', 'noopener');
   } else if (action.type === 'camera-preset') {
     window.setCameraPreset?.(action.preset);
   } else if (action.type === 'show-panel') {
@@ -826,6 +833,165 @@ function _runWidgetAction(rawAction, obj) {
   } else if (action.type === 'submit-report') {
     showSubmitReportForm(action.title ?? '', obj?.transform?.position ?? null);
   }
+}
+
+// ── Sandboxed widget scripts (Phase 2 Slice 4 remainder) ────────────────
+//
+// Admin-authored JS, attached to a 'widget' scene object, runs on visitor
+// click — restricted to the SAME safe-action vocabulary _runWidgetAction
+// already exposes declaratively (openUrl/cameraPreset/showPanel/
+// submitReport), plus a read-only getPosition. The script itself never
+// gets DOM/window/parent access:
+//
+// - iframe sandbox="allow-scripts" only — allow-same-origin is deliberately
+//   OMITTED so the frame gets a unique opaque ("null") origin, unable to
+//   reach this page's cookies/localStorage/DOM even though it's fed via
+//   srcdoc (same-origin serving + allow-same-origin together would defeat
+//   the sandbox; omitting allow-same-origin closes that regardless of how
+//   the document was delivered).
+// - srcdoc is a FIXED bootstrap string (never string-concatenates the
+//   admin's source into HTML — that would let a stray </script> break out
+//   of the tag); the actual source travels inside the postMessage payload
+//   and is eval'd via `new Function` INSIDE the opaque frame only.
+// - A CSP meta tag (default-src 'none') inside the srcdoc blocks all
+//   network egress from the script — no fetch/XHR/WebSocket/beacon/nested
+//   frames. Sandbox flags block top-nav, popups, forms, modals, downloads,
+//   pointer-lock; an empty Permissions-Policy blocks camera/mic/geo.
+// - Auth: NOT a transferred MessageChannel port — confirmed by direct
+//   testing that a MessagePort transferred into a sandboxed opaque-origin
+//   iframe silently stops delivering messages back to the parent on THIS
+//   app specifically, because this page runs cross-origin-isolated
+//   (COOP:same-origin + COEP:credentialless, needed for the Gaussian-splat
+//   renderer's SharedArrayBuffer) — the iframe→parent leg of a transferred
+//   port never arrives once the parent is cross-origin-isolated, even
+//   though the parent→iframe leg (delivering the port) works fine. Plain
+//   window.postMessage (no port transfer) is unaffected by this and works
+//   both directions. So auth here is by object-identity instead of origin
+//   or port-capability: compare event.source to the iframe's own
+//   contentWindow reference, which only OUR iframe can ever equal —
+//   equivalent to the port-capability idea Opus's design used, just
+//   without the transferable object this app's COEP setup breaks.
+// - Only one widget script runs at a time (a new click tears down the
+//   previous one); a hard timeout tears it down regardless in case a
+//   script never finishes.
+// - ACCEPTED RESIDUAL RISK (flagged by Codex, not fixed): the timeout above
+//   only stops a script between statements — a synchronous infinite loop
+//   (e.g. `while(true){}`) runs on the visitor's main thread and the
+//   timeout can never preempt it, since JS in this iframe is not preemptible
+//   the way a Web Worker is (a worker can be force-terminated mid-loop from
+//   outside; an iframe cannot). Blast radius is limited to freezing that one
+//   visitor's own tab until they close/reload it — no server impact, no
+//   effect on other visitors, no data exposure. A fully robust fix would
+//   mean re-architecting this as a Worker instead of an iframe (workers lose
+//   direct DOM access anyway, so the safe-action-only design still holds,
+//   but sandboxed "no code execution at all" CSP/permissions semantics
+//   differ); not done here given the low severity relative to that cost at
+//   this app's scale (internal tool, admin-authored scripts, low traffic).
+
+const WIDGET_SCRIPT_TIMEOUT_MS = 30_000;
+const WIDGET_SCRIPT_RATE_LIMIT = { max: 10, windowMs: 1000 }; // effectful actions per window, per script run
+
+const _WIDGET_SCRIPT_SRCDOC = `<!DOCTYPE html><html><head>
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval'">
+</head><body><script>
+window.addEventListener('message', function (e) {
+  if (!e.data || e.data.type !== 'init') return;
+  var source = e.data.payload && e.data.payload.source;
+  var reqId = 0;
+  var pending = {};
+  window.addEventListener('message', function (resultEvt) {
+    var m = resultEvt.data;
+    if (m && m.type === 'result' && pending[m.id]) {
+      pending[m.id](m.ok ? m.data : null);
+      delete pending[m.id];
+    }
+  });
+  function send(name, args) { window.parent.postMessage({ v: 1, type: 'action', id: ++reqId, name: name, args: args || {} }, '*'); }
+  // Ergonomic positional signatures for script authors — internally mapped
+  // to the {name, args} shape the host's dispatcher (viewer3d.js) expects.
+  var api = {
+    openUrl:      function (url) { send('openUrl', { url: url }); },
+    cameraPreset: function (preset) { send('cameraPreset', { preset: preset }); },
+    showPanel:    function (title, body) { send('showPanel', { title: title, body: body }); },
+    submitReport: function (title) { send('submitReport', { title: title }); },
+    getPosition: function () {
+      return new Promise(function (resolve) {
+        var id = ++reqId;
+        pending[id] = resolve;
+        window.parent.postMessage({ v: 1, type: 'action', id: id, name: 'getPosition', args: {} }, '*');
+      });
+    },
+  };
+  try {
+    if (source) (new Function('api', source))(api);
+  } catch (err) {
+    window.parent.postMessage({ v: 1, type: 'error', message: String(err && err.message || err) }, '*');
+  }
+}, { once: true });
+<\/script></body></html>`;
+
+let _widgetScriptFrame = null;
+let _widgetScriptTimer = null;
+let _widgetScriptMessageHandler = null;
+
+function _teardownWidgetScript() {
+  if (_widgetScriptTimer) { clearTimeout(_widgetScriptTimer); _widgetScriptTimer = null; }
+  if (_widgetScriptMessageHandler) { window.removeEventListener('message', _widgetScriptMessageHandler); _widgetScriptMessageHandler = null; }
+  if (_widgetScriptFrame) { _widgetScriptFrame.remove(); _widgetScriptFrame = null; }
+}
+
+function _runWidgetScript(source, obj) {
+  _teardownWidgetScript();
+
+  const iframe = document.createElement('iframe');
+  iframe.sandbox = 'allow-scripts'; // no allow-same-origin — keeps the frame's origin opaque
+  iframe.setAttribute('allow', ''); // empty Permissions-Policy: no camera/mic/geolocation/etc.
+  iframe.referrerPolicy = 'no-referrer';
+  iframe.style.cssText = 'display:none;width:0;height:0;border:0;';
+  iframe.srcdoc = _WIDGET_SCRIPT_SRCDOC;
+  document.body.appendChild(iframe);
+  _widgetScriptFrame = iframe;
+
+  let actionCount = 0;
+  let windowStart = Date.now();
+
+  _widgetScriptMessageHandler = (e) => {
+    // Identity check, not origin (event.origin is "null" for every sandboxed
+    // opaque frame, so it can't distinguish ours from any other) — only our
+    // own iframe's contentWindow can ever equal e.source.
+    if (e.source !== iframe.contentWindow) return;
+    const msg = e.data;
+    if (!msg || msg.type !== 'action') return;
+
+    const now = Date.now();
+    if (now - windowStart > WIDGET_SCRIPT_RATE_LIMIT.windowMs) { windowStart = now; actionCount = 0; }
+    if (msg.name !== 'getPosition') {
+      actionCount++;
+      if (actionCount > WIDGET_SCRIPT_RATE_LIMIT.max) return; // silently drop — over the rate limit
+    }
+
+    const args = msg.args ?? {};
+    if (msg.name === 'openUrl') {
+      if (_isHttpUrl(args.url)) window.open(args.url, '_blank', 'noopener');
+    } else if (msg.name === 'cameraPreset') {
+      window.setCameraPreset?.(args.preset);
+    } else if (msg.name === 'showPanel') {
+      showWidgetDetail(String(args.title ?? ''), String(args.body ?? ''));
+    } else if (msg.name === 'submitReport') {
+      // Position comes from the host-held scene object, never the script's args —
+      // the script can't spoof where a report is "from".
+      showSubmitReportForm(String(args.title ?? ''), obj?.transform?.position ?? null);
+    } else if (msg.name === 'getPosition') {
+      iframe.contentWindow.postMessage({ v: 1, type: 'result', id: msg.id, ok: true, data: obj?.transform?.position ?? null }, '*');
+    }
+  };
+  window.addEventListener('message', _widgetScriptMessageHandler);
+
+  iframe.addEventListener('load', () => {
+    iframe.contentWindow.postMessage({ type: 'init', payload: { source } }, '*');
+  }, { once: true });
+
+  _widgetScriptTimer = setTimeout(_teardownWidgetScript, WIDGET_SCRIPT_TIMEOUT_MS);
 }
 
 // Reuses the existing point-detail panel (selectPoint/showPointList) rather
@@ -1032,7 +1198,11 @@ renderer.domElement.addEventListener('click', e => {
   if (widgetHits.length) {
     const hitMesh = widgetHits[0].object;
     const widget = Array.from(_sceneWidgets.values()).find(w => w.raycastMesh === hitMesh);
-    if (widget) _runWidgetAction(widget.obj.props?.action, widget.obj);
+    if (widget && widget.obj.kind === 'widget' && widget.obj.scriptSource) {
+      _runWidgetScript(widget.obj.scriptSource, widget.obj);
+    } else if (widget) {
+      _runWidgetAction(widget.obj.props?.action, widget.obj);
+    }
   }
 });
 

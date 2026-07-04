@@ -22,6 +22,7 @@ let _selectedId        = null;
 let _placingKind       = null; // 'label' | 'button' | null
 let _justDragged       = false;
 const _saveTimers      = new Map();
+let _editingScriptId   = null;
 
 if (!SLUG) {
   document.getElementById('no-site-msg').style.display = 'block';
@@ -48,12 +49,17 @@ async function init() {
 
   document.getElementById('add-label-btn').addEventListener('click', () => togglePlacing('label'));
   document.getElementById('add-button-btn').addEventListener('click', () => togglePlacing('button'));
+  document.getElementById('add-widget-btn').addEventListener('click', () => togglePlacing('widget'));
   document.getElementById('prop-text').addEventListener('input', onPropTextInput);
   document.getElementById('prop-delete-btn').addEventListener('click', onDeleteClick);
   document.getElementById('prop-action-type').addEventListener('change', onActionTypeChange);
   ['prop-action-url', 'prop-action-preset', 'prop-action-title', 'prop-action-body'].forEach(id => {
     document.getElementById(id).addEventListener('input', onActionFieldInput);
   });
+  document.getElementById('prop-widget-script').addEventListener('change', onPropWidgetScriptChange);
+  document.getElementById('manage-scripts-btn').addEventListener('click', openScriptsModal);
+  document.getElementById('scripts-modal-close').addEventListener('click', closeScriptsModal);
+  document.getElementById('save-new-script-btn').addEventListener('click', onSaveNewScriptClick);
   document.addEventListener('keydown', onKeydown);
 
   await loadObjects();
@@ -74,12 +80,12 @@ async function loadObjects() {
   } catch {
     showToast('Could not load scene objects');
   }
-  list.filter(o => o.kind === 'label' || o.kind === 'button').forEach(renderObject);
+  list.filter(o => o.kind === 'label' || o.kind === 'button' || o.kind === 'widget').forEach(renderObject);
 }
 
 // ── Render (kind → mesh + CSS2D text) ───────────────────────────────────
 function objectDisplayText(obj) {
-  return obj.kind === 'button' ? (obj.props?.label ?? '') : (obj.props?.text ?? '');
+  return (obj.kind === 'button' || obj.kind === 'widget') ? (obj.props?.label ?? '') : (obj.props?.text ?? '');
 }
 
 function renderObject(obj) {
@@ -88,10 +94,10 @@ function renderObject(obj) {
   anchor.position.set(x, y, z);
 
   let raycastMesh;
-  if (obj.kind === 'button') {
+  if (obj.kind === 'button' || obj.kind === 'widget') {
     raycastMesh = new THREE.Mesh(
       new THREE.BoxGeometry(0.4, 0.4, 0.4),
-      new THREE.MeshStandardMaterial({ color: 0x0f766e })
+      new THREE.MeshStandardMaterial({ color: obj.kind === 'button' ? 0x0f766e : 0x7c3aed })
     );
     raycastMesh.position.y = 0.2;
   } else {
@@ -106,11 +112,11 @@ function renderObject(obj) {
 
   const div = document.createElement('div');
   div.className = 'scene-obj-label';
-  const bg = obj.kind === 'button' ? 'rgba(15,118,110,0.88)' : 'rgba(24,95,165,0.88)';
+  const bg = obj.kind === 'widget' ? 'rgba(124,58,237,0.88)' : (obj.kind === 'button' ? 'rgba(15,118,110,0.88)' : 'rgba(24,95,165,0.88)');
   div.style.cssText = `pointer-events:none;white-space:nowrap;font:600 13px 'DM Sans',sans-serif;color:#fff;background:${bg};padding:3px 8px;border-radius:6px;transform:translate(-50%,-130%);`;
   div.textContent = objectDisplayText(obj);
   const css2dObj = new CSS2DObject(div);
-  css2dObj.position.set(0, obj.kind === 'button' ? 0.4 : 0.1, 0);
+  css2dObj.position.set(0, (obj.kind === 'button' || obj.kind === 'widget') ? 0.4 : 0.1, 0);
   anchor.add(css2dObj);
 
   _scene.add(anchor);
@@ -143,6 +149,7 @@ function setPlacing(kind) {
   _placingKind = kind;
   document.getElementById('add-label-btn').classList.toggle('active', kind === 'label');
   document.getElementById('add-button-btn').classList.toggle('active', kind === 'button');
+  document.getElementById('add-widget-btn').classList.toggle('active', kind === 'widget');
   document.getElementById('placement-hint').style.display = kind ? 'block' : 'none';
   document.getElementById('canvas-wrap').style.cursor = kind ? 'crosshair' : '';
 }
@@ -170,9 +177,10 @@ async function createObject(kind, pos) {
   const id = crypto.randomUUID();
   const obj = {
     id, kind,
+    scriptId: null,
     transform: { position: [pos.x, pos.y, pos.z], rotation: [0, 0, 0], scale: [1, 1, 1] },
     style: {},
-    props: kind === 'label' ? { text: 'New label' } : { label: 'Button', action: { type: 'none' } },
+    props: kind === 'label' ? { text: 'New label' } : (kind === 'button' ? { label: 'Button', action: { type: 'none' } } : { label: 'Widget' }),
   };
   renderObject(obj);
   select(id);
@@ -222,11 +230,14 @@ const ACTION_FIELDS = {
 function showPropertyPanel(obj) {
   document.getElementById('empty-selection').style.display = 'none';
   document.getElementById('property-panel').style.display = 'flex';
-  document.getElementById('prop-kind-label').textContent = obj.kind === 'button' ? 'Button label' : 'Label text';
+  document.getElementById('prop-kind-label').textContent = (obj.kind === 'button' || obj.kind === 'widget') ? (obj.kind === 'widget' ? 'Widget label' : 'Button label') : 'Label text';
   document.getElementById('prop-text').value = objectDisplayText(obj);
 
   const actionGroup = document.getElementById('prop-action-group');
   actionGroup.style.display = obj.kind === 'button' ? 'flex' : 'none';
+  const widgetGroup = document.getElementById('prop-widget-group');
+  widgetGroup.style.display = obj.kind === 'widget' ? 'flex' : 'none';
+  if (obj.kind === 'widget') _populateScriptDropdown(obj.scriptId);
   if (obj.kind === 'button') {
     // Older buttons stored action as a plain string (e.g. 'none'); normalize to an object.
     const raw = obj.props.action;
@@ -297,7 +308,7 @@ function onPropTextInput(e) {
   const entry = _objects.get(_selectedId);
   if (!entry) return;
   const val = e.target.value;
-  if (entry.obj.kind === 'button') entry.obj.props.label = val;
+  if (entry.obj.kind === 'button' || entry.obj.kind === 'widget') entry.obj.props.label = val;
   else entry.obj.props.text = val;
   entry.div.textContent = val;
   scheduleSave(_selectedId);
@@ -383,6 +394,135 @@ async function apiWrite(url, options) {
   }
   document.getElementById('readonly-msg').style.display = 'none';
   try { return await res.json(); } catch { return {}; }
+}
+
+// ── Scripts Modal & API ─────────────────────────────────────────────────
+async function _populateScriptDropdown(selectedValue) {
+  const select = document.getElementById('prop-widget-script');
+  try {
+    const r = await fetch(`/api/sites/${encodeURIComponent(SLUG)}/scripts`);
+    if (r.ok) {
+      const scripts = await r.json();
+      select.replaceChildren();
+      const defaultOpt = document.createElement('option');
+      defaultOpt.value = '';
+      defaultOpt.textContent = 'No script';
+      select.appendChild(defaultOpt);
+      for (const script of scripts) {
+        const opt = document.createElement('option');
+        opt.value = script.id;
+        opt.textContent = script.name;
+        select.appendChild(opt);
+      }
+      select.value = selectedValue ?? '';
+    }
+  } catch {
+    // Network errors should not throw
+  }
+}
+
+function onPropWidgetScriptChange(e) {
+  if (!_selectedId) return;
+  const entry = _objects.get(_selectedId);
+  if (!entry || entry.obj.kind !== 'widget') return;
+  entry.obj.scriptId = e.target.value || null;
+  scheduleSave(_selectedId);
+}
+
+function openScriptsModal() {
+  document.getElementById('scripts-modal').style.display = 'flex';
+  loadScriptsList();
+}
+
+function closeScriptsModal() {
+  document.getElementById('scripts-modal').style.display = 'none';
+  _editingScriptId = null;
+  document.getElementById('new-script-name').value = '';
+  document.getElementById('new-script-source').value = '';
+}
+
+async function loadScriptsList() {
+  const listEl = document.getElementById('scripts-list');
+  try {
+    const r = await fetch(`/api/sites/${encodeURIComponent(SLUG)}/scripts`);
+    if (r.ok) {
+      const scripts = await r.json();
+      listEl.replaceChildren();
+      for (const script of scripts) {
+        const row = document.createElement('div');
+        row.style.cssText = 'display:flex;justify-content:space-between;align-items:center;padding:8px;background:rgba(255,255,255,0.05);border-radius:6px;margin-bottom:8px;';
+
+        const nameEl = document.createElement('div');
+        nameEl.style.cssText = 'flex:1;font-weight:500;';
+        nameEl.textContent = script.name;
+
+        const btns = document.createElement('div');
+        btns.style.cssText = 'display:flex;gap:8px;';
+
+        const editBtn = document.createElement('button');
+        editBtn.style.cssText = 'padding:4px 8px;background:rgba(255,255,255,0.1);border:none;border-radius:4px;color:#fff;cursor:pointer;font-size:12px;';
+        editBtn.textContent = 'Edit';
+        editBtn.onclick = () => {
+          _editingScriptId = script.id;
+          document.getElementById('new-script-name').value = script.name;
+          document.getElementById('new-script-source').value = script.source;
+        };
+
+        const delBtn = document.createElement('button');
+        delBtn.style.cssText = 'padding:4px 8px;background:#b91c1c;border:none;border-radius:4px;color:#fff;cursor:pointer;font-size:12px;';
+        delBtn.textContent = 'Delete';
+        delBtn.onclick = async () => {
+          const ok = await apiWrite(`/api/sites/${encodeURIComponent(SLUG)}/scripts/${encodeURIComponent(script.id)}`, { method: 'DELETE' });
+          if (ok) {
+            loadScriptsList();
+            if (_selectedId && _objects.get(_selectedId)?.obj.kind === 'widget') {
+              _populateScriptDropdown(_objects.get(_selectedId).obj.scriptId);
+            }
+          }
+        };
+
+        btns.appendChild(editBtn);
+        btns.appendChild(delBtn);
+        row.appendChild(nameEl);
+        row.appendChild(btns);
+        listEl.appendChild(row);
+      }
+    }
+  } catch {
+    // Network errors should not throw
+  }
+}
+
+async function onSaveNewScriptClick() {
+  const name = document.getElementById('new-script-name').value.trim();
+  const source = document.getElementById('new-script-source').value;
+  if (!name) return;
+
+  const payload = { name, source };
+  let ok;
+  if (_editingScriptId) {
+    ok = await apiWrite(`/api/sites/${encodeURIComponent(SLUG)}/scripts/${encodeURIComponent(_editingScriptId)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+  } else {
+    ok = await apiWrite(`/api/sites/${encodeURIComponent(SLUG)}/scripts`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+  }
+
+  if (ok) {
+    document.getElementById('new-script-name').value = '';
+    document.getElementById('new-script-source').value = '';
+    _editingScriptId = null;
+    loadScriptsList();
+    if (_selectedId && _objects.get(_selectedId)?.obj.kind === 'widget') {
+      _populateScriptDropdown(_objects.get(_selectedId).obj.scriptId);
+    }
+  }
 }
 
 // ── Toast ────────────────────────────────────────────────────────────────

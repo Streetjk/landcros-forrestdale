@@ -138,6 +138,7 @@
     <div id="add-buttons">
       <button class="btn-primary" id="add-label-btn">＋ Label</button>
       <button class="btn-primary" id="add-button-btn">＋ Button</button>
+      <button class="btn-primary" id="add-widget-btn">＋ Widget</button>
     </div>
     <div id="property-panel">
       <div class="form-group">
@@ -157,6 +158,13 @@
         <input class="form-input" id="prop-action-preset" maxlength="60" placeholder="Preset name (e.g. overhead)" style="display:none;margin-top:6px">
         <input class="form-input" id="prop-action-title" maxlength="80" placeholder="Title" style="display:none;margin-top:6px">
         <textarea class="form-input" id="prop-action-body" maxlength="500" rows="3" placeholder="Panel body text" style="display:none;margin-top:6px"></textarea>
+      </div>
+      <div class="form-group" id="prop-widget-group" style="display:none">
+        <label class="form-label">Script</label>
+        <select class="form-input" id="prop-widget-script">
+          <option value="">No script</option>
+        </select>
+        <button class="btn-primary" id="manage-scripts-btn" style="margin-top:6px;width:100%">Manage Scripts</button>
       </div>
       <div class="prop-row">
         <button class="prop-del-btn" id="prop-delete-btn">Delete</button>
@@ -337,5 +345,19 @@
 
 <script type="module" src="./viewer3d.js"></script>
 <script type="module" src="./scene-editor.js"></script>
+<div id="scripts-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:1000;align-items:center;justify-content:center;">
+  <div style="background:#1a1d29;border-radius:12px;padding:20px;width:480px;max-height:80vh;overflow-y:auto;color:#fff;font-family:'DM Sans',sans-serif;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+      <h3 style="margin:0;font-size:16px;">Scripts</h3>
+      <button id="scripts-modal-close" style="background:none;border:none;color:#fff;font-size:20px;cursor:pointer;">&times;</button>
+    </div>
+    <div id="scripts-list"></div>
+    <div style="margin-top:16px;border-top:1px solid rgba(255,255,255,0.1);padding-top:16px;">
+      <input class="form-input" id="new-script-name" placeholder="Script name" maxlength="100" style="width:100%;margin-bottom:8px;">
+      <textarea class="form-input" id="new-script-source" placeholder="JavaScript source — has access to: api.openUrl(url), api.cameraPreset(name), api.showPanel(title, body), api.submitReport(title), await api.getPosition()" rows="8" style="width:100%;font-family:monospace;font-size:12px;margin-bottom:8px;"></textarea>
+      <button class="btn-primary" id="save-new-script-btn" style="width:100%">Save New Script</button>
+    </div>
+  </div>
+</div>
 </body>
 </html>
