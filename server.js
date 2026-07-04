@@ -810,7 +810,9 @@ const server = http.createServer((req, res) => {
       return res.end(JSON.stringify({ error: 'Supabase not configured: set SUPABASE_DB_URL' }));
     }
     if (req.method === 'GET') {
-      sdb.getPoints(SITE).then(points => {
+      // Public read → base pins only (scene_id IS NULL). Scene-scoped pins
+      // never surface here; they load via a scene's share-code bundle.
+      sdb.getPoints(SITE, { baseOnly: true }).then(points => {
         res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
         res.end(JSON.stringify(points));
       }).catch(e => {
@@ -866,7 +868,9 @@ const server = http.createServer((req, res) => {
       return res.end(JSON.stringify({ error: 'Supabase not configured: set SUPABASE_DB_URL' }));
     }
     if (req.method === 'GET') {
-      sdb.getContacts(SITE).then(contacts => {
+      // Public read → exclude scene-only contacts (referenced solely by
+      // scene-scoped pins), keeping scene-created PII off the public route.
+      sdb.getContacts(SITE, { baseOnly: true }).then(contacts => {
         res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
         res.end(JSON.stringify(contacts));
       }).catch(e => {

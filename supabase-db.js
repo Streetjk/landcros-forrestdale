@@ -82,12 +82,16 @@ function contactToJson(r) {
 }
 
 // ── Points ──────────────────────────────────────────────────────────────────
-async function getPoints(slug) {
+// baseOnly (public path): return only vanilla base pins (scene_id IS NULL).
+// Scene-scoped pins never reach the public /api/points route — they load
+// only through a scene's share-code bundle. The editor passes baseOnly:false
+// to see everything.
+async function getPoints(slug, { baseOnly = false } = {}) {
   const siteId = await getSiteId(slug);
-  const { rows } = await _getPool().query(
-    'select * from points where site_id = $1 order by created_at',
-    [siteId]
-  );
+  const sql = baseOnly
+    ? 'select * from points where site_id = $1 and scene_id is null order by created_at'
+    : 'select * from points where site_id = $1 order by created_at';
+  const { rows } = await _getPool().query(sql, [siteId]);
   return rows.map(pointToJson);
 }
 
@@ -133,12 +137,21 @@ async function deletePoint(slug, id, changedBy = null) {
 }
 
 // ── Contacts ──────────────────────────────────────────────────────────────
-async function getContacts(slug) {
+// baseOnly (public path): exclude "scene-only" contacts — those referenced
+// ONLY by scene-scoped pins and by no base pin. Contacts have no scene_id of
+// their own (they're referenced by pins' contact_ids[]), so a contact is
+// treated as public if a base pin references it OR no scene pin references it.
+// This keeps scene-created contacts (PII) from leaking via the public
+// /api/contacts route (Fable amendment). The editor passes baseOnly:false.
+async function getContacts(slug, { baseOnly = false } = {}) {
   const siteId = await getSiteId(slug);
-  const { rows } = await _getPool().query(
-    'select * from contacts where site_id = $1 order by created_at',
-    [siteId]
-  );
+  const sql = baseOnly
+    ? `select * from contacts c where c.site_id = $1 and (
+         exists (select 1 from points p where p.site_id = $1 and p.scene_id is null and c.id = any(p.contact_ids))
+         or not exists (select 1 from points p where p.site_id = $1 and p.scene_id is not null and c.id = any(p.contact_ids))
+       ) order by c.created_at`
+    : 'select * from contacts where site_id = $1 order by created_at';
+  const { rows } = await _getPool().query(sql, [siteId]);
   return rows.map(contactToJson);
 }
 
