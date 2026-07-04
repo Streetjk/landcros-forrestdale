@@ -26,6 +26,7 @@ const ALLOWED_KINDS = new Set(['pin', 'label', 'button', 'widget', 'model', 'zon
 function sceneObjectToJson(r) {
   return {
     id: r.id,
+    sceneId: r.scene_id,
     kind: r.kind,
     transform: r.transform,
     style: r.style,
@@ -47,7 +48,7 @@ async function _appendAudit(siteId, changedBy, action, entityType, entityId, ent
   );
 }
 
-async function listSceneObjects(slug) {
+async function listSceneObjects(slug, sceneId = null) {
   const siteId = await getSiteId(slug);
   // LEFT JOIN scripts: a widget's script source rides along on the same
   // fetch the viewer already makes for scene_objects — no separate public
@@ -55,14 +56,21 @@ async function listSceneObjects(slug) {
   // The FK (scene_objects_script_id_fkey, see 0006_scripts.sql) already
   // requires script_id to belong to the same site — the join's explicit
   // `and s.site_id = o.site_id` is defense in depth, not the only guard.
-  const { rows } = await _getPool().query(
-    `select o.*, s.source as script_source
-     from scene_objects o
-     left join scripts s on s.id = o.script_id and s.site_id = o.site_id
-     where o.site_id = $1
-     order by o.z_index, o.created_at`,
-    [siteId]
-  );
+  // sceneId scopes the editor to the currently-selected scene (Scenes Slice 4)
+  // — every object belongs to exactly one scene, so an unscoped list would mix
+  // objects from every scene into one canvas.
+  const sql = sceneId
+    ? `select o.*, s.source as script_source
+       from scene_objects o
+       left join scripts s on s.id = o.script_id and s.site_id = o.site_id
+       where o.site_id = $1 and o.scene_id = $2
+       order by o.z_index, o.created_at`
+    : `select o.*, s.source as script_source
+       from scene_objects o
+       left join scripts s on s.id = o.script_id and s.site_id = o.site_id
+       where o.site_id = $1
+       order by o.z_index, o.created_at`;
+  const { rows } = await _getPool().query(sql, sceneId ? [siteId, sceneId] : [siteId]);
   return rows.map(sceneObjectToJson);
 }
 
@@ -77,10 +85,11 @@ async function isSitePublished(slug) {
 async function saveSceneObject(slug, obj, changedBy = null) {
   const siteId = await getSiteId(slug);
   if (!obj || !obj.id) throw new Error('object.id is required');
+  if (!obj.sceneId) throw new Error('object.sceneId is required');
   if (!ALLOWED_KINDS.has(obj.kind)) throw new Error(`Invalid scene object kind: ${obj.kind}`);
   const { rows } = await _getPool().query(
-    `insert into scene_objects (id, site_id, kind, transform, style, props, script_id, z_index)
-     values ($1::uuid, $2::uuid, $3, $4::jsonb, $5::jsonb, $6::jsonb, $7::uuid, $8)
+    `insert into scene_objects (id, site_id, scene_id, kind, transform, style, props, script_id, z_index)
+     values ($1::uuid, $2::uuid, $3::uuid, $4, $5::jsonb, $6::jsonb, $7::jsonb, $8::uuid, $9)
      on conflict (id) do update set
        kind = excluded.kind, transform = excluded.transform, style = excluded.style,
        props = excluded.props, script_id = excluded.script_id, z_index = excluded.z_index,
@@ -88,7 +97,7 @@ async function saveSceneObject(slug, obj, changedBy = null) {
      where scene_objects.site_id = excluded.site_id
      returning *`,
     [
-      obj.id, siteId, obj.kind, j(obj.transform || {}), j(obj.style || {}), j(obj.props || {}),
+      obj.id, siteId, obj.sceneId, obj.kind, j(obj.transform || {}), j(obj.style || {}), j(obj.props || {}),
       obj.scriptId ?? null, obj.zIndex ?? 0,
     ]
   );

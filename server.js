@@ -513,8 +513,13 @@ const server = http.createServer((req, res) => {
       // (_sendSceneObjects) was a cross-scene leak (Codex, Scenes Slice 3):
       // it returned every scene's objects, incl. widget scriptSource, to any
       // anonymous caller on a published site.
+      // ?scene=<id> scopes to one scene (required — every object belongs to
+      // exactly one scene since Scenes Slice 1; an unscoped list would mix
+      // every scene's objects into the editor's single canvas).
+      const sceneId = url.searchParams.get('scene');
+      if (!sceneId) { res.writeHead(400, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ error: 'scene query param is required' })); }
       _requireSiteEditor(req, res, slug, () => {
-        sceneDb.listSceneObjects(slug).then(objects => {
+        sceneDb.listSceneObjects(slug, sceneId).then(objects => {
           res.writeHead(200, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify(objects));
         }).catch(e => {

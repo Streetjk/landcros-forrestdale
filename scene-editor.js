@@ -10,6 +10,7 @@
 import * as THREE from 'three';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import { CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
+import { generateQR } from './qr.js';
 
 const SLUG = new URLSearchParams(location.search).get('site');
 
@@ -23,6 +24,8 @@ let _placingKind       = null; // 'label' | 'button' | null
 let _justDragged       = false;
 const _saveTimers      = new Map();
 let _editingScriptId   = null;
+let _scenes            = []; // scenes this site owns (Scenes feature, Slice 4)
+let _currentSceneId    = null;
 
 if (!SLUG) {
   document.getElementById('no-site-msg').style.display = 'block';
@@ -50,6 +53,14 @@ async function init() {
   document.getElementById('add-label-btn').addEventListener('click', () => togglePlacing('label'));
   document.getElementById('add-button-btn').addEventListener('click', () => togglePlacing('button'));
   document.getElementById('add-widget-btn').addEventListener('click', () => togglePlacing('widget'));
+  document.getElementById('add-scene-btn').addEventListener('click', onAddSceneClick);
+  document.getElementById('new-scene-confirm-btn').addEventListener('click', onNewSceneConfirm);
+  document.getElementById('new-scene-cancel-btn').addEventListener('click', onNewSceneCancel);
+  document.getElementById('new-scene-name').addEventListener('keydown', e => {
+    if (e.key === 'Enter') onNewSceneConfirm();
+    if (e.key === 'Escape') onNewSceneCancel();
+  });
+  document.getElementById('scene-share-copy-btn').addEventListener('click', onCopySceneShareUrl);
   document.getElementById('prop-text').addEventListener('input', onPropTextInput);
   document.getElementById('prop-delete-btn').addEventListener('click', onDeleteClick);
   document.getElementById('prop-action-type').addEventListener('change', onActionTypeChange);
@@ -62,7 +73,8 @@ async function init() {
   document.getElementById('save-new-script-btn').addEventListener('click', onSaveNewScriptClick);
   document.addEventListener('keydown', onKeydown);
 
-  await loadObjects();
+  updateAddButtonsEnabled();
+  await loadScenes();
 
   // Test hook (Playwright smoke test) — not used by the editor itself.
   window.__sceneEditor = {
@@ -71,15 +83,149 @@ async function init() {
   };
 }
 
+// ── Scenes (Scenes feature, Slice 4) ────────────────────────────────────
+// The editor's canvas always shows exactly one scene's objects at a time —
+// scene_objects.scene_id is NOT NULL (Scenes Slice 1), so there is no
+// "unscoped" set of objects to fall back to. Selecting a scene clears the
+// canvas and loads only that scene's objects; placement is disabled until a
+// scene exists and is selected.
+async function loadScenes() {
+  try {
+    const r = await fetch(`/api/sites/${encodeURIComponent(SLUG)}/scenes`);
+    if (r.ok) _scenes = await r.json();
+  } catch {
+    showToast('Could not load scenes');
+  }
+  renderScenesList();
+  if (!_currentSceneId && _scenes.length) await selectScene(_scenes[0].id);
+}
+
+function renderScenesList() {
+  const list = document.getElementById('scenes-list');
+  list.replaceChildren();
+  _scenes.forEach(scene => {
+    const row = document.createElement('div');
+    row.className = 'scene-list-item' + (scene.id === _currentSceneId ? ' active' : '');
+    const name = document.createElement('span');
+    name.textContent = scene.name;
+    row.appendChild(name);
+    const del = document.createElement('button');
+    del.className = 'scene-del-btn';
+    del.textContent = '✕';
+    del.title = 'Delete scene';
+    del.addEventListener('click', e => { e.stopPropagation(); onDeleteSceneClick(scene.id); });
+    row.appendChild(del);
+    row.addEventListener('click', () => selectScene(scene.id));
+    list.appendChild(row);
+  });
+}
+
+async function selectScene(id) {
+  if (id === _currentSceneId) return;
+  deselect();
+  // Flush pending debounced saves before clearing the canvas — otherwise an
+  // in-flight edit (scheduleSave/flushSave, 400ms debounce) is silently
+  // dropped: disposeEntry() clearTimeouts the pending save without sending it.
+  await flushAllPending();
+  Array.from(_objects.keys()).forEach(disposeEntry);
+  _currentSceneId = id;
+  renderScenesList();
+  updateAddButtonsEnabled();
+  const scene = _scenes.find(s => s.id === id);
+  if (scene) showSceneShare(scene);
+  await loadObjects();
+}
+
+function showSceneShare(scene) {
+  const row = document.getElementById('scene-share-row');
+  const input = document.getElementById('scene-share-url');
+  const qrWrap = document.getElementById('scene-qr-wrap');
+  const url = `${location.origin}/s/${scene.shareCode}`;
+  input.value = url;
+  qrWrap.replaceChildren();
+  generateQR(url, 'scene-qr-wrap');
+  row.style.display = 'block';
+}
+
+function onCopySceneShareUrl() {
+  const input = document.getElementById('scene-share-url');
+  if (!input.value) return;
+  navigator.clipboard.writeText(input.value).catch(() => {});
+  const btn = document.getElementById('scene-share-copy-btn');
+  btn.textContent = 'Copied!';
+  setTimeout(() => { btn.textContent = 'Copy'; }, 1500);
+}
+
+function updateAddButtonsEnabled() {
+  const enabled = !!_currentSceneId;
+  ['add-label-btn', 'add-button-btn', 'add-widget-btn'].forEach(id => {
+    document.getElementById(id).disabled = !enabled;
+  });
+  document.getElementById('no-scene-hint').style.display = enabled ? 'none' : 'block';
+  if (!enabled) togglePlacing(null); // cancel any in-progress placement (scene switched away mid-placement)
+}
+
+function onAddSceneClick() {
+  document.getElementById('new-scene-row').style.display = 'flex';
+  document.getElementById('new-scene-name').value = '';
+  document.getElementById('new-scene-name').focus();
+}
+
+function onNewSceneCancel() {
+  document.getElementById('new-scene-row').style.display = 'none';
+}
+
+async function onNewSceneConfirm() {
+  const name = document.getElementById('new-scene-name').value.trim();
+  if (name.length < 1) { showToast('Scene name is required'); return; }
+  const created = await apiWrite(`/api/sites/${encodeURIComponent(SLUG)}/scenes`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  });
+  if (!created) return;
+  onNewSceneCancel();
+  _scenes.push(created);
+  await selectScene(created.id);
+}
+
+async function onDeleteSceneClick(id) {
+  // Cancel (don't flush) pending autosaves for the scene being deleted —
+  // its objects are about to be cascade-deleted, so saving them is wasted
+  // work and could otherwise race the DELETE (a debounced save landing after
+  // the scene's gone would 500 on the FK). Only the current scene can have
+  // pending timers/objects loaded (switching scenes already flushes+clears).
+  if (id === _currentSceneId) cancelAllPending();
+  const ok = await apiWrite(`/api/sites/${encodeURIComponent(SLUG)}/scenes/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  if (!ok) return;
+  _scenes = _scenes.filter(s => s.id !== id);
+  if (_currentSceneId === id) {
+    _currentSceneId = null;
+    Array.from(_objects.keys()).forEach(disposeEntry);
+    document.getElementById('scene-share-row').style.display = 'none';
+    updateAddButtonsEnabled();
+    if (_scenes.length) await selectScene(_scenes[0].id);
+    else renderScenesList();
+  } else {
+    renderScenesList();
+  }
+}
+
 // ── Load ─────────────────────────────────────────────────────────────────
 async function loadObjects() {
+  if (!_currentSceneId) return;
+  const requestedSceneId = _currentSceneId;
   let list = [];
   try {
-    const r = await fetch(`/api/sites/${encodeURIComponent(SLUG)}/objects`);
+    const r = await fetch(`/api/sites/${encodeURIComponent(SLUG)}/objects?scene=${encodeURIComponent(requestedSceneId)}`);
     if (r.ok) list = await r.json();
   } catch {
     showToast('Could not load scene objects');
   }
+  // Scene may have changed again while this fetch was in flight (fast
+  // clicking between scenes) — a stale response must not render into
+  // whatever scene is current now.
+  if (_currentSceneId !== requestedSceneId) return;
   list.filter(o => o.kind === 'label' || o.kind === 'button' || o.kind === 'widget').forEach(renderObject);
 }
 
@@ -174,9 +320,11 @@ function placeFromEvent(e) {
 }
 
 async function createObject(kind, pos) {
+  if (!_currentSceneId) return;
   const id = crypto.randomUUID();
   const obj = {
     id, kind,
+    sceneId: _currentSceneId,
     scriptId: null,
     transform: { position: [pos.x, pos.y, pos.z], rotation: [0, 0, 0], scale: [1, 1, 1] },
     style: {},
@@ -330,6 +478,21 @@ async function onDeleteClick() {
 function scheduleSave(id) {
   clearTimeout(_saveTimers.get(id));
   _saveTimers.set(id, setTimeout(() => flushSave(id), 400));
+}
+
+// Send every pending debounced save immediately (scene switch — the edit
+// belongs to a scene we're keeping, so it must not be silently dropped).
+async function flushAllPending() {
+  const ids = Array.from(_saveTimers.keys());
+  ids.forEach(id => clearTimeout(_saveTimers.get(id)));
+  await Promise.all(ids.map(id => flushSave(id)));
+}
+
+// Drop every pending debounced save without sending it (scene delete — the
+// objects are about to be cascade-deleted, so saving them first is wasted
+// work and would otherwise race the DELETE).
+function cancelAllPending() {
+  Array.from(_saveTimers.keys()).forEach(id => { clearTimeout(_saveTimers.get(id)); _saveTimers.delete(id); });
 }
 
 async function flushSave(id) {
