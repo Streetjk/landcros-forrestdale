@@ -29,6 +29,7 @@ const eventsDb      = require('./events-db');
 const webhooksDb    = require('./webhooks-db');
 const webhookDelivery = require('./webhook-delivery');
 const scriptsDb     = require('./scripts-db');
+const scenesDb      = require('./scenes-db');
 
 // Generic client error body — logs the real error server-side, never leaks
 // DB/schema/config detail (e.message) to the client.
@@ -691,6 +692,74 @@ const server = http.createServer((req, res) => {
         }).catch(e => {
           res.writeHead(400, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ error: e.message || 'Invalid script' }));
+        });
+      });
+    });
+    return;
+  }
+
+  // ── Scenes — site-editor CRUD (Scenes feature, Slice 2) ─────────────────
+  // A scene is a named, shareable set of scene-scoped objects/pins. Create/
+  // list/delete are editor+ gated; the share_code is server-generated and
+  // returned on create. The PUBLIC read-by-code path is a separate anon
+  // route (Slice 3), not here.
+  const _scenesMatch = /^\/api\/sites\/([^/]+)\/scenes$/.exec(pathname);
+  if (_scenesMatch && (req.method === 'GET' || req.method === 'POST')) {
+    const slug = _scenesMatch[1];
+    if (!SLUG_RE.test(slug)) { res.writeHead(404, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ error: 'not found' })); }
+    if (req.method === 'GET') {
+      _requireSiteRole(req, res, slug, 'viewer', () => {
+        scenesDb.listScenes(slug).then(list => {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify(list));
+        }).catch(e => {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(_errBody(e));
+        });
+      });
+      return;
+    }
+    _requireSiteEditor(req, res, slug, (s) => {
+      _readJsonBody(req, (err, body) => {
+        if (err) { res.writeHead(400, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ error: 'Invalid JSON' })); }
+        scenesDb.createScene(slug, body, s.profileId).then(created => {
+          console.log(`[scenes] ${slug}/${created.id} created by ${s.profileId}`);
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify(created));
+        }).catch(e => {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: e.message || 'Invalid scene' }));
+        });
+      });
+    });
+    return;
+  }
+
+  const _sceneItemMatch = /^\/api\/sites\/([^/]+)\/scenes\/([0-9a-fA-F-]{36})$/.exec(pathname);
+  if (_sceneItemMatch && (req.method === 'PATCH' || req.method === 'DELETE')) {
+    const slug = _sceneItemMatch[1];
+    const id = _sceneItemMatch[2];
+    if (!SLUG_RE.test(slug)) { res.writeHead(404, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ error: 'not found' })); }
+    _requireSiteEditor(req, res, slug, (s) => {
+      if (req.method === 'DELETE') {
+        scenesDb.deleteScene(slug, id, s.profileId).then(() => {
+          console.log(`[scenes] ${slug}/${id} deleted by ${s.profileId}`);
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: true }));
+        }).catch(e => {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(_errBody(e));
+        });
+        return;
+      }
+      _readJsonBody(req, (err, body) => {
+        if (err) { res.writeHead(400, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ error: 'Invalid JSON' })); }
+        scenesDb.updateScene(slug, id, body, s.profileId).then(updated => {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify(updated));
+        }).catch(e => {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: e.message || 'Invalid scene' }));
         });
       });
     });
