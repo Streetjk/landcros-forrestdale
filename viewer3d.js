@@ -1028,8 +1028,8 @@ function showWidgetDetail(title, body) {
 }
 
 // Phase 3: visitor-facing "report an issue" form for a submit-report button.
-// POSTs to /api/submissions (site-agnostic, mirrors /api/scene-objects —
-// the server infers its own deployment's site from env SITE). All user text
+// POSTs to /api/submissions (site-agnostic — the server infers its own
+// deployment's site from env SITE). All user text
 // goes through the fetch body, never innerHTML — same XSS-safe convention
 // the rest of this codebase uses.
 function showSubmitReportForm(title, position3d) {
@@ -2920,11 +2920,15 @@ async function boot() {
   window._v3d = { renderer, camera, controls, _raycaster, _pickGround, renderPins, removePin, upsertPin, updatePinHighlight, latlngToScene, pins: _pins };
   window.dispatchEvent(new CustomEvent('viewer3d:ready'));
 
-  // Scene-object widgets (Phase 2 SLICE 4): skip on editor.html (#add-label-btn)
-  // — scene-editor.js renders these itself with edit affordances; rendering
-  // them here too would double them up.
-  if (!document.getElementById('add-label-btn')) {
-    fetch('/api/scene-objects').then(r => r.ok ? r.json() : []).catch(() => []).then(renderSceneWidgets);
+  // Scene objects are SCENE-SCOPED (Scenes feature): the default viewer is
+  // vanilla and renders NONE of them. They load only when a scene is opened
+  // via ?scene=<code> (below). The editor (scene-editor.js, #add-label-btn)
+  // renders its own objects with edit affordances, so skip there too.
+  const _sceneCode = _params.get('scene');
+  if (_sceneCode && !document.getElementById('add-label-btn')) {
+    fetch(`/api/scenes/by-code/${encodeURIComponent(_sceneCode)}`)
+      .then(r => r.ok ? r.json() : null).catch(() => null)
+      .then(bundle => { if (bundle?.objects) renderSceneWidgets(bundle.objects); });
   }
 
   // viewer3d.html: load pins/contacts

@@ -498,14 +498,13 @@ const server = http.createServer((req, res) => {
   }
 
   // ── Scene objects — drag-drop editor persistence (Phase 2 SLICE 2a) ────
-  // Reads are public ONLY for published sites (the viewer renders scene
-  // objects for any published site); unpublished sites require viewer+
-  // membership. Writes require an editor+ role on :slug (multi-site — see
+  // Writes require an editor+ role on :slug (multi-site — see
   // _requireSiteEditor, distinct from _requireRole's single env-SITE check).
-  if (pathname === '/api/scene-objects' && req.method === 'GET') {
-    _sendSceneObjects(req, res, SITE);
-    return;
-  }
+  // NOTE: the old site-agnostic `GET /api/scene-objects` route was removed
+  // with the Scenes feature — scene objects are now scene-scoped and the
+  // default viewer is vanilla (renders none). Objects load only via a
+  // scene's share code (GET /api/scenes/by-code/:code, added in a later
+  // slice). The editor still reads/writes via /api/sites/:slug/objects below.
   const SLUG_RE = /^[a-z0-9][a-z0-9-]{1,62}$/;
   const _objectsMatch = /^\/api\/sites\/([^/]+)\/objects$/.exec(pathname);
   if (_objectsMatch && (req.method === 'GET' || req.method === 'POST')) {
@@ -634,8 +633,8 @@ const server = http.createServer((req, res) => {
   // admin+ role required — scripts are admin-authored, security-sensitive
   // behavior (same trust tier as webhooks), not the general editor+ tier
   // scene objects otherwise use. Unlike webhooks.secret, script source is
-  // not a secret: it's embedded into /api/scene-objects (see scene-db.js's
-  // listSceneObjects LEFT JOIN) so the public viewer can run it — no
+  // not a secret: it's embedded into the scene-object read responses (see
+  // scene-db.js's listSceneObjects LEFT JOIN) so the viewer can run it — no
   // separate public read route needed.
   const _scriptsMatch = /^\/api\/sites\/([^/]+)\/scripts$/.exec(pathname);
   if (_scriptsMatch && (req.method === 'GET' || req.method === 'POST')) {
