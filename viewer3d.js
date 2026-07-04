@@ -2920,15 +2920,17 @@ async function boot() {
   window._v3d = { renderer, camera, controls, _raycaster, _pickGround, renderPins, removePin, upsertPin, updatePinHighlight, latlngToScene, pins: _pins };
   window.dispatchEvent(new CustomEvent('viewer3d:ready'));
 
-  // Scene objects are SCENE-SCOPED (Scenes feature): the default viewer is
-  // vanilla and renders NONE of them. They load only when a scene is opened
-  // via ?scene=<code> (below). The editor (scene-editor.js, #add-label-btn)
-  // renders its own objects with edit affordances, so skip there too.
+  // Scene objects/pins are SCENE-SCOPED (Scenes feature): the default viewer
+  // is vanilla and loads NONE. A scene loads ONLY when opened via
+  // ?scene=<code>, and OVERLAYS the base site (base buildings/labels/pins
+  // still render underneath). The editor (scene-editor.js, #add-label-btn)
+  // renders its own objects with edit affordances, so skip there.
+  let _sceneBundle = null;
   const _sceneCode = _params.get('scene');
   if (_sceneCode && !document.getElementById('add-label-btn')) {
-    fetch(`/api/scenes/by-code/${encodeURIComponent(_sceneCode)}`)
-      .then(r => r.ok ? r.json() : null).catch(() => null)
-      .then(bundle => { if (bundle?.objects) renderSceneWidgets(bundle.objects); });
+    _sceneBundle = await fetch(`/api/scenes/by-code/${encodeURIComponent(_sceneCode)}`)
+      .then(r => r.ok ? r.json() : null).catch(() => null);
+    if (_sceneBundle?.objects) renderSceneWidgets(_sceneBundle.objects);
   }
 
   // viewer3d.html: load pins/contacts
@@ -2937,7 +2939,12 @@ async function boot() {
     fetch('./data/points.json').then(r => r.json()).catch(() => []),
     fetch('./data/contacts.json').then(r => r.json()).catch(() => []),
   ]);
-  _allContacts = contacts;
+  // Overlay the open scene's pins + contacts on the vanilla base. Scene pins
+  // carry a valid position3d (editor-created); guard defensively anyway.
+  if (_sceneBundle?.pins?.length) {
+    points.push(..._sceneBundle.pins.filter(p => p.position3d));
+  }
+  _allContacts = _sceneBundle?.contacts ? [...contacts, ..._sceneBundle.contacts] : contacts;
 
   // Consume #share=<base64> hash — add the shared pin ephemerally, then select it
   const hashMatch = window.location.hash.match(/^#share=(.+)$/);

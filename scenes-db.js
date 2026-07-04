@@ -8,7 +8,8 @@
 // getSiteId, appendAudit, cross-tenant guard.
 
 const crypto = require('crypto');
-const { pool: sharedPool, getSiteId, j, appendAudit } = require('./supabase-db');
+const { pool: sharedPool, getSiteId, j, appendAudit, pointToJson, contactToJson } = require('./supabase-db');
+const { sceneObjectToJson } = require('./scene-db');
 
 function _getPool() {
   return sharedPool();
@@ -90,6 +91,66 @@ async function updateScene(slug, id, { name, camera } = {}, changedBy = null) {
   return sceneToJson(rows[0]);
 }
 
+// ── Public read-by-code (Scenes feature, Slice 3) — SECURITY-CRITICAL ─────
+//
+// Resolves a share code to exactly one scene's bundle for an ANONYMOUS
+// visitor. This is the ONLY path that returns scene data without a session,
+// and it deliberately bypasses the site's published gate — because the code
+// IS the authorization for this one scene's (intentionally-shared) content,
+// which is strictly narrower than "the whole site is published".
+//
+// Invariants that make it safe (a single missing one = cross-tenant leak,
+// since the service-role pool bypasses RLS):
+//   * site_id is derived FROM the scene row (line below), NEVER from the
+//     request — so the caller cannot pivot to another tenant.
+//   * every subsequent query filters by BOTH scene_id AND that derived
+//     site_id — so no base data (scene_id IS NULL), no other scene, and no
+//     other site can ever be returned.
+//   * contacts are the union of THIS scene's pins' contact_ids only.
+//   * unknown/deleted code → null (server returns a uniform 404, no
+//     existence or timing distinction).
+async function getSceneBundleByCode(code) {
+  if (typeof code !== 'string' || !code) return null;
+  const pool = _getPool();
+
+  const sceneRes = await pool.query(
+    'select id, site_id, name, camera from scenes where share_code = $1',
+    [code]
+  );
+  if (!sceneRes.rows.length) return null;
+  const scene = sceneRes.rows[0];
+  const sceneId = scene.id;
+  const siteId = scene.site_id; // authoritative — from the scene row, not the request
+
+  const objectsRes = await pool.query(
+    `select o.*, s.source as script_source
+     from scene_objects o
+     left join scripts s on s.id = o.script_id and s.site_id = o.site_id
+     where o.scene_id = $1 and o.site_id = $2
+     order by o.z_index, o.created_at`,
+    [sceneId, siteId]
+  );
+
+  const pinsRes = await pool.query(
+    'select * from points where scene_id = $1 and site_id = $2 order by created_at',
+    [sceneId, siteId]
+  );
+
+  const contactsRes = await pool.query(
+    `select * from contacts
+     where site_id = $2
+     and id = any(select distinct unnest(contact_ids) from points where scene_id = $1 and site_id = $2)`,
+    [sceneId, siteId]
+  );
+
+  return {
+    scene: { id: scene.id, name: scene.name, camera: scene.camera },
+    objects: objectsRes.rows.map(sceneObjectToJson),
+    pins: pinsRes.rows.map(pointToJson),
+    contacts: contactsRes.rows.map(contactToJson),
+  };
+}
+
 async function deleteScene(slug, id, changedBy = null) {
   const siteId = await getSiteId(slug);
   // ON DELETE CASCADE removes this scene's scene_objects and scene-pins.
@@ -105,4 +166,5 @@ module.exports = {
   createScene,
   updateScene,
   deleteScene,
+  getSceneBundleByCode,
 };

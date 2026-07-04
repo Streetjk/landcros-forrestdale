@@ -220,6 +220,8 @@ module.exports = {
   getSiteId,
   j, // exported so other data-access modules (submissions-db.js, events-db.js) don't duplicate it
   appendAudit: _appendAudit, // exported so new modules reuse this instead of a third copy (scene-db.js already has one)
+  pointToJson,   // exported so scenes-db.js's by-code bundle returns the exact viewer-expected pin shape
+  contactToJson, // ditto for contacts
   getPoints,
   savePoint,
   deletePoint,

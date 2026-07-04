@@ -138,36 +138,9 @@ function _requireSiteAdmin(req, res, slug, cb) {
   _requireSiteRole(req, res, slug, 'admin', cb);
 }
 
-// Shared read gate for scene_objects (Phase 2 SLICE 2a/2b + the public viewer):
-// serves objects if the site is published, else requires a session with
-// platform-admin or viewer+ role on :slug, else 404 (no existence leak).
-function _sendSceneObjects(req, res, slug) {
-  const sendObjects = () => sceneDb.listSceneObjects(slug).then(objects => {
-    res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
-    res.end(JSON.stringify(objects));
-  }).catch(e => {
-    res.writeHead(500, { 'Content-Type': 'application/json' });
-    res.end(_errBody(e));
-  });
-  const deny = () => { res.writeHead(404, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'not found' })); };
-  sceneDb.isSitePublished(slug).then(published => {
-    if (published) return sendObjects();
-    const s = _session(req);
-    if (!s) return deny();
-    if (auth.isPlatformAdmin(s.email)) return sendObjects();
-    return auth.getSiteRole(s.profileId, slug).then(role => {
-      if (!auth.roleAtLeast(role, 'viewer')) return deny();
-      return sendObjects();
-    });
-  }).catch(e => {
-    res.writeHead(500, { 'Content-Type': 'application/json' });
-    res.end(_errBody(e));
-  });
-}
-
 // Shared public-submission handler for both /api/submissions (env SITE) and
 // /api/sites/:slug/submissions — rate-limited per-IP, gated on published,
-// same no-existence-leak shape as _sendSceneObjects.
+// with a no-existence-leak 404 shape.
 function _handleSubmissionPost(req, res, slug) {
   if (_rateLimited(req, res, 'submission-create', 20, 3600000)) return;
   sceneDb.isSitePublished(slug).then(published => {
@@ -507,12 +480,48 @@ const server = http.createServer((req, res) => {
   // scene's share code (GET /api/scenes/by-code/:code, added in a later
   // slice). The editor still reads/writes via /api/sites/:slug/objects below.
   const SLUG_RE = /^[a-z0-9][a-z0-9-]{1,62}$/;
+
+  // ── Public scene read-by-code (Scenes feature, Slice 3) ─────────────────
+  // Anonymous: a share code grants read of exactly one scene's bundle
+  // (objects + scene-pins + those pins' contacts), regardless of the site's
+  // published status. All scoping lives in scenesDb.getSceneBundleByCode
+  // (both scene_id AND scene-derived site_id on every query). Uniform 404 on
+  // any miss (no existence/timing leak); rate-limited to blunt guessing.
+  const _sceneCodeMatch = /^\/api\/scenes\/by-code\/([a-z0-9]{10})$/.exec(pathname);
+  if (_sceneCodeMatch && req.method === 'GET') {
+    if (_rateLimited(req, res, 'scene-by-code', 120, 3600000)) return;
+    scenesDb.getSceneBundleByCode(_sceneCodeMatch[1]).then(bundle => {
+      if (!bundle) { res.writeHead(404, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ error: 'not found' })); }
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.end(JSON.stringify(bundle));
+    }).catch(e => {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(_errBody(e));
+    });
+    return;
+  }
+
   const _objectsMatch = /^\/api\/sites\/([^/]+)\/objects$/.exec(pathname);
   if (_objectsMatch && (req.method === 'GET' || req.method === 'POST')) {
     const slug = _objectsMatch[1];
     if (!SLUG_RE.test(slug)) { res.writeHead(404, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ error: 'not found' })); }
     if (req.method === 'GET') {
-      _sendSceneObjects(req, res, slug);
+      // EDITOR-ONLY. Scene objects are scene-scoped and are NEVER publicly
+      // readable except through a scene's share code (GET
+      // /api/scenes/by-code/:code). This route is the editor loading its
+      // site's objects for editing — the old public-on-published path
+      // (_sendSceneObjects) was a cross-scene leak (Codex, Scenes Slice 3):
+      // it returned every scene's objects, incl. widget scriptSource, to any
+      // anonymous caller on a published site.
+      _requireSiteEditor(req, res, slug, () => {
+        sceneDb.listSceneObjects(slug).then(objects => {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify(objects));
+        }).catch(e => {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(_errBody(e));
+        });
+      });
       return;
     }
     _requireSiteEditor(req, res, slug, (s) => {
@@ -550,9 +559,9 @@ const server = http.createServer((req, res) => {
   }
 
   // ── Submissions — public "drop a pin + notes" (Phase 3) ─────────────────
-  // Public insert only, gated on the site being published (same no-existence-
-  // leak shape as _sendSceneObjects). Rate-limited per-IP; submissions-db.js
-  // also caps total submissions per site per rolling day.
+  // Public insert only, gated on the site being published (no-existence-leak
+  // 404 shape). Rate-limited per-IP; submissions-db.js also caps total
+  // submissions per site per rolling day.
   if (pathname === '/api/submissions' && req.method === 'POST') {
     _handleSubmissionPost(req, res, SITE);
     return;
@@ -968,6 +977,17 @@ const server = http.createServer((req, res) => {
       });
     });
     return;
+  }
+
+  // ── Scene permanent short-link: /s/<code> → /?scene=<code> ────────────
+  // The QR encodes this. Separate /s/ namespace + 10-char length so it can
+  // never collide with the legacy bare /<8char> pin share codes below. The
+  // redirect is unconditional (doesn't confirm the code exists) — the viewer
+  // resolves it via /api/scenes/by-code and shows vanilla if it's invalid.
+  const _sceneShortMatch = /^\/s\/([a-z0-9]{10})$/.exec(pathname);
+  if (_sceneShortMatch && (req.method === 'GET' || req.method === 'HEAD')) {
+    res.writeHead(302, { 'Location': `/?scene=${encodeURIComponent(_sceneShortMatch[1])}` });
+    return res.end();
   }
 
   // ── Short-code redirect: /<8-char-code> → viewer3d.html?s=<code> ──────

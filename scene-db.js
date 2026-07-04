@@ -115,4 +115,5 @@ module.exports = {
   isSitePublished,
   saveSceneObject,
   deleteSceneObject,
+  sceneObjectToJson, // exported so scenes-db.js's by-code bundle returns the exact viewer-expected object shape
 };
