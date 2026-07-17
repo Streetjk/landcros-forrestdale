@@ -98,7 +98,12 @@
     }
     #toolbar-header { padding: 18px 20px 14px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
     .panel-site { font-size: 11px; font-weight: 500; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 3px; }
-    .panel-title { font-size: 17px; font-weight: 700; color: var(--text); }
+    /* This toolbar has no dark sub-layer (unlike admin3d.html's .panel-page),
+       so .panel-title/.scene-list-item sit directly on the light background
+       above — style.css's dark-theme --text resolves to white, making them
+       white-on-white. .form-input below is unaffected: it sets its own dark
+       --surface background, so its white --text stays correct as-is. */
+    .panel-title { font-size: 17px; font-weight: 700; color: #1a2230; }
 
     #add-buttons { padding: 12px; border-bottom: 1px solid var(--border); flex-shrink: 0; display: flex; flex-direction: column; gap: 8px; }
     #add-buttons .btn-primary.active { background: #0f4a87; }
@@ -112,7 +117,7 @@
     .scene-list-item {
       display: flex; align-items: center; justify-content: space-between; gap: 6px;
       padding: 8px 10px; border-radius: 8px; font-size: 13px; font-weight: 500;
-      color: var(--text); cursor: pointer; border: 1px solid transparent;
+      color: #1a2230; cursor: pointer; border: 1px solid transparent;
     }
     .scene-list-item:hover { background: rgba(24,95,165,0.08); }
     .scene-list-item.active { background: rgba(24,95,165,0.12); border-color: rgba(24,95,165,0.35); }
@@ -153,6 +158,18 @@
     }
     .prop-del-btn:hover { background: #b91c1c; }
     #empty-selection { padding: 20px; text-align: center; color: var(--text-secondary); font-size: 13px; }
+
+    /* ── Responsive override ──────────────────────────────────────────────
+       style.css's shared ≤1024px rules assume a #side-panel bottom-sheet
+       page (viewer3d.html/admin3d.html) and force #app to display:block +
+       #canvas-wrap to absolutely cover the viewport. This page has no
+       #side-panel — it has #editor-toolbar — so that shared rule just
+       overpaints the toolbar with the canvas. Opt this page back into its
+       own flex layout at every width. */
+    @media (max-width: 1024px) {
+      #app { display: flex !important; }
+      #canvas-wrap { position: relative !important; inset: auto !important; flex: 1 !important; }
+    }
   </style>
 </head>
 <body>

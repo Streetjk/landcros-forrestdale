@@ -1005,7 +1005,15 @@ function _openDetailPanel() {
   document.getElementById('point-list').style.display = 'none';
   document.getElementById('point-detail').classList.add('visible');
   if (window.innerWidth <= 1024) {
-    document.getElementById('side-panel')?.classList.remove('panel-folded');
+    const _panelEl = document.getElementById('side-panel');
+    _panelEl?.classList.remove('panel-folded');
+    // Pages using the sheet-mid/sheet-full vocabulary (index.html) never get
+    // opened by the panel-folded removal above — add sheet-mid too so the
+    // sheet actually becomes visible there. No-op on pages that only use
+    // panel-folded (viewer3d.html/admin3d.html define no rules for these).
+    if (_panelEl && !_panelEl.classList.contains('sheet-mid') && !_panelEl.classList.contains('sheet-full')) {
+      _panelEl.classList.add('sheet-mid');
+    }
     window._updateCamPresetsBottom?.();
   }
   if (window.innerWidth > 1024) document.getElementById('app')?.classList.add('panel-open');
@@ -1276,7 +1284,13 @@ async function selectPoint(pt) {
 
   // On mobile + tablet — expand panel so detail is visible
   if (window.innerWidth <= 1024) {
-    document.getElementById('side-panel')?.classList.remove('panel-folded');
+    const _panelEl = document.getElementById('side-panel');
+    _panelEl?.classList.remove('panel-folded');
+    // See _openDetailPanel() above — index.html's sheet only responds to
+    // sheet-mid/sheet-full, not panel-folded, so add it here too.
+    if (_panelEl && !_panelEl.classList.contains('sheet-mid') && !_panelEl.classList.contains('sheet-full')) {
+      _panelEl.classList.add('sheet-mid');
+    }
     window._updateCamPresetsBottom?.();
   }
 
