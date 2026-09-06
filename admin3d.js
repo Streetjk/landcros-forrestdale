@@ -603,7 +603,9 @@ window._toggleInfoBar = () => {
   const btn = document.getElementById('panel-fold-btn');
   const folded = panel.classList.toggle('panel-folded');
   if (btn) btn.classList.toggle('folded', folded);
-  setTimeout(window._updateCamPresetsBottom, 290);
+  // Sync immediately — the CSS transition does the animating, and a delayed
+  // call left the buttons 290ms behind the panel on browsers without :has().
+  window._updateCamPresetsBottom();
 };
 
 // ── QR / link ─────────────────────────────────────────────────────────────────
