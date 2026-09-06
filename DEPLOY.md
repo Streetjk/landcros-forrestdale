@@ -35,20 +35,63 @@ subject to change. Sign-up needs a card for identity verification (Always Free
 shapes are not charged), and A1 capacity is sometimes unavailable in busy
 regions; your home region is permanent, so choose carefully.
 
+### Not getting charged
+
+Signing up gives you two separate things: a 30-day trial with US$300 of
+credit, and the open-ended **Always Free** allowance. They expire differently.
+
+- **Your card is not charged unless you upgrade the account.** When the 30
+  days (or the $300) run out you get a 30-day grace period; anything built
+  beyond the Always Free limits is then reclaimed, while resources tagged
+  *Always Free* keep running indefinitely.
+- So the rule is simply: **only ever create resources marked "Always
+  Free-eligible"**, and the trial ending is a non-event.
+- Current Always Free limits: 2 OCPU / 12 GB Ampere A1 (halved from 4/24 on
+  15 June 2026), 200 GB total block storage across at most 2 volumes — the
+  VM's boot volume counts toward this — and 10 TB/month egress.
+
+**The catch that matters for this app:** Oracle reclaims *idle* Always Free
+compute. An instance is idle if, over a 7-day window, 95th-percentile CPU
+stays under 20% (alongside low network and memory use). A low-traffic
+internal viewer will sit well under that, so the VM can be stopped and
+reclaimed even though you did nothing wrong.
+
+The documented way out is counter-intuitive: **upgrade to Pay As You Go.**
+PAYG accounts are exempt from idle reclamation, and Oracle states you are not
+charged while usage stays within the Always Free limits. The trade-off is
+that a card is now attached to an account that *can* bill you, so if you take
+this route set a budget alert (Billing → Budgets) at a dollar or two, and
+keep every resource Always Free-eligible. Otherwise stay on the free account
+and accept that an idle VM may need recreating.
+
+### Steps
+
 1. Create an account at https://cloud.oracle.com → choose a home region near
    Perth (Sydney or Melbourne).
 2. **Compute → Instances → Create**. Image: **Ubuntu 24.04**. Shape:
-   *Ampere → VM.Standard.A1.Flex*, 2 OCPU / 12 GB. Add your SSH public key.
-   Note the public IP.
+   *Ampere → VM.Standard.A1.Flex*, 2 OCPU / 12 GB. Confirm the shape shows
+   the **"Always Free-eligible"** badge before creating — this is the single
+   check that keeps the account free. Add your SSH public key, note the
+   public IP.
 3. **Networking → VCN → Security List (default)** → add ingress rules for
    TCP `80` and `443` from `0.0.0.0/0`.
-4. Point a DNS **A record** (e.g. `sitenav.yourdomain.com`) at the public IP.
+4. Optional: point a DNS **A record** at the public IP. If you have no
+   domain, skip this — the script derives one from the IP via `nip.io`.
 5. SSH in (`ssh ubuntu@<ip>`) and run the one-shot setup:
 
    ```bash
+   # with your own domain:
    curl -fsSL https://raw.githubusercontent.com/Streetjk/landcros-forrestdale/main/deploy/oracle-setup.sh \
      | DOMAIN=sitenav.yourdomain.com bash
+
+   # with no domain — uses https://<public-ip>.nip.io:
+   curl -fsSL https://raw.githubusercontent.com/Streetjk/landcros-forrestdale/main/deploy/oracle-setup.sh | bash
    ```
+
+   HTTPS is required either way: the splat viewer needs a secure context
+   (service worker + `SharedArrayBuffer`) and session cookies only get the
+   `Secure` flag behind TLS. `nip.io` resolves `<ip>.nip.io` to that IP, so
+   Let's Encrypt issues a real certificate for it.
 
    It installs Node 22 and Caddy, clones the repo to `/opt/sitenav`, creates a
    `systemd` service (auto-restart, starts on reboot), opens the VM firewall

@@ -6,9 +6,18 @@
 # writes a systemd service that restarts on failure and on reboot, and puts
 # Caddy in front for automatic HTTPS (Let's Encrypt) on your domain.
 #
+# HTTPS is REQUIRED, not optional: the Gaussian-splat viewer needs a secure
+# context (service worker + SharedArrayBuffer) and session cookies only get
+# the Secure flag behind TLS. If you have no domain, this script derives a
+# hostname from the VM public IP via nip.io (wildcard DNS resolving
+# <ip>.nip.io to <ip>), which Let's Encrypt issues a real certificate for.
+#
 # Run ONCE on the fresh VM (as the default `ubuntu` user):
+#   # with your own domain (its A record must already point at this VM):
 #   curl -fsSL https://raw.githubusercontent.com/Streetjk/landcros-forrestdale/main/deploy/oracle-setup.sh \
-#     | DOMAIN=sitenav.example.com REPO=https://github.com/Streetjk/landcros-forrestdale.git bash
+#     | DOMAIN=sitenav.example.com bash
+#   # with no domain at all:
+#   curl -fsSL https://raw.githubusercontent.com/Streetjk/landcros-forrestdale/main/deploy/oracle-setup.sh | bash
 #
 # Then fill in /opt/sitenav/.env (the script creates a template and stops the
 # service until SESSION_SECRET is set) and run:  sudo systemctl restart sitenav
@@ -16,7 +25,23 @@
 # Redeploy later:  sudo /opt/sitenav/deploy/update.sh
 set -euo pipefail
 
-DOMAIN="${DOMAIN:?Set DOMAIN=your.host.name (must already point at this VM public IP)}"
+# No DOMAIN given -> build one from the public IP with nip.io. Oracle's
+# instance metadata service is authoritative; fall back to an external echo.
+if [ -z "${DOMAIN:-}" ]; then
+  PUBLIC_IP="$(curl -s -H 'Authorization: Bearer Oracle' -m 5 \
+    http://169.254.169.254/opc/v2/vnics/ 2>/dev/null \
+    | grep -o '"publicIp"[^,]*' | head -1 | cut -d'"' -f4 || true)"
+  [ -z "$PUBLIC_IP" ] && PUBLIC_IP="$(curl -s -m 5 https://api.ipify.org || true)"
+  if [ -z "$PUBLIC_IP" ]; then
+    echo "ERROR: could not determine this VM public IP." >&2
+    echo "       Re-run with DOMAIN=your.host.name" >&2
+    exit 1
+  fi
+  DOMAIN="${PUBLIC_IP}.nip.io"
+  echo "==> No DOMAIN set - using ${DOMAIN} (nip.io wildcard DNS)"
+  echo "    To move to a real domain later: edit /etc/caddy/Caddyfile and"
+  echo "    PUBLIC_BASE_URL in /opt/sitenav/.env, then restart caddy + sitenav."
+fi
 REPO="${REPO:-https://github.com/Streetjk/landcros-forrestdale.git}"
 BRANCH="${BRANCH:-main}"
 APP_DIR=/opt/sitenav
@@ -96,7 +121,7 @@ PrivateTmp=true
 WantedBy=multi-user.target
 UNIT
 
-echo "==> Caddy reverse proxy"
+echo "==> Caddy reverse proxy (Let's Encrypt certificate for ${DOMAIN})"
 sudo tee /etc/caddy/Caddyfile >/dev/null <<CADDY
 ${DOMAIN} {
     encode zstd gzip
@@ -122,7 +147,16 @@ sudo systemctl restart caddy
 
 echo
 echo "Done. Next:"
-echo "  1. sudo nano ${APP_DIR}/.env      # paste Supabase + Resend values"
+echo "  1. sudo nano ${APP_DIR}/.env      # Supabase + email values"
+echo "     SESSION_SECRET is already generated; see .env.example in the repo"
 echo "  2. sudo systemctl restart sitenav"
-echo "  3. journalctl -u sitenav -f       # watch logs"
+echo "  3. journalctl -u sitenav -f       # app logs"
+echo "     sudo journalctl -u caddy -f    # certificate issuance"
+echo
 echo "  Site: https://${DOMAIN}"
+echo
+echo "  The first HTTPS request can take ~30s while Caddy obtains the"
+echo "  certificate. If issuance fails, confirm ports 80 and 443 are open in"
+echo "  BOTH the VCN security list and the VM firewall (this script opened the"
+echo "  latter) - Let's Encrypt validates over port 80."
+
