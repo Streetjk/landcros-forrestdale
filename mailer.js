@@ -25,7 +25,7 @@ function isConfigured() {
 
 // Returns { sent: boolean, id?: string }. Throws only on a provider error
 // once configured — an unconfigured mailer never throws.
-async function sendMail({ to, subject, text, html }) {
+async function sendMail({ to, subject, text, html, attachments }) {
   if (!to || !subject || !(text || html)) throw new Error('sendMail: to, subject and text/html are required');
 
   if (!isConfigured()) {
@@ -45,6 +45,8 @@ async function sendMail({ to, subject, text, html }) {
       subject,
       text,
       html,
+      // [{ filename, content: <base64> }] — Resend caps the whole message at 40 MB.
+      attachments: attachments && attachments.length ? attachments : undefined,
     }),
   });
   if (!res.ok) {

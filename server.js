@@ -31,6 +31,7 @@ const webhooksDb    = require('./webhooks-db');
 const webhookDelivery = require('./webhook-delivery');
 const scriptsDb     = require('./scripts-db');
 const scenesDb      = require('./scenes-db');
+const hazardDb      = require('./hazard-db');
 
 // Generic client error body — logs the real error server-side, never leaks
 // DB/schema/config detail (e.message) to the client.
@@ -208,6 +209,22 @@ async function _sendPinLink(req, { profileId, email, mode, next }) {
 function _json(res, code, obj) {
   res.writeHead(code, { 'Content-Type': 'application/json' });
   res.end(JSON.stringify(obj));
+}
+
+// Reads a raw (binary) body up to `limit` bytes; destroys the socket and
+// calls back with an error when exceeded. Used by the hazard photo upload.
+function _readRawBody(req, limit, cb) {
+  const chunks = [];
+  let size = 0;
+  let done = false;
+  req.on('data', c => {
+    if (done) return;
+    size += c.length;
+    if (size > limit) { done = true; req.destroy(); cb(new Error('too large')); return; }
+    chunks.push(c);
+  });
+  req.on('end', () => { if (!done) { done = true; cb(null, Buffer.concat(chunks)); } });
+  req.on('error', e => { if (!done) { done = true; cb(e); } });
 }
 
 // Reads + JSON-parses the request body (shared by the auth POST routes).
@@ -472,6 +489,12 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  // Which site this deployment serves — lets static pages (start.html) build
+  // links without hardcoding a slug.
+  if (req.method === 'GET' && pathname === '/api/site') {
+    return _json(res, 200, { slug: SITE });
+  }
+
   if (req.method === 'GET' && pathname === '/api/auth/me') {
     const s = _session(req);
     if (!s) { res.writeHead(401, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ error: 'Unauthorized' })); }
@@ -604,6 +627,12 @@ const server = http.createServer((req, res) => {
     if (_rateLimited(req, res, 'scene-by-code', 120, 3600000)) return;
     scenesDb.getSceneBundleByCode(_sceneCodeMatch[1]).then(bundle => {
       if (!bundle) { res.writeHead(404, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ error: 'not found' })); }
+      // Hazard report links are for @hcma.com.au staff only: the code alone
+      // is not enough, the viewer must also hold a session (any active
+      // profile — the domain gate is enforced at login).
+      if (bundle.scene.kind === 'hazard' && !_session(req)) {
+        return _json(res, 401, { error: 'login-required', kind: 'hazard', name: bundle.scene.name });
+      }
       res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
       res.end(JSON.stringify(bundle));
     }).catch(e => {
@@ -663,7 +692,8 @@ const server = http.createServer((req, res) => {
     const id = _objectDeleteMatch[2];
     if (!SLUG_RE.test(slug)) { res.writeHead(404, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ error: 'not found' })); }
     _requireSiteEditor(req, res, slug, (s) => {
-      sceneDb.deleteSceneObject(slug, id, s.profileId).then(() => {
+      hazardDb.deletePhotosForObject(slug, id).catch(e => console.error('[hazard] photo cleanup on object delete failed:', e.message))
+        .then(() => sceneDb.deleteSceneObject(slug, id, s.profileId)).then(() => {
         console.log(`[objects] ${slug}/${id} deleted by ${s.profileId}`);
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ ok: true }));
@@ -834,8 +864,10 @@ const server = http.createServer((req, res) => {
     const slug = _scenesMatch[1];
     if (!SLUG_RE.test(slug)) { res.writeHead(404, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ error: 'not found' })); }
     if (req.method === 'GET') {
+      const kind = url.searchParams.get('kind') || 'admin';
+      if (!scenesDb.KINDS.has(kind)) return _json(res, 400, { error: 'invalid kind' });
       _requireSiteRole(req, res, slug, 'viewer', () => {
-        scenesDb.listScenes(slug).then(list => {
+        scenesDb.listScenes(slug, { kind }).then(list => {
           res.writeHead(200, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify(list));
         }).catch(e => {
@@ -868,11 +900,24 @@ const server = http.createServer((req, res) => {
     if (!SLUG_RE.test(slug)) { res.writeHead(404, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ error: 'not found' })); }
     _requireSiteEditor(req, res, slug, (s) => {
       if (req.method === 'DELETE') {
-        scenesDb.deleteScene(slug, id, s.profileId).then(() => {
+        (async () => {
+          const meta = await scenesDb.getSceneMeta(slug, id);
+          if (!meta) return _json(res, 404, { error: 'not found' });
+          // Hazard reports belong to whoever filed them: only the author or a
+          // site admin may delete one. Admin-map scenes keep editor semantics.
+          if (meta.kind === 'hazard' && meta.createdBy && meta.createdBy !== s.profileId && !auth.isPlatformAdmin(s.email)) {
+            const role = await auth.getSiteRole(s.profileId, slug);
+            if (!auth.roleAtLeast(role, 'admin')) return _json(res, 403, { error: 'Only the author or a site admin can delete this report' });
+          }
+          await hazardDb.deletePhotosForScene(slug, id).catch(e => console.error('[hazard] photo cleanup on scene delete failed:', e.message));
+          return scenesDb.deleteScene(slug, id, s.profileId);
+        })().then((r) => {
+          if (res.writableEnded) return;
           console.log(`[scenes] ${slug}/${id} deleted by ${s.profileId}`);
           res.writeHead(200, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ ok: true }));
         }).catch(e => {
+          if (res.writableEnded) return;
           res.writeHead(500, { 'Content-Type': 'application/json' });
           res.end(_errBody(e));
         });
@@ -890,6 +935,124 @@ const server = http.createServer((req, res) => {
       });
     });
     return;
+  }
+
+  // ── Hazard report map: photos + notifications ─────────────────────────
+  // Photo upload is one binary request: [u32 BE header length][JSON header]
+  // [compressed JPEG bytes][original bytes]. The header carries
+  // { contentType, originalName, width, height, compressedBytes }. Avoids a
+  // multipart parser on this dependency-free server and a 20 MB base64 JSON.
+  const _hazardPhotosMatch = /^\/api\/sites\/([^/]+)\/hazard\/objects\/([0-9a-fA-F-]{36})\/photos$/.exec(pathname);
+  if (_hazardPhotosMatch && (req.method === 'GET' || req.method === 'POST')) {
+    const slug = _hazardPhotosMatch[1];
+    const objectId = _hazardPhotosMatch[2];
+    if (!SLUG_RE.test(slug)) return _json(res, 404, { error: 'not found' });
+    if (req.method === 'GET') {
+      _requireSiteRole(req, res, slug, 'viewer', () => {
+        hazardDb.listPhotos(slug, objectId).then(list => _json(res, 200, list))
+          .catch(e => _json(res, 500, JSON.parse(_errBody(e))));
+      });
+      return;
+    }
+    _requireSiteEditor(req, res, slug, (s) => {
+      if (_rateLimited(req, res, 'hazard-photo', 60, 3600000)) return;
+      _readRawBody(req, hazardDb.MAX_ORIGINAL_BYTES + hazardDb.MAX_COMPRESSED_BYTES + 4096, (err, buf) => {
+        if (err) return _json(res, 413, { error: 'upload too large' });
+        try {
+          if (buf.length < 4) throw new Error('short');
+          const hlen = buf.readUInt32BE(0);
+          if (hlen <= 0 || hlen > 4000 || 4 + hlen > buf.length) throw new Error('bad header');
+          const header = JSON.parse(buf.subarray(4, 4 + hlen).toString('utf8'));
+          const cLen = header.compressedBytes | 0;
+          if (cLen <= 0 || 4 + hlen + cLen > buf.length) throw new Error('bad lengths');
+          const compressed = buf.subarray(4 + hlen, 4 + hlen + cLen);
+          const original = buf.subarray(4 + hlen + cLen);
+          hazardDb.addPhoto(slug, objectId, {
+            compressed, original,
+            contentType: String(header.contentType || ''),
+            originalName: typeof header.originalName === 'string' ? header.originalName.slice(0, 120) : null,
+            width: header.width | 0 || null, height: header.height | 0 || null,
+          }, s.profileId).then(photo => {
+            console.log(`[hazard] ${slug}/${objectId} photo ${photo.id} (${photo.bytes}B / ${photo.originalBytes}B) by ${s.profileId}`);
+            _json(res, 200, photo);
+          }).catch(e => {
+            if (e instanceof hazardDb.HazardError) return _json(res, e.code === 'not-found' ? 404 : e.code === 'too-large' ? 413 : 400, { error: e.message });
+            _json(res, 500, JSON.parse(_errBody(e)));
+          });
+        } catch {
+          _json(res, 400, { error: 'malformed upload' });
+        }
+      });
+    });
+    return;
+  }
+
+  const _hazardPhotoItemMatch = /^\/api\/sites\/([^/]+)\/hazard\/photos\/([0-9a-fA-F-]{36})$/.exec(pathname);
+  if (_hazardPhotoItemMatch && req.method === 'DELETE') {
+    const slug = _hazardPhotoItemMatch[1];
+    if (!SLUG_RE.test(slug)) return _json(res, 404, { error: 'not found' });
+    _requireSiteEditor(req, res, slug, () => {
+      hazardDb.deletePhoto(slug, _hazardPhotoItemMatch[2]).then(() => _json(res, 200, { ok: true }))
+        .catch(e => {
+          if (e instanceof hazardDb.HazardError) return _json(res, 404, { error: 'not found' });
+          _json(res, 500, JSON.parse(_errBody(e)));
+        });
+    });
+    return;
+  }
+
+  // Image bytes, login-gated (any active profile): the viewer and editor both
+  // read through here, so a photo URL never works without a session.
+  const _hazardPhotoReadMatch = /^\/api\/hazard-photos\/([0-9a-fA-F-]{36})$/.exec(pathname);
+  if (_hazardPhotoReadMatch && (req.method === 'GET' || req.method === 'HEAD')) {
+    if (!_session(req)) return _json(res, 401, { error: 'Unauthorized' });
+    hazardDb.readPhoto(_hazardPhotoReadMatch[1], { original: url.searchParams.get('original') === '1' }).then(p => {
+      if (!p) return _json(res, 404, { error: 'not found' });
+      res.writeHead(200, {
+        'Content-Type': p.contentType,
+        'Content-Length': p.buffer.length,
+        'Cache-Control': 'private, max-age=3600',
+        'Content-Disposition': `inline; filename="${(p.row.original_name || 'photo').replace(/[^\w.-]/g, '_')}"`,
+      });
+      res.end(req.method === 'HEAD' ? undefined : p.buffer);
+    }).catch(e => _json(res, 500, JSON.parse(_errBody(e))));
+    return;
+  }
+
+  const _hazardNotifyMatch = /^\/api\/sites\/([^/]+)\/scenes\/([0-9a-fA-F-]{36})\/(notify|notifications)$/.exec(pathname);
+  if (_hazardNotifyMatch) {
+    const slug = _hazardNotifyMatch[1];
+    const sceneId = _hazardNotifyMatch[2];
+    if (!SLUG_RE.test(slug)) return _json(res, 404, { error: 'not found' });
+    if (_hazardNotifyMatch[3] === 'notifications' && req.method === 'GET') {
+      _requireSiteRole(req, res, slug, 'viewer', () => {
+        hazardDb.listNotifications(slug, sceneId).then(list => _json(res, 200, list))
+          .catch(e => _json(res, 500, JSON.parse(_errBody(e))));
+      });
+      return;
+    }
+    if (_hazardNotifyMatch[3] === 'notify' && req.method === 'POST') {
+      _requireSiteEditor(req, res, slug, (s) => {
+        if (_rateLimited(req, res, 'hazard-notify', 20, 3600000)) return;
+        _readJsonBody(req, async (err, { recipients, message } = {}) => {
+          if (err) return _json(res, 400, { error: 'Invalid JSON' });
+          try {
+            const meta = await scenesDb.getSceneMeta(slug, sceneId);
+            if (!meta || meta.kind !== 'hazard') return _json(res, 404, { error: 'not found' });
+            const shareUrl = `${_publicBase(req)}/s/${meta.shareCode}`;
+            const result = await hazardDb.notifyScene(slug, sceneId, { recipients, message, shareUrl }, s.profileId);
+            console.log(`[hazard] ${slug}/${sceneId} report emailed to ${result.recipients.length} by ${s.profileId}`);
+            _json(res, 200, result);
+          } catch (e) {
+            if (e instanceof hazardDb.HazardError) {
+              return _json(res, e.code === 'not-found' ? 404 : e.code === 'mail-unconfigured' ? 503 : 400, { error: e.message, code: e.code });
+            }
+            _json(res, 500, JSON.parse(_errBody(e)));
+          }
+        });
+      });
+      return;
+    }
   }
 
   // ── Share link store ──────────────────────────────────────────────────
@@ -1234,4 +1397,12 @@ if (sdb.isConfigured()) {
   setInterval(() => {
     webhookDelivery.runDeliveryTick().catch(e => console.error('[webhook-delivery] unhandled:', e.message));
   }, 15000);
+}
+
+// Hazard photos are kept 30 days (hazard-db.js RETENTION_DAYS). Sweep on
+// boot and hourly; needs the Storage client, so also requires SUPABASE_URL.
+if (sdb.isConfigured() && process.env.SUPABASE_URL && process.env.SUPABASE_SECRET_KEY) {
+  const sweep = () => hazardDb.sweepExpiredPhotos().catch(e => console.error('[hazard] sweep failed:', e.message));
+  setTimeout(sweep, 30000);
+  setInterval(sweep, 3600000);
 }

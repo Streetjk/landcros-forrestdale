@@ -776,11 +776,15 @@ function removePin(id) {
 // scene-editor.js; this renderer is skipped there (see the add-label-btn
 // guard at call site) to avoid double-rendering the same objects.
 function _sceneObjDisplayText(obj) {
+  if (obj.kind === 'hazard') return obj.props?.title ?? 'Hazard';
   if (obj.kind === 'button' || obj.kind === 'widget') return obj.props?.label ?? '';
   return obj.props?.text ?? '';
 }
+// Photo index for the open hazard scene (from the by-code bundle); bytes are
+// fetched through the login-gated /api/hazard-photos/:id proxy.
+let _scenePhotos = [];
 
-const _WIDGET_COLORS = { button: 0x0f766e, widget: 0x7c3aed };
+const _WIDGET_COLORS = { button: 0x0f766e, widget: 0x7c3aed, hazard: 0xf59e0b };
 
 function _renderSceneWidget(obj) {
   const [x, y, z] = obj.transform?.position ?? [0, 0, 0];
@@ -788,7 +792,14 @@ function _renderSceneWidget(obj) {
   anchor.position.set(x, y, z);
 
   let raycastMesh = null;
-  if (obj.kind === 'button' || obj.kind === 'widget') {
+  if (obj.kind === 'hazard') {
+    raycastMesh = new THREE.Mesh(
+      new THREE.ConeGeometry(0.3, 0.7, 12),
+      new THREE.MeshStandardMaterial({ color: _WIDGET_COLORS.hazard, emissive: 0x7c2d12, emissiveIntensity: 0.25 })
+    );
+    raycastMesh.position.y = 0.35;
+    anchor.add(raycastMesh);
+  } else if (obj.kind === 'button' || obj.kind === 'widget') {
     raycastMesh = new THREE.Mesh(
       new THREE.BoxGeometry(0.4, 0.4, 0.4),
       new THREE.MeshStandardMaterial({ color: _WIDGET_COLORS[obj.kind] })
@@ -799,11 +810,11 @@ function _renderSceneWidget(obj) {
 
   const div = document.createElement('div');
   div.className = 'scene-obj-label';
-  const bg = obj.kind === 'widget' ? 'rgba(124,58,237,0.88)' : obj.kind === 'button' ? 'rgba(15,118,110,0.88)' : 'rgba(24,95,165,0.88)';
+  const bg = obj.kind === 'hazard' ? 'rgba(180,83,9,0.92)' : obj.kind === 'widget' ? 'rgba(124,58,237,0.88)' : obj.kind === 'button' ? 'rgba(15,118,110,0.88)' : 'rgba(24,95,165,0.88)';
   div.style.cssText = `pointer-events:none;white-space:nowrap;font:600 13px 'DM Sans',sans-serif;color:#fff;background:${bg};padding:3px 8px;border-radius:6px;transform:translate(-50%,-130%);`;
   div.textContent = _sceneObjDisplayText(obj);
   const css2dObj = new CSS2DObject(div);
-  css2dObj.position.set(0, (obj.kind === 'button' || obj.kind === 'widget') ? 0.4 : 0.1, 0);
+  css2dObj.position.set(0, obj.kind === 'hazard' ? 0.75 : (obj.kind === 'button' || obj.kind === 'widget') ? 0.4 : 0.1, 0);
   anchor.add(css2dObj);
 
   scene.add(anchor);
@@ -811,7 +822,41 @@ function _renderSceneWidget(obj) {
 }
 
 function renderSceneWidgets(list) {
-  list.filter(o => o.kind === 'label' || o.kind === 'button' || o.kind === 'widget').forEach(_renderSceneWidget);
+  list.filter(o => o.kind === 'label' || o.kind === 'button' || o.kind === 'widget' || o.kind === 'hazard').forEach(_renderSceneWidget);
+}
+
+// Hazard pin detail: title + description + photo thumbnails. Text goes in via
+// textContent; the <img> src is our own proxy URL built from a UUID.
+function showHazardDetail(obj) {
+  if (!document.getElementById('point-detail')) return;
+  showWidgetDetail(obj.props?.title ?? 'Hazard', obj.props?.description ?? '');
+  const chip = document.getElementById('detail-chip');
+  chip.className = 'chip chip-both';
+  chip.textContent = 'Hazard';
+  const notes = document.getElementById('detail-notes');
+  let grid = document.getElementById('detail-photos');
+  if (!grid) {
+    grid = document.createElement('div');
+    grid.id = 'detail-photos';
+    grid.style.cssText = 'display:grid;grid-template-columns:repeat(2,1fr);gap:6px;margin-top:10px;';
+    notes.insertAdjacentElement('afterend', grid);
+  }
+  grid.replaceChildren();
+  _scenePhotos.filter(p => p.objectId === obj.id).forEach(p => {
+    const a = document.createElement('a');
+    a.href = `/api/hazard-photos/${encodeURIComponent(p.id)}?original=1`;
+    a.target = '_blank'; a.rel = 'noopener';
+    a.title = p.originalName || 'Open original photo';
+    a.style.cssText = 'display:block;aspect-ratio:1;border-radius:8px;overflow:hidden;background:rgba(255,255,255,0.06);';
+    const img = document.createElement('img');
+    img.src = `/api/hazard-photos/${encodeURIComponent(p.id)}`;
+    img.alt = p.originalName || 'Hazard photo';
+    img.loading = 'lazy';
+    img.style.cssText = 'width:100%;height:100%;object-fit:cover;display:block;';
+    a.appendChild(img);
+    grid.appendChild(a);
+  });
+  grid.style.display = grid.children.length ? 'grid' : 'none';
 }
 
 // Only http/https may be opened — blocks javascript:/data:/other schemes
@@ -1026,6 +1071,8 @@ function showWidgetDetail(title, body) {
   document.getElementById('detail-chip').textContent = '';
   document.getElementById('detail-label').textContent = title;
   document.getElementById('detail-notes').textContent = body;
+  const photoGrid = document.getElementById('detail-photos');
+  if (photoGrid) photoGrid.style.display = 'none';
   const navSection = document.getElementById('detail-nav-section');
   if (navSection) navSection.style.display = 'none';
   const contactsSection = document.getElementById('detail-contacts')?.closest('.detail-section');
@@ -1206,7 +1253,9 @@ renderer.domElement.addEventListener('click', e => {
   if (widgetHits.length) {
     const hitMesh = widgetHits[0].object;
     const widget = Array.from(_sceneWidgets.values()).find(w => w.raycastMesh === hitMesh);
-    if (widget && widget.obj.kind === 'widget' && widget.obj.scriptSource) {
+    if (widget && widget.obj.kind === 'hazard') {
+      showHazardDetail(widget.obj);
+    } else if (widget && widget.obj.kind === 'widget' && widget.obj.scriptSource) {
       _runWidgetScript(widget.obj.scriptSource, widget.obj);
     } else if (widget) {
       _runWidgetAction(widget.obj.props?.action, widget.obj);
@@ -1232,6 +1281,7 @@ async function selectPoint(pt) {
   document.getElementById('detail-chip').className = `chip ${chipClass[pt.type] ?? ''}`;
   document.getElementById('detail-chip').textContent = chipLabel[pt.type] ?? pt.type;
   document.getElementById('detail-label').textContent = pt.label;
+  { const g = document.getElementById('detail-photos'); if (g) g.style.display = 'none'; }
   document.getElementById('detail-notes').textContent = pt.notes ?? '';
 
   const navSection = document.getElementById('detail-nav-section');
@@ -2943,7 +2993,14 @@ async function boot() {
   const _sceneCode = _params.get('scene');
   if (_sceneCode && !document.getElementById('add-label-btn')) {
     _sceneBundle = await fetch(`/api/scenes/by-code/${encodeURIComponent(_sceneCode)}`)
-      .then(r => r.ok ? r.json() : null).catch(() => null);
+      .then(async r => {
+        if (r.ok) return r.json();
+        // Hazard report links need an @hcma.com.au session: hand off to the
+        // page's login gate (index.html), which reloads once signed in.
+        if (r.status === 401) { const d = await r.json().catch(() => ({})); window._snHazardLoginRequired?.(d); }
+        return null;
+      }).catch(() => null);
+    _scenePhotos = _sceneBundle?.photos ?? [];
     if (_sceneBundle?.objects) renderSceneWidgets(_sceneBundle.objects);
   }
 

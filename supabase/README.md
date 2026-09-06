@@ -14,6 +14,7 @@ supabase/
     0002_rls.sql      # is_site_member() + owner trigger + all RLS policies
     ...
     0009_login_pins.sql # profile_pins + pin_reset_tokens (service-role only)
+    0010_hazard_reports.sql # scenes.kind, hazard object kind, hazard_photos, hazard_notifications
   tests/
     rls_test.sql      # standalone psql harness — proves tenant isolation
 ```
@@ -58,6 +59,36 @@ Routes: `POST /api/auth/login {email[, pin]}` → `pin-required` |
 `denied`; `POST /api/auth/pin/request-reset {email}`; `POST /api/auth/pin/reset
 {token, pin}` (the emailed link lands on `/reset-pin.html`);
 `POST /api/auth/pin/change {currentPin, newPin}` (signed in).
+
+## Hazard report map (0010_hazard_reports.sql)
+
+`start.html` lets a signed-in user choose the **Admin map** or the **Hazard
+report map**. Both are `editor.html` (`?mode=hazard` for the latter) on the
+same scenes machinery: a scene has `kind = 'admin' | 'hazard'`.
+
+- Admin scenes: share link `/s/<code>` is public (unchanged).
+- Hazard scenes: `/s/<code>` requires an @hcma.com.au session; the viewer
+  shows a sign-in gate and reloads once signed in. Only the report's author
+  or a site admin can delete it.
+- Hazard pins are `scene_objects` of kind `hazard` with
+  `props = { title, description }`. Photos are compressed in the browser to
+  <=300 KB (longest edge 1600 px) and uploaded together with the untouched
+  original in one binary request; both land in the private Supabase Storage
+  bucket `hazard-photos` (created automatically on first upload) and are
+  deleted after **30 days** by the server's hourly sweep. Max 6 photos per pin.
+- "Send report" emails every pin's title/description plus the **original**
+  photos as attachments (up to 30 MB per email; larger sets note the
+  overflow and rely on the map link) to 1-20 `@hcma.com.au` recipients via
+  Resend, and records it in `hazard_notifications`.
+
+Needs `SUPABASE_URL` + `SUPABASE_SECRET_KEY` (Storage) and `RESEND_API_KEY`
+(sending) on top of the PIN-login env above.
+
+Routes: `GET/POST /api/sites/:slug/scenes?kind=`; `GET|POST
+/api/sites/:slug/hazard/objects/:objectId/photos`; `DELETE
+/api/sites/:slug/hazard/photos/:id`; `GET /api/hazard-photos/:id[?original=1]`
+(session); `POST /api/sites/:slug/scenes/:id/notify {recipients, message}`;
+`GET /api/sites/:slug/scenes/:id/notifications`; `GET /api/site`.
 
 ## Apply the migrations
 

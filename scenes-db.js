@@ -10,6 +10,11 @@
 const crypto = require('crypto');
 const { pool: sharedPool, getSiteId, j, appendAudit, pointToJson, contactToJson } = require('./supabase-db');
 const { sceneObjectToJson } = require('./scene-db');
+const hazardDb = require('./hazard-db');
+
+// 'admin' scenes are the public admin map (share link open to anyone);
+// 'hazard' scenes are the hazard report map (share link needs a session).
+const KINDS = new Set(['admin', 'hazard']);
 
 function _getPool() {
   return sharedPool();
@@ -34,6 +39,9 @@ function sceneToJson(r) {
     name: r.name,
     shareCode: r.share_code,
     camera: r.camera,
+    kind: r.kind || 'admin',
+    createdBy: r.created_by ?? null,
+    createdByEmail: r.created_by_email ?? null,
     createdAt: r.created_at,
     updatedAt: r.updated_at,
   };
@@ -45,27 +53,41 @@ function _validateName(name) {
   }
 }
 
-async function listScenes(slug) {
+async function listScenes(slug, { kind = 'admin' } = {}) {
+  if (!KINDS.has(kind)) throw new Error('invalid scene kind');
   const siteId = await getSiteId(slug);
   const { rows } = await _getPool().query(
-    'select id, name, share_code, camera, created_at, updated_at from scenes where site_id = $1 order by created_at',
-    [siteId]
+    `select s.id, s.name, s.share_code, s.camera, s.kind, s.created_by, s.created_at, s.updated_at,
+            p.email as created_by_email
+     from scenes s left join profiles p on p.id = s.created_by
+     where s.site_id = $1 and s.kind = $2 order by s.created_at`,
+    [siteId, kind]
   );
   return rows.map(sceneToJson);
 }
 
-async function createScene(slug, { name, camera } = {}, changedBy = null) {
+// Minimal row for authorization decisions (owner / kind) — no joins.
+async function getSceneMeta(slug, id) {
+  const siteId = await getSiteId(slug);
+  const { rows } = await _getPool().query(
+    'select id, kind, created_by, share_code, name from scenes where id = $1 and site_id = $2', [id, siteId]
+  );
+  return rows.length ? { id: rows[0].id, kind: rows[0].kind, createdBy: rows[0].created_by, shareCode: rows[0].share_code, name: rows[0].name } : null;
+}
+
+async function createScene(slug, { name, camera, kind = 'admin' } = {}, changedBy = null) {
   _validateName(name);
+  if (!KINDS.has(kind)) throw new Error('invalid scene kind');
   const siteId = await getSiteId(slug);
   // Retry on the (astronomically unlikely) share_code collision.
   for (let attempt = 0; attempt < 5; attempt++) {
     const code = _genCode();
     try {
       const { rows } = await _getPool().query(
-        `insert into scenes (site_id, name, share_code, camera, created_by)
-         values ($1, $2, $3, $4::jsonb, $5)
-         returning id, name, share_code, camera, created_at, updated_at`,
-        [siteId, name, code, j(camera ?? null), changedBy]
+        `insert into scenes (site_id, name, share_code, camera, created_by, kind)
+         values ($1, $2, $3, $4::jsonb, $5, $6)
+         returning id, name, share_code, camera, kind, created_by, created_at, updated_at`,
+        [siteId, name, code, j(camera ?? null), changedBy, kind]
       );
       await appendAudit(siteId, changedBy, 'create', 'scene', rows[0].id, name);
       return sceneToJson(rows[0]);
@@ -83,7 +105,7 @@ async function updateScene(slug, id, { name, camera } = {}, changedBy = null) {
   const { rows } = await _getPool().query(
     `update scenes set name = coalesce($3, name), camera = coalesce($4::jsonb, camera)
      where id = $1 and site_id = $2
-     returning id, name, share_code, camera, created_at, updated_at`,
+     returning id, name, share_code, camera, kind, created_by, created_at, updated_at`,
     [id, siteId, name ?? null, camera !== undefined ? j(camera) : null]
   );
   if (!rows.length) throw new Error(`Scene ${id} belongs to a different site`);
@@ -114,7 +136,7 @@ async function getSceneBundleByCode(code) {
   const pool = _getPool();
 
   const sceneRes = await pool.query(
-    'select id, site_id, name, camera from scenes where share_code = $1',
+    'select id, site_id, name, camera, kind from scenes where share_code = $1',
     [code]
   );
   if (!sceneRes.rows.length) return null;
@@ -143,11 +165,16 @@ async function getSceneBundleByCode(code) {
     [sceneId, siteId]
   );
 
+  // Hazard scenes carry their photo index (bytes served via the login-gated
+  // /api/hazard-photos/:id proxy, never a public URL).
+  const photos = scene.kind === 'hazard' ? await hazardDb.listPhotosForScene(siteId, sceneId) : [];
+
   return {
-    scene: { id: scene.id, name: scene.name, camera: scene.camera },
+    scene: { id: scene.id, name: scene.name, camera: scene.camera, kind: scene.kind || 'admin' },
     objects: objectsRes.rows.map(sceneObjectToJson),
     pins: pinsRes.rows.map(pointToJson),
     contacts: contactsRes.rows.map(contactToJson),
+    photos,
   };
 }
 
@@ -162,7 +189,9 @@ async function deleteScene(slug, id, changedBy = null) {
 }
 
 module.exports = {
+  KINDS,
   listScenes,
+  getSceneMeta,
   createScene,
   updateScene,
   deleteScene,

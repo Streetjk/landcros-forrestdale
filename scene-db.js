@@ -21,7 +21,7 @@ function j(value) {
 
 // Must match the scene_objects.kind CHECK constraint in
 // supabase/migrations/0001_schema.sql.
-const ALLOWED_KINDS = new Set(['pin', 'label', 'button', 'widget', 'model', 'zone']);
+const ALLOWED_KINDS = new Set(['pin', 'label', 'button', 'widget', 'model', 'zone', 'hazard']);
 
 function sceneObjectToJson(r) {
   return {

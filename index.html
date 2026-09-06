@@ -884,6 +884,40 @@
 
 </div>
 
+<!-- Sign-in gate: hidden unless a hazard-report share link (?scene=…) is
+     opened without an @hcma.com.au session. Same markup ids as the admin
+     pages so auth-gate.js drives it. -->
+<div id="sn-auth-gate" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(8,10,16,0.96);flex-direction:column;align-items:center;justify-content:center;gap:16px;font-family:Inter,system-ui,sans-serif;color:#fff;padding:16px;text-align:center;">
+  <h2 style="margin:0;font-size:1.25rem;font-weight:600;">Hazard report</h2>
+  <p id="sn-auth-msg" style="margin:0;color:#94A3B8;font-size:0.875rem;max-width:340px;">This report is for HCMA staff. Sign in with your @hcma.com.au email to view it.</p>
+  <div id="sn-auth-email-row" style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center;">
+    <input id="sn-email-input" type="email" placeholder="name@hcma.com.au" autocomplete="email"
+      style="padding:10px 12px;border:1px solid rgba(255,255,255,0.12);border-radius:8px;background:#192134;color:#fff;font-size:0.9rem;width:240px;outline:none;">
+    <button id="sn-email-submit"
+      style="padding:10px 22px;background:#b45309;border:none;border-radius:8px;color:#fff;font-weight:600;cursor:pointer;font-size:0.9rem;">Continue</button>
+  </div>
+  <button id="sn-create-submit"
+    style="display:none;padding:10px 22px;background:#b45309;border:none;border-radius:8px;color:#fff;font-weight:600;cursor:pointer;font-size:0.9rem;">Create profile</button>
+  <p id="sn-auth-error" style="margin:0;color:#f87171;font-size:0.875rem;display:none;"></p>
+  <a href="/" style="color:#94A3B8;font-size:0.8rem;">Open the public map instead</a>
+</div>
+<script src="auth-gate.js"></script>
+<script>
+  // Called by viewer3d.js when /api/scenes/by-code returns 401 (hazard scene).
+  window._snHazardLoginRequired = function (info) {
+    const gate = document.getElementById('sn-auth-gate');
+    if (!gate || gate.dataset.armed) return;
+    gate.dataset.armed = '1';
+    if (info && info.name) gate.querySelector('h2').textContent = 'Hazard report: ' + info.name;
+    const g = SnAuthGate.attach({
+      next: location.pathname + location.search,
+      onSignedIn: () => location.reload(),
+    });
+    gate.style.display = 'flex';
+    g.showLoginState(document.getElementById('sn-auth-msg').textContent);
+  };
+</script>
+
 <script>
   // Single breakpoint shared with the CSS above, style.css and viewer3d.js's
   // own `innerWidth <= 1024` test: ≤1024px is the bottom sheet (phone AND

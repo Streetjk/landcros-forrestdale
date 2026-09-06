@@ -17,6 +17,10 @@ option below — the host only runs the Node process.
 | `RESEND_API_KEY`, `MAIL_FROM` | PIN setup/reset emails (resend.com, free tier) |
 | `PUBLIC_BASE_URL` | `https://your-host` — used in emailed links |
 
+`SUPABASE_URL` + `SUPABASE_SECRET_KEY` also drive Supabase Storage for hazard
+report photos (bucket `hazard-photos`, created on first upload). The entry
+page for staff is `/start.html`; the public map stays at `/`.
+
 Apply `supabase/migrations/*.sql` in order (Supabase SQL editor or `supabase db push`)
 **before** the first deploy that includes `0009_login_pins.sql`.
 
