@@ -22,6 +22,7 @@ try {
 
 const sdb         = require('./supabase-db');
 const auth        = require('./auth-db');
+const mailer      = require('./mailer');
 const siteAdmin   = require('./site-admin');
 const sceneDb     = require('./scene-db');
 const submissionsDb = require('./submissions-db');
@@ -172,6 +173,43 @@ function _handleSubmissionPost(req, res, slug) {
   });
 }
 
+// Absolute origin for emailed links: PUBLIC_BASE_URL if set (recommended in
+// prod so a spoofed Host header can't redirect a reset link), else the
+// request's own origin.
+function _publicBase(req) {
+  if (process.env.PUBLIC_BASE_URL) return process.env.PUBLIC_BASE_URL.replace(/\/$/, '');
+  const proto = (req.headers['x-forwarded-proto'] || '').split(',')[0].trim() || 'http';
+  return `${proto}://${req.headers.host || 'localhost:' + PORT}`;
+}
+
+// Same-origin relative paths only — anything else falls back to the admin page.
+function _safeNextPath(next) {
+  return (typeof next === 'string' && /^\/(?!\/)[A-Za-z0-9_./?=&%-]*$/.test(next)) ? next : '/admin3d.html';
+}
+
+// Issues a single-use token and emails the setup/reset link. Resolves the
+// JSON body to send the client: { status: 'pin-setup-sent', emailSent }, plus
+// `devLink` when the mailer is unconfigured AND ALLOW_INSECURE_PIN_LINKS=1
+// (local dev only — it hands the link to whoever typed the email address).
+async function _sendPinLink(req, { profileId, email, mode, next }) {
+  const { token, ttlMinutes } = await auth.createPinToken(profileId);
+  const link = `${_publicBase(req)}/reset-pin.html?token=${encodeURIComponent(token)}&mode=${mode}&next=${encodeURIComponent(_safeNextPath(next))}`;
+  let sent = false;
+  try {
+    ({ sent } = await mailer.pinLinkEmail({ to: email, link, mode, ttlMinutes }));
+  } catch (e) {
+    console.error('[auth] PIN email failed:', e.message);
+  }
+  const body = { status: 'pin-setup-sent', mode, emailSent: sent };
+  if (!mailer.isConfigured() && process.env.ALLOW_INSECURE_PIN_LINKS === '1') body.devLink = link;
+  return body;
+}
+
+function _json(res, code, obj) {
+  res.writeHead(code, { 'Content-Type': 'application/json' });
+  res.end(JSON.stringify(obj));
+}
+
 // Reads + JSON-parses the request body (shared by the auth POST routes).
 function _readJsonBody(req, cb) {
   let body = '';
@@ -315,25 +353,98 @@ const server = http.createServer((req, res) => {
     return res.end();
   }
 
-  // ── Auth (Stage 2b): per-user email login, gates the admin surface only ──
+  // ── Auth: per-user email + 6-digit PIN login, gates the admin surface ──
+  // Two-step from the client's point of view: POST {email} first, which
+  // answers 'pin-required' (has a PIN), 'pin-setup-sent' (active but no PIN
+  // yet — setup link emailed), 'pending', 'none' or 'denied'. Then POST
+  // {email, pin} to actually open a session.
   if (req.method === 'POST' && pathname === '/api/auth/login') {
     if (_rateLimited(req, res, 'auth-login', 30, 3600000)) return;
-    _readJsonBody(req, (err, { email } = {}) => {
-      if (err) { res.writeHead(400, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ error: 'Invalid JSON' })); }
-      if (!auth.emailAllowed(email)) {
-        res.writeHead(400, { 'Content-Type': 'application/json' });
-        return res.end(JSON.stringify({ status: 'denied' }));
-      }
-      auth.checkProfile(email).then(st => {
-        if (st.status === 'active') {
-          _setSessionCookie(req, res, auth.signSession({ profileId: st.profileId, email }));
+    _readJsonBody(req, async (err, { email, pin, next } = {}) => {
+      if (err) return _json(res, 400, { error: 'Invalid JSON' });
+      if (!auth.emailAllowed(email)) return _json(res, 400, { status: 'denied' });
+      try {
+        const st = await auth.checkProfile(email);
+        if (st.status !== 'active') return _json(res, 200, { status: st.status, email });
+
+        const pinState = await auth.getPinState(st.profileId);
+        if (!pinState.hasPin) {
+          return _json(res, 200, await _sendPinLink(req, { profileId: st.profileId, email, mode: 'setup', next }));
         }
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ status: st.status, email }));
-      }).catch(e => {
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(_errBody(e));
-      });
+        if (pin == null || pin === '') return _json(res, 200, { status: 'pin-required', email });
+
+        // Tighter budget for actual guesses than for the email step above.
+        if (_rateLimited(req, res, 'auth-pin', 20, 900000)) return;
+        const v = await auth.verifyPin(st.profileId, String(pin));
+        if (v.ok) {
+          _setSessionCookie(req, res, auth.signSession({ profileId: st.profileId, email }));
+          return _json(res, 200, { status: 'active', email });
+        }
+        if (v.reason === 'locked') return _json(res, 423, { status: 'locked', lockedUntil: v.lockedUntil });
+        return _json(res, 401, { status: 'pin-invalid', remaining: v.remaining });
+      } catch (e) {
+        _json(res, 500, JSON.parse(_errBody(e)));
+      }
+    });
+    return;
+  }
+
+  // Forgot PIN → email a reset link. Always answers ok:true for an allowed
+  // domain so the response can't be used to enumerate which addresses exist.
+  if (req.method === 'POST' && pathname === '/api/auth/pin/request-reset') {
+    if (_rateLimited(req, res, 'auth-pin-reset', 5, 3600000)) return;
+    _readJsonBody(req, async (err, { email, next } = {}) => {
+      if (err) return _json(res, 400, { error: 'Invalid JSON' });
+      if (!auth.emailAllowed(email)) return _json(res, 400, { status: 'denied' });
+      try {
+        const st = await auth.checkProfile(email);
+        if (st.status !== 'active') return _json(res, 200, { ok: true, emailSent: false });
+        const { hasPin } = await auth.getPinState(st.profileId);
+        const body = await _sendPinLink(req, { profileId: st.profileId, email, mode: hasPin ? 'reset' : 'setup', next });
+        return _json(res, 200, { ok: true, emailSent: body.emailSent, devLink: body.devLink });
+      } catch (e) {
+        _json(res, 500, JSON.parse(_errBody(e)));
+      }
+    });
+    return;
+  }
+
+  // Emailed link lands here: burn the token, store the new PIN, sign in.
+  if (req.method === 'POST' && pathname === '/api/auth/pin/reset') {
+    if (_rateLimited(req, res, 'auth-pin-consume', 10, 900000)) return;
+    _readJsonBody(req, async (err, { token, pin } = {}) => {
+      if (err) return _json(res, 400, { error: 'Invalid JSON' });
+      try {
+        const { profileId, email } = await auth.consumePinToken(String(token || ''), String(pin || ''));
+        _setSessionCookie(req, res, auth.signSession({ profileId, email }));
+        return _json(res, 200, { status: 'active', email });
+      } catch (e) {
+        if (e instanceof auth.PinError) return _json(res, 400, { status: e.code });
+        _json(res, 500, JSON.parse(_errBody(e)));
+      }
+    });
+    return;
+  }
+
+  // Signed-in user changes their own PIN (must know the current one).
+  if (req.method === 'POST' && pathname === '/api/auth/pin/change') {
+    const s = _session(req);
+    if (!s) return _json(res, 401, { error: 'Unauthorized' });
+    if (_rateLimited(req, res, 'auth-pin', 20, 900000)) return;
+    _readJsonBody(req, async (err, { currentPin, newPin } = {}) => {
+      if (err) return _json(res, 400, { error: 'Invalid JSON' });
+      try {
+        const v = await auth.verifyPin(s.profileId, String(currentPin || ''));
+        if (!v.ok) {
+          if (v.reason === 'locked') return _json(res, 423, { status: 'locked', lockedUntil: v.lockedUntil });
+          return _json(res, 401, { status: 'pin-invalid', remaining: v.remaining });
+        }
+        await auth.setPin(s.profileId, String(newPin || ''));
+        return _json(res, 200, { ok: true });
+      } catch (e) {
+        if (e instanceof auth.PinError) return _json(res, 400, { status: e.code });
+        _json(res, 500, JSON.parse(_errBody(e)));
+      }
     });
     return;
   }
@@ -346,12 +457,13 @@ const server = http.createServer((req, res) => {
         res.writeHead(400, { 'Content-Type': 'application/json' });
         return res.end(JSON.stringify({ status: 'denied' }));
       }
-      auth.createProfile(email).then(({ status, profileId }) => {
+      auth.createProfile(email).then(async ({ status, profileId }) => {
+        // Never sign in straight from an unverified email address: an active
+        // profile gets its PIN-setup link emailed, and logs in via that.
         if (status === 'active') {
-          _setSessionCookie(req, res, auth.signSession({ profileId, email }));
+          return _json(res, 200, await _sendPinLink(req, { profileId, email, mode: 'setup', next: undefined }));
         }
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ status }));
+        _json(res, 200, { status });
       }).catch(e => {
         res.writeHead(500, { 'Content-Type': 'application/json' });
         res.end(_errBody(e));
@@ -363,9 +475,9 @@ const server = http.createServer((req, res) => {
   if (req.method === 'GET' && pathname === '/api/auth/me') {
     const s = _session(req);
     if (!s) { res.writeHead(401, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ error: 'Unauthorized' })); }
-    auth.getSiteRole(s.profileId, SITE).then(role => {
+    Promise.all([auth.getSiteRole(s.profileId, SITE), auth.getPinState(s.profileId)]).then(([role, pinState]) => {
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ email: s.email, role }));
+      res.end(JSON.stringify({ email: s.email, role, hasPin: pinState.hasPin }));
     }).catch(e => {
       res.writeHead(500, { 'Content-Type': 'application/json' });
       res.end(_errBody(e));

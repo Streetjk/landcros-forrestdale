@@ -12,6 +12,8 @@ supabase/
                       # scene_objects, audit_log, visits, submissions,
                       # events, webhooks, webhook_deliveries
     0002_rls.sql      # is_site_member() + owner trigger + all RLS policies
+    ...
+    0009_login_pins.sql # profile_pins + pin_reset_tokens (service-role only)
   tests/
     rls_test.sql      # standalone psql harness — proves tenant isolation
 ```
@@ -29,6 +31,33 @@ supabase/
    SUPABASE_SERVICE_ROLE_KEY=<service role key>   # server-only
    ```
    On Render, set the same three as environment variables (service_role as a secret).
+
+## Login PINs (0009_login_pins.sql)
+
+Sign-in is email **and** a 6-digit PIN. The first PIN for any account (and any
+reset) is set through a single-use link emailed to that address, so the inbox
+is proven once and the PIN gates every login after that. Five wrong PINs lock
+the account for 15 minutes; links expire after 30 minutes.
+
+Server env for this:
+
+```
+SESSION_SECRET=<long random string>      # signs the session cookie (already required)
+RESEND_API_KEY=re_...                    # https://resend.com — free tier is plenty
+MAIL_FROM="SiteNav <noreply@your-domain>" # a sender on a domain verified in Resend
+PUBLIC_BASE_URL=https://your-app.example  # absolute origin used in emailed links
+```
+
+Without `RESEND_API_KEY` the server logs the link to its console instead of
+sending it and the UI tells the user email isn't configured. For local dev
+only, `ALLOW_INSECURE_PIN_LINKS=1` also returns the link in the API response
+so you can click through without a mail account — never set that in prod.
+
+Routes: `POST /api/auth/login {email[, pin]}` → `pin-required` |
+`pin-setup-sent` | `active` | `pin-invalid` | `locked` | `pending` | `none` |
+`denied`; `POST /api/auth/pin/request-reset {email}`; `POST /api/auth/pin/reset
+{token, pin}` (the emailed link lands on `/reset-pin.html`);
+`POST /api/auth/pin/change {currentPin, newPin}` (signed in).
 
 ## Apply the migrations
 

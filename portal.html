@@ -137,6 +137,7 @@
     </section>
   </div>
 
+<script src="auth-gate.js"></script>
 <script>
 (function() {
   const gate = document.getElementById('sn-auth-gate');
@@ -148,38 +149,24 @@
   const gateSignoutBtn = document.getElementById('sn-gate-signout');
   const err = document.getElementById('sn-auth-error');
   const app = document.getElementById('app');
-  let lastEmail = '';
 
   function showError(text) { err.textContent = text; err.style.display = ''; }
   function clearError() { err.style.display = 'none'; }
 
-  function showLoginState(message) {
-    msg.textContent = message;
-    emailRow.style.display = 'flex';
-    createBtn.style.display = 'none';
-    gateSignoutBtn.style.display = 'none';
-    clearError();
-  }
-  function showPending() {
-    msg.textContent = 'Your access is pending admin approval.';
-    emailRow.style.display = 'none';
-    createBtn.style.display = 'none';
-    gateSignoutBtn.style.display = 'none';
-    clearError();
-  }
-  function showCreatePrompt(email) {
-    msg.textContent = `No profile found for ${email}. Create one?`;
-    emailRow.style.display = 'none';
-    createBtn.style.display = '';
-    gateSignoutBtn.style.display = 'none';
-    clearError();
-  }
+  // Email → PIN → session flow lives in auth-gate.js (shared with
+  // admin3d.html / editor.html). This page only decides what happens after.
+  const authGate = SnAuthGate.attach({
+    next: '/portal.html',
+    onSignedIn: (email) => checkPlatformAdminAndEnter(email),
+  });
+  const showLoginState = (m) => { gateSignoutBtn.style.display = 'none'; authGate.showLoginState(m); };
   function showForbidden(email) {
     msg.textContent = 'Platform admin access required.';
     emailRow.style.display = 'none';
+    document.getElementById('sn-auth-pin-row').style.display = 'none';
     createBtn.style.display = 'none';
     gateSignoutBtn.style.display = '';
-    clearError();
+    authGate.clearError();
   }
 
   async function checkPlatformAdminAndEnter(email) {
@@ -194,41 +181,6 @@
     renderSites(sites);
   }
 
-  async function login() {
-    const email = emailInput.value.trim();
-    if (!email) return;
-    lastEmail = email;
-    clearError();
-    try {
-      const r = await fetch('/api/auth/login', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email }),
-      });
-      const d = await r.json();
-      if (d.status === 'active') checkPlatformAdminAndEnter(email);
-      else if (d.status === 'pending') showPending();
-      else if (d.status === 'none') showCreatePrompt(email);
-      else showError('Email not recognized.');
-    } catch { showError('Login failed — try again.'); }
-  }
-
-  async function createProfile() {
-    clearError();
-    try {
-      const r = await fetch('/api/auth/create', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: lastEmail }),
-      });
-      const d = await r.json();
-      if (d.status === 'active') checkPlatformAdminAndEnter(lastEmail);
-      else if (d.status === 'pending') showPending();
-      else showError('Email not recognized.');
-    } catch { showError('Could not create profile — try again.'); }
-  }
-
-  emailBtn.onclick = login;
-  emailInput.onkeydown = e => { if (e.key === 'Enter') login(); };
-  createBtn.onclick = createProfile;
   gateSignoutBtn.onclick = async () => {
     await fetch('/api/auth/logout', { method: 'POST' });
     location.reload();
