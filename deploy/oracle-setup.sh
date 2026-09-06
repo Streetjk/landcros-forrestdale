@@ -88,11 +88,19 @@ SUPABASE_URL=
 SUPABASE_SECRET_KEY=
 SUPABASE_DB_URL=
 PLATFORM_ADMIN_EMAILS=
-# Email for PIN setup/reset links
-RESEND_API_KEY=
-MAIL_FROM=SiteNav <noreply@${DOMAIN}>
 PUBLIC_BASE_URL=https://${DOMAIN}
 PORT=${APP_PORT}
+
+# Email - set ONE transport (full notes in .env.example). SMTP wins if both set.
+# A. SMTP through an ordinary mailbox - no DNS access needed. Leave MAIL_FROM
+#    unset: it defaults to SMTP_USER, and providers reject a mismatched From.
+SMTP_HOST=
+SMTP_PORT=587
+SMTP_USER=
+SMTP_PASS=
+# B. Resend HTTP API - needs a domain verified in Resend.
+RESEND_API_KEY=
+# MAIL_FROM=SiteNav <noreply@your-verified-domain>
 ENV
   sudo chmod 600 "$APP_DIR/.env"
 fi
@@ -129,16 +137,7 @@ ${DOMAIN} {
 }
 CADDY
 
-echo "==> Update helper"
-sudo tee "$APP_DIR/deploy/update.sh" >/dev/null <<'UPD'
-#!/usr/bin/env bash
-set -euo pipefail
-cd /opt/sitenav
-sudo -u sitenav git pull --ff-only
-sudo -u sitenav npm ci --omit=dev --no-audit --no-fund
-systemctl restart sitenav
-systemctl --no-pager status sitenav | head -5
-UPD
+echo "==> Update helper (tracked in the repo as deploy/update.sh)"
 sudo chmod +x "$APP_DIR/deploy/update.sh"
 
 sudo systemctl daemon-reload

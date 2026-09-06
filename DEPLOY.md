@@ -79,6 +79,12 @@ and accept that an idle VM may need recreating.
    domain, skip this — the script derives one from the IP via `nip.io`.
 5. SSH in (`ssh ubuntu@<ip>`) and run the one-shot setup:
 
+   > **Until PR #1 is merged**, this work exists only on branch
+   > `claude/responsive-layout-hosting-w08etf`. Fetch the script from that
+   > branch's raw URL and pass `BRANCH=claude/responsive-layout-hosting-w08etf`
+   > so the VM clones the same branch. Once merged, the `main` URL and the
+   > default branch below are correct as written.
+
    ```bash
    # with your own domain:
    curl -fsSL https://raw.githubusercontent.com/Streetjk/landcros-forrestdale/main/deploy/oracle-setup.sh \
