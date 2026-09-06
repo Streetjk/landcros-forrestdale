@@ -159,6 +159,19 @@
     .hazard-photo img { width: 100%; height: 100%; object-fit: cover; display: block; cursor: zoom-in; }
     .hazard-photo button { position: absolute; top: 2px; right: 2px; width: 20px; height: 20px; border: none; border-radius: 10px; background: rgba(0,0,0,0.6); color: #fff; font-size: 12px; line-height: 20px; cursor: pointer; padding: 0; }
     .hazard-photo .uploading { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 10px; color: #374151; background: rgba(255,255,255,0.7); }
+    /* Status + archive (both maps) */
+    .scene-status { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; padding: 1px 5px; border-radius: 4px; margin-left: 6px; flex-shrink: 0; }
+    .scene-status.open      { background: rgba(24,95,165,0.12); color: #185fa5; }
+    .scene-status.escalated { background: rgba(180,83,9,0.15);  color: #b45309; }
+    .scene-status.resolved  { background: rgba(22,163,74,0.14); color: #15803d; }
+    .scenes-section { display: flex; align-items: center; gap: 6px; font-size: 10px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.08em; margin: 8px 0 2px; }
+    .scenes-section button { border: none; background: none; color: inherit; font: inherit; cursor: pointer; padding: 0; display: flex; align-items: center; gap: 4px; }
+    .scenes-section button::before { content: '▸'; font-size: 11px; transition: transform 0.15s; }
+    .scenes-section button.open::before { transform: rotate(90deg); }
+    #scene-status-row { display: none; align-items: center; gap: 6px; margin-top: 10px; font-size: 12px; color: var(--text-secondary); flex-wrap: wrap; }
+    #scene-status-row .status-btn { padding: 4px 10px; border-radius: 6px; border: 1px solid var(--border); background: transparent; color: #111827; font: 500 11px var(--font); cursor: pointer; }
+    #scene-status-row .status-btn:hover { background: rgba(0,0,0,0.05); }
+    #scene-status-meta { font-size: 10px; color: var(--text-secondary); width: 100%; }
     #add-hazard-btn { background: #b45309; display: none; }
     #add-hazard-btn:hover { background: #92400e; }
     body[data-mode="hazard"] #add-hazard-btn { display: inline-flex; }
@@ -226,13 +239,18 @@
           <button class="share-copy-btn" id="scene-share-copy-btn">Copy</button>
         </div>
         <div id="scene-qr-wrap"></div>
+        <div id="scene-status-row">
+          <span>Status:</span><span class="scene-status open" id="scene-status-badge">open</span>
+          <button class="status-btn" id="scene-resolve-btn">Mark resolved</button>
+          <div id="scene-status-meta"></div>
+        </div>
       </div>
-      <!-- Hazard mode only: email this report (all pins + original photos) -->
+      <!-- Escalate: email this scene (hazard: all pins + original photos; admin: the link) -->
       <div id="hazard-send-row">
-        <label class="form-label">Send report to (@hcma.com.au)</label>
+        <label class="form-label" id="hazard-send-label">Escalate to (@hcma.com.au)</label>
         <input class="form-input" id="hazard-recipients" placeholder="name@hcma.com.au, other@hcma.com.au" autocomplete="off">
         <textarea class="form-input" id="hazard-message" rows="2" maxlength="4000" placeholder="Optional note for the email"></textarea>
-        <button class="btn-primary" id="hazard-send-btn">Send report with photos</button>
+        <button class="btn-primary" id="hazard-send-btn">Escalate &amp; send report</button>
         <div id="hazard-send-status"></div>
         <div id="hazard-history"></div>
       </div>

@@ -29,6 +29,7 @@ if (MODE === 'hazard') {
   if (logo) logo.innerHTML = 'Site<span>Nav</span> Hazard Report Map';
 }
 let _me = null; // { email, role } from /api/auth/me — used for per-user scene ownership
+let _archiveOpen = false; // "Archived" (resolved) section folded by default
 
 // ── State ────────────────────────────────────────────────────────────────
 let _v3d              = null;
@@ -74,6 +75,8 @@ async function init() {
   document.getElementById('prop-hazard-add-photo').addEventListener('click', () => document.getElementById('prop-hazard-file').click());
   document.getElementById('prop-hazard-file').addEventListener('change', onHazardFilesChosen);
   document.getElementById('hazard-send-btn').addEventListener('click', onSendReport);
+  document.getElementById('scene-resolve-btn').addEventListener('click', onToggleResolved);
+  if (MODE !== 'hazard') document.getElementById('hazard-send-btn').textContent = 'Escalate & send link';
   try { _me = await fetch('/api/auth/me').then(r => r.ok ? r.json() : null); } catch { _me = null; }
   document.getElementById('add-scene-btn').addEventListener('click', onAddSceneClick);
   document.getElementById('new-scene-confirm-btn').addEventListener('click', onNewSceneConfirm);
@@ -122,36 +125,89 @@ async function loadScenes() {
   if (!_currentSceneId && _scenes.length) await selectScene(_scenes[0].id);
 }
 
+// The list is per user (created + opened-via-link), split into Active and a
+// folded Archived section for resolved scenes. Applies to both maps.
 function renderScenesList() {
   const list = document.getElementById('scenes-list');
   list.replaceChildren();
-  _scenes.forEach(scene => {
+  const active = _scenes.filter(s => s.status !== 'resolved');
+  const archived = _scenes.filter(s => s.status === 'resolved');
+  const noun = MODE === 'hazard' ? 'report' : 'scene';
+
+  const renderRow = (scene) => {
     const row = document.createElement('div');
     row.className = 'scene-list-item' + (scene.id === _currentSceneId ? ' active' : '');
     const name = document.createElement('span');
     name.textContent = scene.name;
     row.appendChild(name);
-    if (MODE === 'hazard') {
-      // Each user manages their own reports: show the author, and only offer
-      // delete to the author or a site admin (the server enforces the same).
-      const who = document.createElement('span');
-      who.className = 'scene-author';
-      who.textContent = scene.createdByEmail ? (scene.createdByEmail === _me?.email ? 'you' : scene.createdByEmail.split('@')[0]) : '';
-      who.title = scene.createdByEmail || '';
-      row.appendChild(who);
+    const who = document.createElement('span');
+    who.className = 'scene-author';
+    who.textContent = scene.createdByEmail ? (scene.isMine || scene.createdByEmail === _me?.email ? 'you' : scene.createdByEmail.split('@')[0]) : '';
+    who.title = scene.createdByEmail || '';
+    row.appendChild(who);
+    if (scene.status && scene.status !== 'open') {
+      const st = document.createElement('span');
+      st.className = `scene-status ${scene.status}`;
+      st.textContent = scene.status;
+      row.appendChild(st);
     }
-    const canDelete = MODE !== 'hazard' || !scene.createdByEmail || scene.createdByEmail === _me?.email || _me?.role === 'admin' || _me?.role === 'owner';
-    if (canDelete) {
-      const del = document.createElement('button');
-      del.className = 'scene-del-btn';
-      del.textContent = '✕';
-      del.title = MODE === 'hazard' ? 'Delete report' : 'Delete scene';
-      del.addEventListener('click', e => { e.stopPropagation(); onDeleteSceneClick(scene.id); });
-      row.appendChild(del);
-    }
+    // Creator (or ownerless legacy scene): deletes the scene for everyone.
+    // Anyone else: removes it from their own list only — the server decides the same.
+    const mine = scene.isMine || !scene.createdByEmail || scene.createdByEmail === _me?.email;
+    const del = document.createElement('button');
+    del.className = 'scene-del-btn';
+    del.textContent = '✕';
+    del.title = mine ? `Delete ${noun} for everyone` : 'Remove from my list';
+    del.dataset.action = mine ? 'delete' : 'remove';
+    del.addEventListener('click', e => { e.stopPropagation(); onDeleteSceneClick(scene.id, mine); });
+    row.appendChild(del);
     row.addEventListener('click', () => selectScene(scene.id));
-    list.appendChild(row);
+    return row;
+  };
+
+  active.forEach(s => list.appendChild(renderRow(s)));
+  if (archived.length) {
+    const head = document.createElement('div');
+    head.className = 'scenes-section';
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = _archiveOpen ? 'open' : '';
+    btn.id = 'archive-toggle';
+    btn.textContent = `Archived (${archived.length})`;
+    btn.addEventListener('click', () => { _archiveOpen = !_archiveOpen; renderScenesList(); });
+    head.appendChild(btn);
+    list.appendChild(head);
+    if (_archiveOpen) archived.forEach(s => list.appendChild(renderRow(s)));
+  }
+}
+
+function showSceneStatus(scene) {
+  const row = document.getElementById('scene-status-row');
+  if (!scene) { row.style.display = 'none'; return; }
+  row.style.display = 'flex';
+  const badge = document.getElementById('scene-status-badge');
+  badge.className = `scene-status ${scene.status || 'open'}`;
+  badge.textContent = scene.status || 'open';
+  document.getElementById('scene-resolve-btn').textContent = scene.status === 'resolved' ? 'Reopen' : 'Mark resolved';
+  const meta = document.getElementById('scene-status-meta');
+  meta.textContent = scene.statusChangedAt
+    ? `Changed ${new Date(scene.statusChangedAt).toLocaleString()}${scene.statusChangedByEmail ? ` by ${scene.statusChangedByEmail.split('@')[0]}` : ''}`
+    : '';
+}
+
+async function onToggleResolved() {
+  const scene = _scenes.find(s => s.id === _currentSceneId);
+  if (!scene) return;
+  const status = scene.status === 'resolved' ? 'open' : 'resolved';
+  const r = await apiWrite(`/api/sites/${encodeURIComponent(SLUG)}/scenes/${encodeURIComponent(scene.id)}/status`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status }),
   });
+  if (!r) return;
+  Object.assign(scene, { status: r.status, statusChangedAt: r.statusChangedAt, statusChangedByEmail: _me?.email ?? null });
+  if (status === 'resolved') _archiveOpen = true; // keep the just-archived scene visible
+  renderScenesList();
+  showSceneStatus(scene);
+  showToast(status === 'resolved' ? 'Marked resolved — moved to Archived' : 'Reopened');
 }
 
 async function selectScene(id) {
@@ -166,8 +222,9 @@ async function selectScene(id) {
   renderScenesList();
   updateAddButtonsEnabled();
   const scene = _scenes.find(s => s.id === id);
-  if (scene) showSceneShare(scene);
-  if (MODE === 'hazard') { document.getElementById('hazard-send-row').style.display = 'flex'; loadHazardHistory(); }
+  if (scene) { showSceneShare(scene); showSceneStatus(scene); }
+  document.getElementById('hazard-send-row').style.display = 'flex';
+  loadHazardHistory();
   await loadObjects();
 }
 
@@ -224,7 +281,8 @@ async function onNewSceneConfirm() {
   await selectScene(created.id);
 }
 
-async function onDeleteSceneClick(id) {
+async function onDeleteSceneClick(id, mine = true) {
+  if (mine && !confirm(MODE === 'hazard' ? 'Delete this report for everyone? Photos are removed too.' : 'Delete this scene for everyone?')) return;
   // Cancel (don't flush) pending autosaves for the scene being deleted —
   // its objects are about to be cascade-deleted, so saving them is wasted
   // work and could otherwise race the DELETE (a debounced save landing after
@@ -233,12 +291,14 @@ async function onDeleteSceneClick(id) {
   if (id === _currentSceneId) cancelAllPending();
   const ok = await apiWrite(`/api/sites/${encodeURIComponent(SLUG)}/scenes/${encodeURIComponent(id)}`, { method: 'DELETE' });
   if (!ok) return;
+  if (ok.removed === 'subscription') showToast('Removed from your list');
   _scenes = _scenes.filter(s => s.id !== id);
   if (_currentSceneId === id) {
     _currentSceneId = null;
     Array.from(_objects.keys()).forEach(disposeEntry);
     document.getElementById('scene-share-row').style.display = 'none';
     document.getElementById('hazard-send-row').style.display = 'none';
+    showSceneStatus(null);
     updateAddButtonsEnabled();
     if (_scenes.length) await selectScene(_scenes[0].id);
     else renderScenesList();
@@ -651,7 +711,7 @@ async function onSendReport() {
   if (!recipients.length) { status.textContent = 'Add at least one @hcma.com.au address.'; return; }
   if (bad.length) { status.textContent = `Only @hcma.com.au addresses are allowed: ${bad.join(', ')}`; return; }
   const hazardCount = Array.from(_objects.values()).filter(e => e.obj.kind === 'hazard').length;
-  if (!hazardCount) { status.textContent = 'Place at least one hazard pin first.'; return; }
+  if (MODE === 'hazard' && !hazardCount) { status.textContent = 'Place at least one hazard pin first.'; return; }
   await flushAllPending();
   const btn = document.getElementById('hazard-send-btn');
   btn.disabled = true;
@@ -663,8 +723,10 @@ async function onSendReport() {
     });
     const d = await res.json().catch(() => ({}));
     if (res.ok) {
-      status.textContent = `Sent to ${d.recipients.length} recipient${d.recipients.length === 1 ? '' : 's'} with ${d.attached} original photo${d.attached === 1 ? '' : 's'}${d.skipped ? ` (${d.skipped} too large to attach)` : ''}.`;
+      status.textContent = `Escalated — sent to ${d.recipients.length} recipient${d.recipients.length === 1 ? '' : 's'}${MODE === 'hazard' ? ` with ${d.attached} original photo${d.attached === 1 ? '' : 's'}${d.skipped ? ` (${d.skipped} too large to attach)` : ''}` : ''}.`;
       document.getElementById('hazard-message').value = '';
+      const scene = _scenes.find(sc => sc.id === _currentSceneId);
+      if (scene && d.status) { Object.assign(scene, { status: d.status, statusChangedAt: d.statusChangedAt, statusChangedByEmail: _me?.email ?? null }); renderScenesList(); showSceneStatus(scene); }
       loadHazardHistory();
     } else if (res.status === 401) { window._snShowLoginGate?.(); status.textContent = 'Session expired — sign in again.'; }
     else if (d.code === 'mail-unconfigured') status.textContent = 'This server cannot send email yet (RESEND_API_KEY not set).';

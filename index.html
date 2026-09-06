@@ -908,7 +908,9 @@
     const gate = document.getElementById('sn-auth-gate');
     if (!gate || gate.dataset.armed) return;
     gate.dataset.armed = '1';
-    if (info && info.name) gate.querySelector('h2').textContent = 'Hazard report: ' + info.name;
+    const isHazard = !info || info.kind !== 'admin';
+    if (info && info.name) gate.querySelector('h2').textContent = (isHazard ? 'Hazard report: ' : 'Sign in: ') + info.name;
+    if (!isHazard) document.getElementById('sn-auth-msg').textContent = 'Sign in with your @hcma.com.au email to add this map to your list and update its status.';
     const g = SnAuthGate.attach({
       next: location.pathname + location.search,
       onSignedIn: () => location.reload(),

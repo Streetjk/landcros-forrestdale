@@ -213,8 +213,10 @@ async function notifyScene(slug, sceneId, { recipients, message, shareUrl }, sen
 
   const siteId = await getSiteId(slug);
   const pool = _getPool();
-  const sceneRes = await pool.query(`select id, name from scenes where id = $1 and site_id = $2 and kind = 'hazard'`, [sceneId, siteId]);
-  if (!sceneRes.rows.length) throw new HazardError('not-found', 'hazard scene not found');
+  // Any kind: an admin-map scene escalates as a plain "please look at this
+  // map" email (no hazard pins, no photos) with the same audit trail.
+  const sceneRes = await pool.query('select id, name, kind from scenes where id = $1 and site_id = $2', [sceneId, siteId]);
+  if (!sceneRes.rows.length) throw new HazardError('not-found', 'scene not found');
   const scene = sceneRes.rows[0];
 
   const { rows: objects } = await pool.query(
@@ -247,9 +249,10 @@ async function notifyScene(slug, sceneId, { recipients, message, shareUrl }, sen
     const n = photos.filter((p) => p.object_id === o.id).length;
     return { t, d, n };
   });
-  const subject = `Hazard report: ${scene.name}`;
+  const isHazard = scene.kind === 'hazard';
+  const subject = isHazard ? `Hazard report: ${scene.name}` : `Map shared with you: ${scene.name}`;
   const text = [
-    `Hazard report "${scene.name}" (${objects.length} pin${objects.length === 1 ? '' : 's'}).`,
+    isHazard ? `Hazard report "${scene.name}" (${objects.length} pin${objects.length === 1 ? '' : 's'}).` : `"${scene.name}" has been escalated to you.`,
     message ? `\n${message}\n` : '',
     ...lines.map((l) => `• ${l.t}${l.n ? ` (${l.n} photo${l.n === 1 ? '' : 's'})` : ''}\n  ${l.d}`),
     '', `Open the map (sign-in required): ${shareUrl}`,
@@ -258,10 +261,10 @@ async function notifyScene(slug, sceneId, { recipients, message, shareUrl }, sen
   ].join('\n');
   const html = `
     <div style="font:15px/1.5 -apple-system,Segoe UI,Roboto,sans-serif;color:#111;max-width:600px">
-      <h2 style="margin:0 0 8px;font-size:18px">Hazard report: ${_esc(scene.name)}</h2>
+      <h2 style="margin:0 0 8px;font-size:18px">${isHazard ? 'Hazard report' : 'Map shared with you'}: ${_esc(scene.name)}</h2>
       ${message ? `<p style="white-space:pre-wrap">${_esc(message)}</p>` : ''}
       <ol style="padding-left:20px">${lines.map((l) => `<li style="margin-bottom:8px"><strong>${_esc(l.t)}</strong>${l.n ? ` <span style="color:#666">(${l.n} photo${l.n === 1 ? '' : 's'})</span>` : ''}<br><span style="white-space:pre-wrap">${_esc(l.d)}</span></li>`).join('')}</ol>
-      <p><a href="${_esc(shareUrl)}" style="display:inline-block;background:#B45309;color:#fff;text-decoration:none;padding:10px 18px;border-radius:8px;font-weight:600">Open on the map</a><br><span style="color:#666;font-size:13px">Sign-in with your @${ALLOWED_DOMAIN} email is required.</span></p>
+      <p><a href="${_esc(shareUrl)}" style="display:inline-block;background:#B45309;color:#fff;text-decoration:none;padding:10px 18px;border-radius:8px;font-weight:600">Open on the map</a><br><span style="color:#666;font-size:13px">${isHazard ? `Sign-in with your @${ALLOWED_DOMAIN} email is required.` : `Sign in with your @${ALLOWED_DOMAIN} email to add it to your list and update its status.`}</span></p>
       ${skipped.length ? `<p style="color:#666;font-size:13px">${skipped.length} photo(s) exceeded the email size limit and are only viewable on the map.</p>` : ''}
       <p style="color:#666;font-size:13px">Original photos are attached. Photos are kept for ${RETENTION_DAYS} days.</p>
     </div>`;

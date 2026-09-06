@@ -625,19 +625,78 @@ const server = http.createServer((req, res) => {
   const _sceneCodeMatch = /^\/api\/scenes\/by-code\/([a-z0-9]{10})$/.exec(pathname);
   if (_sceneCodeMatch && req.method === 'GET') {
     if (_rateLimited(req, res, 'scene-by-code', 120, 3600000)) return;
-    scenesDb.getSceneBundleByCode(_sceneCodeMatch[1]).then(bundle => {
+    const viewer = _session(req);
+    scenesDb.getSceneBundleByCode(_sceneCodeMatch[1], viewer?.profileId ?? null).then(async bundle => {
       if (!bundle) { res.writeHead(404, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ error: 'not found' })); }
       // Hazard report links are for @hcma.com.au staff only: the code alone
       // is not enough, the viewer must also hold a session (any active
       // profile — the domain gate is enforced at login).
-      if (bundle.scene.kind === 'hazard' && !_session(req)) {
+      if (bundle.scene.kind === 'hazard' && !viewer) {
         return _json(res, 401, { error: 'login-required', kind: 'hazard', name: bundle.scene.name });
       }
+      // Opening a link while signed in adds the scene to that person's list.
+      if (viewer) await scenesDb.subscribe(bundle.scene.id, viewer.profileId).catch(e => console.error('[scenes] subscribe failed:', e.message));
       res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
       res.end(JSON.stringify(bundle));
     }).catch(e => {
       res.writeHead(500, { 'Content-Type': 'application/json' });
       res.end(_errBody(e));
+    });
+    return;
+  }
+
+  // Status workflow (open → escalated → resolved → open) for both scene
+  // kinds. Any signed-in user who holds the link may change it; escalating
+  // with recipients also emails them the report (hazard: pins + original
+  // photos; admin: the link). Two entry points, same handler.
+  async function _changeStatus(scene, body, s) {
+    const status = String(body.status || '');
+    if (!scenesDb.STATUSES.has(status)) return _json(res, 400, { error: 'status must be open, escalated or resolved' });
+    const result = await scenesDb.setSceneStatus(scene.id, status, s.profileId);
+    let notified = null;
+    if (status === 'escalated' && Array.isArray(body.recipients) && body.recipients.length) {
+      const shareUrl = `${_publicBase(req)}/s/${scene.shareCode}`;
+      notified = await hazardDb.notifyScene(scene.slug, scene.id, { recipients: body.recipients, message: body.message ?? null, shareUrl }, s.profileId);
+    }
+    console.log(`[scenes] ${scene.slug}/${scene.id} status → ${status} by ${s.profileId}${notified ? ` (emailed ${notified.recipients.length})` : ''}`);
+    _json(res, 200, { ...result, notified });
+  }
+  function _statusError(e) {
+    if (e instanceof hazardDb.HazardError) return _json(res, e.code === 'mail-unconfigured' ? 503 : 400, { error: e.message, code: e.code });
+    _json(res, 500, JSON.parse(_errBody(e)));
+  }
+
+  const _sceneCodeStatusMatch = /^\/api\/scenes\/by-code\/([a-z0-9]{10})\/status$/.exec(pathname);
+  if (_sceneCodeStatusMatch && req.method === 'POST') {
+    const s = _session(req);
+    if (!s) return _json(res, 401, { error: 'login-required' });
+    if (_rateLimited(req, res, 'scene-status', 60, 3600000)) return;
+    _readJsonBody(req, async (err, body = {}) => {
+      if (err) return _json(res, 400, { error: 'Invalid JSON' });
+      try {
+        const scene = await scenesDb.getSceneByCode(_sceneCodeStatusMatch[1]);
+        if (!scene) return _json(res, 404, { error: 'not found' });
+        await scenesDb.subscribe(scene.id, s.profileId);
+        await _changeStatus(scene, body, s);
+      } catch (e) { _statusError(e); }
+    });
+    return;
+  }
+
+  const _sceneStatusMatch = /^\/api\/sites\/([^/]+)\/scenes\/([0-9a-fA-F-]{36})\/status$/.exec(pathname);
+  if (_sceneStatusMatch && req.method === 'POST') {
+    const slug = _sceneStatusMatch[1];
+    if (!SLUG_RE.test(slug)) return _json(res, 404, { error: 'not found' });
+    _requireSiteRole(req, res, slug, 'viewer', (s) => {
+      if (_rateLimited(req, res, 'scene-status', 60, 3600000)) return;
+      _readJsonBody(req, async (err, body = {}) => {
+        if (err) return _json(res, 400, { error: 'Invalid JSON' });
+        try {
+          const meta = await scenesDb.getSceneMeta(slug, _sceneStatusMatch[2]);
+          if (!meta) return _json(res, 404, { error: 'not found' });
+          await _changeStatus({ ...meta, slug }, body, s);
+        } catch (e) { _statusError(e); }
+      });
     });
     return;
   }
@@ -866,8 +925,8 @@ const server = http.createServer((req, res) => {
     if (req.method === 'GET') {
       const kind = url.searchParams.get('kind') || 'admin';
       if (!scenesDb.KINDS.has(kind)) return _json(res, 400, { error: 'invalid kind' });
-      _requireSiteRole(req, res, slug, 'viewer', () => {
-        scenesDb.listScenes(slug, { kind }).then(list => {
+      _requireSiteRole(req, res, slug, 'viewer', (s) => {
+        scenesDb.listScenes(slug, { kind, profileId: s.profileId }).then(list => {
           res.writeHead(200, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify(list));
         }).catch(e => {
@@ -903,11 +962,14 @@ const server = http.createServer((req, res) => {
         (async () => {
           const meta = await scenesDb.getSceneMeta(slug, id);
           if (!meta) return _json(res, 404, { error: 'not found' });
-          // Hazard reports belong to whoever filed them: only the author or a
-          // site admin may delete one. Admin-map scenes keep editor semantics.
-          if (meta.kind === 'hazard' && meta.createdBy && meta.createdBy !== s.profileId && !auth.isPlatformAdmin(s.email)) {
-            const role = await auth.getSiteRole(s.profileId, slug);
-            if (!auth.roleAtLeast(role, 'admin')) return _json(res, 403, { error: 'Only the author or a site admin can delete this report' });
+          // A scene is owned by its creator. Anyone else "deleting" it only
+          // removes it from their own list (scene_subscriptions); the entity
+          // survives until the creator — or a platform admin — deletes it.
+          // Ownerless legacy scenes (created_by null) are deletable by editors.
+          if (meta.createdBy && meta.createdBy !== s.profileId && !auth.isPlatformAdmin(s.email)) {
+            await scenesDb.unsubscribe(id, s.profileId);
+            console.log(`[scenes] ${slug}/${id} removed from list of ${s.profileId}`);
+            return _json(res, 200, { ok: true, removed: 'subscription' });
           }
           await hazardDb.deletePhotosForScene(slug, id).catch(e => console.error('[hazard] photo cleanup on scene delete failed:', e.message));
           return scenesDb.deleteScene(slug, id, s.profileId);
@@ -1038,11 +1100,13 @@ const server = http.createServer((req, res) => {
           if (err) return _json(res, 400, { error: 'Invalid JSON' });
           try {
             const meta = await scenesDb.getSceneMeta(slug, sceneId);
-            if (!meta || meta.kind !== 'hazard') return _json(res, 404, { error: 'not found' });
+            if (!meta) return _json(res, 404, { error: 'not found' });
             const shareUrl = `${_publicBase(req)}/s/${meta.shareCode}`;
             const result = await hazardDb.notifyScene(slug, sceneId, { recipients, message, shareUrl }, s.profileId);
+            // Passing a report on to other people is the escalation step.
+            const st = await scenesDb.setSceneStatus(sceneId, 'escalated', s.profileId);
             console.log(`[hazard] ${slug}/${sceneId} report emailed to ${result.recipients.length} by ${s.profileId}`);
-            _json(res, 200, result);
+            _json(res, 200, { ...result, status: st.status, statusChangedAt: st.statusChangedAt });
           } catch (e) {
             if (e instanceof hazardDb.HazardError) {
               return _json(res, e.code === 'not-found' ? 404 : e.code === 'mail-unconfigured' ? 503 : 400, { error: e.message, code: e.code });

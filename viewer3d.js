@@ -825,6 +825,88 @@ function renderSceneWidgets(list) {
   list.filter(o => o.kind === 'label' || o.kind === 'button' || o.kind === 'widget' || o.kind === 'hazard').forEach(_renderSceneWidget);
 }
 
+// ── Scene status bar (both map kinds) ──────────────────────────────────
+// Shows the open scene's name + status. Signed-in viewers can resolve /
+// reopen / escalate (escalate = email @hcma.com.au recipients the link, and
+// for hazard scenes the pins + original photos). Anonymous viewers of an
+// admin-map link see the status and a sign-in link only.
+function renderSceneStatusBar(code, bundle) {
+  const scene = bundle.scene;
+  const signedIn = !!bundle.viewer?.signedIn;
+  let bar = document.getElementById('scene-status-bar');
+  if (!bar) {
+    bar = document.createElement('div');
+    bar.id = 'scene-status-bar';
+    bar.style.cssText = 'position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:41;display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:center;max-width:calc(100vw - 32px);padding:6px 10px 6px 12px;border-radius:12px;background:rgba(8,10,16,0.9);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border:1px solid rgba(255,255,255,0.1);color:#eef0f4;font:500 12px Inter,system-ui,sans-serif;box-shadow:0 4px 16px rgba(0,0,0,0.35);';
+    document.body.appendChild(bar);
+  }
+  bar.replaceChildren();
+  const name = document.createElement('span');
+  name.textContent = (scene.kind === 'hazard' ? '⚠ ' : '') + scene.name;
+  name.style.cssText = 'font-weight:600;max-width:40vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+  const colors = { open: '#3b82f6', escalated: '#f59e0b', resolved: '#10b981' };
+  const badge = document.createElement('span');
+  badge.id = 'scene-status-badge';
+  badge.textContent = scene.status || 'open';
+  badge.style.cssText = `text-transform:uppercase;font-size:10px;font-weight:700;letter-spacing:0.06em;padding:2px 7px;border-radius:6px;background:${colors[scene.status] || colors.open}22;color:${colors[scene.status] || colors.open};`;
+  bar.append(name, badge);
+  const btn = (label, onClick, accent) => {
+    const b = document.createElement('button');
+    b.textContent = label;
+    b.style.cssText = `padding:5px 10px;border-radius:8px;border:1px solid rgba(255,255,255,0.14);background:${accent ? 'rgba(180,83,9,0.35)' : 'rgba(255,255,255,0.06)'};color:#fff;font:600 11px Inter,system-ui,sans-serif;cursor:pointer;min-height:28px;`;
+    b.addEventListener('click', onClick);
+    return b;
+  };
+  if (!signedIn) {
+    const a = document.createElement('a');
+    a.href = '#'; a.textContent = 'Sign in to update';
+    a.style.cssText = 'color:#93c5fd;font-size:11px;';
+    a.addEventListener('click', e => { e.preventDefault(); window._snHazardLoginRequired?.({ name: scene.name, kind: scene.kind }); });
+    bar.appendChild(a);
+    return;
+  }
+  const post = async (body) => {
+    const r = await fetch(`/api/scenes/by-code/${encodeURIComponent(code)}/status`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify(body),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (r.status === 401) { window._snHazardLoginRequired?.({ name: scene.name, kind: scene.kind }); return null; }
+    if (!r.ok) { alert(d.error || `Update failed (${r.status})`); return null; }
+    scene.status = d.status; scene.statusChangedAt = d.statusChangedAt;
+    renderSceneStatusBar(code, bundle);
+    return d;
+  };
+  bar.appendChild(btn(scene.status === 'resolved' ? 'Reopen' : 'Mark resolved', () => post({ status: scene.status === 'resolved' ? 'open' : 'resolved' })));
+  bar.appendChild(btn('Escalate…', () => _openEscalateDialog(post), true));
+}
+
+function _openEscalateDialog(post) {
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'position:fixed;inset:0;z-index:10000;background:rgba(8,10,16,0.8);display:flex;align-items:center;justify-content:center;padding:16px;font-family:Inter,system-ui,sans-serif;color:#fff;';
+  wrap.innerHTML = `
+    <form style="background:#192134;border:1px solid rgba(255,255,255,0.1);border-radius:12px;padding:20px;width:100%;max-width:340px;display:flex;flex-direction:column;gap:10px;">
+      <h3 style="margin:0;font-size:1rem;">Escalate to</h3>
+      <input name="to" placeholder="name@hcma.com.au, other@hcma.com.au" autocomplete="off" style="padding:9px 12px;border:1px solid rgba(255,255,255,0.12);border-radius:8px;background:#0F172A;color:#fff;font-size:0.9rem;">
+      <textarea name="msg" rows="3" maxlength="4000" placeholder="Optional note" style="padding:9px 12px;border:1px solid rgba(255,255,255,0.12);border-radius:8px;background:#0F172A;color:#fff;font-size:0.9rem;resize:vertical;"></textarea>
+      <p data-err style="margin:0;color:#f87171;font-size:0.8rem;display:none;"></p>
+      <button type="submit" style="padding:9px;background:#b45309;border:none;border-radius:8px;color:#fff;font-weight:600;cursor:pointer;">Escalate &amp; send</button>
+      <a href="#" data-cancel style="color:#94A3B8;font-size:0.8rem;text-align:center;">Cancel</a>
+    </form>`;
+  document.body.appendChild(wrap);
+  const form = wrap.querySelector('form'), err = wrap.querySelector('[data-err]');
+  wrap.querySelector('[data-cancel]').onclick = (e) => { e.preventDefault(); wrap.remove(); };
+  form.onsubmit = async (e) => {
+    e.preventDefault();
+    const recipients = form.to.value.split(/[\s,;]+/).map(x => x.trim().toLowerCase()).filter(Boolean);
+    const bad = recipients.filter(r => !/^[^@\s]+@hcma\.com\.au$/.test(r));
+    if (!recipients.length || bad.length) { err.textContent = bad.length ? `Only @hcma.com.au addresses: ${bad.join(', ')}` : 'Add at least one @hcma.com.au address.'; err.style.display = 'block'; return; }
+    form.querySelector('button').disabled = true;
+    const d = await post({ status: 'escalated', recipients, message: form.msg.value.trim() || null });
+    if (d) wrap.remove(); else form.querySelector('button').disabled = false;
+  };
+  form.to.focus();
+}
+
 // Hazard pin detail: title + description + photo thumbnails. Text goes in via
 // textContent; the <img> src is our own proxy URL built from a UUID.
 function showHazardDetail(obj) {
@@ -3002,6 +3084,7 @@ async function boot() {
       }).catch(() => null);
     _scenePhotos = _sceneBundle?.photos ?? [];
     if (_sceneBundle?.objects) renderSceneWidgets(_sceneBundle.objects);
+    if (_sceneBundle?.scene) renderSceneStatusBar(_sceneCode, _sceneBundle);
   }
 
   // viewer3d.html: load pins/contacts
