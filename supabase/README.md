@@ -15,6 +15,7 @@ supabase/
     ...
     0009_login_pins.sql # profile_pins + pin_reset_tokens (service-role only)
     0010_hazard_reports.sql # scenes.kind, hazard object kind, hazard_photos, hazard_notifications
+    0011_scene_status_subscriptions.sql # scenes.status, scene_subscriptions (per-user lists)
   tests/
     rls_test.sql      # standalone psql harness — proves tenant isolation
 ```
@@ -89,6 +90,27 @@ Routes: `GET/POST /api/sites/:slug/scenes?kind=`; `GET|POST
 /api/sites/:slug/hazard/photos/:id`; `GET /api/hazard-photos/:id[?original=1]`
 (session); `POST /api/sites/:slug/scenes/:id/notify {recipients, message}`;
 `GET /api/sites/:slug/scenes/:id/notifications`; `GET /api/site`.
+
+## Per-user lists, status and archive (0011_scene_status_subscriptions.sql)
+
+Both maps. Each scene has `status` open → escalated → resolved (and back).
+Any signed-in user who holds the link can change it, from the editor's
+status row or the status bar the viewer shows at the top of an opened scene;
+anonymous viewers of an admin link see the status read-only. "Escalate" =
+email the link (hazard: pins + original photos) to @hcma.com.au recipients and
+set the status; sending a hazard report also marks it escalated.
+
+Opening a share link while signed in adds the scene to that person's list
+(`scene_subscriptions`). The editor lists the scenes you created plus those
+you opened; resolved ones sit under a folded **Archived** section. Deleting
+from the list removes only your subscription unless you are the creator (or a
+platform admin), in which case the scene itself is deleted.
+
+Routes: `POST /api/scenes/by-code/:code/status {status[, recipients, message]}`
+(session); `POST /api/sites/:slug/scenes/:id/status`; `GET
+/api/sites/:slug/scenes?kind=` is now per-user; `DELETE
+/api/sites/:slug/scenes/:id` returns `{removed:'subscription'}` for
+non-creators.
 
 ## Apply the migrations
 
