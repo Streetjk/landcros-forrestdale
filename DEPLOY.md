@@ -14,7 +14,7 @@ option below — the host only runs the Node process.
 | `SUPABASE_URL`, `SUPABASE_SECRET_KEY` | project URL + service-role key (Auth admin API) |
 | `SUPABASE_DB_URL` | Postgres connection string (pooler URL) |
 | `PLATFORM_ADMIN_EMAILS` | comma-separated owner emails |
-| `RESEND_API_KEY`, `MAIL_FROM` | PIN setup/reset emails (resend.com, free tier) |
+| `SMTP_HOST`/`SMTP_PORT`/`SMTP_USER`/`SMTP_PASS` **or** `RESEND_API_KEY` | PIN setup/reset and hazard-report emails — SMTP through an ordinary mailbox (no DNS access needed), or Resend (needs a verified domain). See `.env.example`. |
 | `PUBLIC_BASE_URL` | `https://your-host` — used in emailed links |
 
 `SUPABASE_URL` + `SUPABASE_SECRET_KEY` also drive Supabase Storage for hazard

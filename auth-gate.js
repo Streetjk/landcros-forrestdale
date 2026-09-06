@@ -102,7 +102,7 @@
         const a = document.createElement('a'); a.href = d.devLink; a.textContent = 'open link'; a.style.color = '#14B8A6';
         msg.append(a);
       } else {
-        msg.textContent = `Your account needs a PIN, but this server can't send email yet. Ask an admin to configure RESEND_API_KEY, then try again.`;
+        msg.textContent = `Your account needs a PIN, but this server can't send email yet. Ask an admin to configure email on the server, then try again.`;
       }
       const again = document.createElement('a');
       again.href = '#'; again.textContent = ' Back to sign in'; again.style.cssText = forgot.style.cssText;
@@ -206,7 +206,7 @@
         const me = await fetch('/api/auth/me').then((r) => (r.ok ? r.json() : null));
         if (!me?.email) return showErr('Not signed in.');
         const d = await post('/api/auth/pin/request-reset', { email: me.email, next: location.pathname });
-        form.innerHTML = `<p style="margin:0;font-size:0.9rem;line-height:1.5">${d.emailSent ? `Reset link sent to ${me.email}. It expires in 30 minutes.` : d.devLink ? `Email not configured (dev): <a href="${d.devLink}" style="color:#14B8A6">open reset link</a>` : 'This server cannot send email yet — ask an admin to set RESEND_API_KEY.'}</p><button type="button" style="margin-top:12px;padding:9px;background:#192134;border:1px solid rgba(255,255,255,0.12);border-radius:8px;color:#fff;cursor:pointer;">Close</button>`;
+        form.innerHTML = `<p style="margin:0;font-size:0.9rem;line-height:1.5">${d.emailSent ? `Reset link sent to ${me.email}. It expires in 30 minutes.` : d.devLink ? `Email not configured (dev): <a href="${d.devLink}" style="color:#14B8A6">open reset link</a>` : 'This server cannot send email yet — ask an admin to configure email.'}</p><button type="button" style="margin-top:12px;padding:9px;background:#192134;border:1px solid rgba(255,255,255,0.12);border-radius:8px;color:#fff;cursor:pointer;">Close</button>`;
         form.querySelector('button').onclick = () => wrap.remove();
       } catch { showErr('Could not send reset email.'); }
     };

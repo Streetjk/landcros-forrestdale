@@ -41,16 +41,35 @@ reset) is set through a single-use link emailed to that address, so the inbox
 is proven once and the PIN gates every login after that. Five wrong PINs lock
 the account for 15 minutes; links expire after 30 minutes.
 
-Server env for this:
+Server env for this (see `.env.example` for the full list):
 
 ```
-SESSION_SECRET=<long random string>      # signs the session cookie (already required)
-RESEND_API_KEY=re_...                    # https://resend.com — free tier is plenty
-MAIL_FROM="SiteNav <noreply@your-domain>" # a sender on a domain verified in Resend
+SESSION_SECRET=<long random string>       # signs the session cookie
 PUBLIC_BASE_URL=https://your-app.example  # absolute origin used in emailed links
 ```
 
-Without `RESEND_API_KEY` the server logs the link to its console instead of
+plus **one** email transport — set either group:
+
+```
+# A. SMTP through an ordinary mailbox — no DNS access needed, and the mail
+#    genuinely comes from that address (best deliverability to colleagues).
+SMTP_HOST=smtp.office365.com
+SMTP_PORT=587
+SMTP_USER=someone@hcma.com.au
+SMTP_PASS=<password or app password>
+
+# B. Resend HTTP API — needs a domain verified in Resend (DNS records).
+RESEND_API_KEY=re_...
+MAIL_FROM="SiteNav <noreply@your-verified-domain>"
+```
+
+SMTP wins if both are present; `MAIL_TRANSPORT=smtp|resend` forces one. On
+SMTP, `MAIL_FROM` defaults to `SMTP_USER` — most providers reject a From that
+doesn't match the authenticated mailbox, so leave it unset unless that mailbox
+has Send As rights. Microsoft 365 typically needs SMTP AUTH enabled for the
+mailbox and an app password when MFA is on.
+
+With no transport configured the server logs the link to its console instead of
 sending it and the UI tells the user email isn't configured. For local dev
 only, `ALLOW_INSECURE_PIN_LINKS=1` also returns the link in the API response
 so you can click through without a mail account — never set that in prod.

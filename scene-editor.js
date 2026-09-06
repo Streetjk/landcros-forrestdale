@@ -729,7 +729,7 @@ async function onSendReport() {
       if (scene && d.status) { Object.assign(scene, { status: d.status, statusChangedAt: d.statusChangedAt, statusChangedByEmail: _me?.email ?? null }); renderScenesList(); showSceneStatus(scene); }
       loadHazardHistory();
     } else if (res.status === 401) { window._snShowLoginGate?.(); status.textContent = 'Session expired — sign in again.'; }
-    else if (d.code === 'mail-unconfigured') status.textContent = 'This server cannot send email yet (RESEND_API_KEY not set).';
+    else if (d.code === 'mail-unconfigured') status.textContent = 'This server cannot send email yet — ask an admin to configure email.';
     else status.textContent = d.error || `Send failed (${res.status})`;
   } catch { status.textContent = 'Network error — try again.'; }
   btn.disabled = false;

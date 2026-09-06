@@ -209,7 +209,7 @@ function _esc(s) {
 async function notifyScene(slug, sceneId, { recipients, message, shareUrl }, sentBy) {
   if (!recipientsValid(recipients)) throw new HazardError('bad-recipients', `recipients must be 1-20 @${ALLOWED_DOMAIN} addresses`);
   if (message != null && (typeof message !== 'string' || message.length > 4000)) throw new HazardError('bad-request', 'message too long');
-  if (!mailer.isConfigured()) throw new HazardError('mail-unconfigured', 'RESEND_API_KEY is not set');
+  if (!mailer.isConfigured()) throw new HazardError('mail-unconfigured', 'no email transport configured (set SMTP_* or RESEND_API_KEY)');
 
   const siteId = await getSiteId(slug);
   const pool = _getPool();
