@@ -614,8 +614,12 @@
       border: 1px solid rgba(255,255,255,0.08) !important;
     }
 
-    /* ── Desktop + tablet (≥768px): fixed overlay panel, hidden by default ── */
-    @media (min-width: 768px) {
+    /* ── Desktop only (≥1025px): fixed overlay panel, hidden by default ──
+       Breakpoint matches viewer3d.html, style.css and viewer3d.js's own
+       `innerWidth <= 1024` bottom-sheet test. Previously this page opened the
+       drawer from 768px while the JS still treated 768–1024px as "mobile",
+       so on a tablet selecting a pin never opened the panel at all. */
+    @media (min-width: 1025px) {
       #panel-tab { display: flex; }
       #panel-close { display: flex; }
 
@@ -653,7 +657,10 @@
       .load-logo-mark img { height: 44px; max-width: 160px; }
       .load-bar { width: 200px; }
     }
-    @media (max-width: 767px) {
+    /* ── Bottom sheet: mobile AND tablet (≤1024px) ──
+       Same range as style.css's shared block and viewer3d.js's
+       `innerWidth <= 1024` test, so CSS and JS agree on every device. */
+    @media (max-width: 1024px) {
       #app { position: relative; flex-direction: row !important; }
       #canvas-wrap { width: 100%; height: 100%; position: absolute; inset: 0; flex: none; min-height: 0; }
 
@@ -685,7 +692,7 @@
       #side-panel:not(.sheet-mid):not(.sheet-full) #point-detail { visibility: hidden; }
 
       #side-panel {
-        position: absolute !important;
+        position: fixed !important;
         bottom: 0 !important; left: 0 !important; right: 0 !important; top: auto !important;
         width: 100% !important;
         height: 85vh !important;
@@ -720,32 +727,43 @@
       #panel-header { justify-content: center !important; position: relative; }
       #panel-header-text { display: block !important; position: absolute; left: 18px; top: 50%; transform: translateY(-50%); }
       #panel-header-text .panel-site { display: none !important; }
-      #panel-toggle { display: block; margin-left: 0; }
+      #panel-toggle { display: flex !important; margin-left: 0 !important; }
+      #panel-close  { display: none !important; }
       #panel-tab { display: none !important; }
       #side-panel.sheet-mid #panel-toggle,
       #side-panel.sheet-full #panel-toggle { transform: rotate(180deg); }
 
+      /* style.css sets `bottom: calc(16vh/19vh + 8px) !important` for the
+         panel-folded height model used by viewer3d.html/admin3d.html. This
+         page uses the translateY sheet model instead, so every value here
+         needs !important to win — an inline style.bottom from JS silently
+         lost to those rules, which is why the buttons never tracked the
+         sheet. Position is now driven purely by #app.sheet-open (set by
+         _updateCamPresetsBottom below). */
       #cam-presets {
+        position: fixed !important;
         top: auto !important;
-        bottom: 44px;
+        bottom: 44px !important;
         left: 16px !important;
         flex-direction: row !important;
         gap: 10px;
         transition: opacity 0.4s ease, bottom 420ms cubic-bezier(0.2, 0.8, 0.2, 1) !important;
       }
-      .cam-preset-btn {
-        width: 40px;
-        height: 40px;
-      }
+      #app.sheet-open #cam-presets { bottom: calc(22vh + 8px) !important; }
+
+      /* 44px keeps the tap target at the accessible minimum and matches
+         viewer3d.html, which already forces 44px across this range. */
+      .cam-preset-btn,
       .cam-preset-btn .icon-wrap {
-        width: 40px;
-        height: 40px;
+        width: 44px !important;
+        height: 44px !important;
       }
-      .speed-limit-sign .icon-wrap img { width: 40px !important; height: 40px !important; }
+      .speed-limit-sign .icon-wrap img { width: 44px !important; height: 44px !important; }
       .cam-preset-btn .label-wrap {
-        display: none;
+        display: none !important;
       }
-      #nav-progress { bottom: calc(22vh + 12px); }
+      #nav-progress { bottom: 44px; }
+      #app.sheet-open #nav-progress { bottom: calc(22vh + 12px); }
 
       /* Brand: top-right, fixed over canvas */
       #site-brand {
@@ -757,22 +775,9 @@
       #site-address { font-size: 11px !important; text-align: center !important; }
     }
 
-    /* ── Undo global style.css panel overrides for this page ── */
-    @media (max-width: 640px) {
-      #app { flex-direction: row !important; }
-      #side-panel { order: unset !important; }
-      /* style.css hides #site-brand and #site-address by ID — restore both */
-      #site-brand  { display: flex !important; }
-      #site-address { display: block !important; }
-    }
-
-    /* style.css hides #site-brand/#site-address for the whole ≤1024px range
-       (shared with viewer3d.html/admin3d.html); this page wants both visible
-       at every width. The ≤767px block above already restores #site-brand,
-       but not #site-address, and the ≤640px block above only restores
-       #site-address that narrow — leaving #site-address hidden for
-       641–767px, and BOTH hidden for 768–1024px ("tablet"). Match style.css's
-       own breakpoint here so neither gap exists. */
+    /* style.css hides #site-brand/#site-address by ID across the whole
+       ≤1024px range (shared with viewer3d.html/admin3d.html); this page wants
+       both visible at every width, so restore them over the same range. */
     @media (max-width: 1024px) {
       #site-brand { display: flex !important; }
       #site-address { display: block !important; }
@@ -879,21 +884,66 @@
 
 </div>
 
+<!-- Sign-in gate: hidden unless a hazard-report share link (?scene=…) is
+     opened without an @hcma.com.au session. Same markup ids as the admin
+     pages so auth-gate.js drives it. -->
+<div id="sn-auth-gate" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(8,10,16,0.96);flex-direction:column;align-items:center;justify-content:center;gap:16px;font-family:Inter,system-ui,sans-serif;color:#fff;padding:16px;text-align:center;">
+  <h2 style="margin:0;font-size:1.25rem;font-weight:600;">Hazard report</h2>
+  <p id="sn-auth-msg" style="margin:0;color:#94A3B8;font-size:0.875rem;max-width:340px;">This report is for HCMA staff. Sign in with your @hcma.com.au email to view it.</p>
+  <div id="sn-auth-email-row" style="display:flex;gap:8px;flex-wrap:wrap;justify-content:center;">
+    <input id="sn-email-input" type="email" placeholder="name@hcma.com.au" autocomplete="email"
+      style="padding:10px 12px;border:1px solid rgba(255,255,255,0.12);border-radius:8px;background:#192134;color:#fff;font-size:0.9rem;width:240px;outline:none;">
+    <button id="sn-email-submit"
+      style="padding:10px 22px;background:#b45309;border:none;border-radius:8px;color:#fff;font-weight:600;cursor:pointer;font-size:0.9rem;">Continue</button>
+  </div>
+  <button id="sn-create-submit"
+    style="display:none;padding:10px 22px;background:#b45309;border:none;border-radius:8px;color:#fff;font-weight:600;cursor:pointer;font-size:0.9rem;">Create profile</button>
+  <p id="sn-auth-error" style="margin:0;color:#f87171;font-size:0.875rem;display:none;"></p>
+  <a href="/" style="color:#94A3B8;font-size:0.8rem;">Open the public map instead</a>
+</div>
+<script src="auth-gate.js"></script>
 <script>
-  const MOBILE_BP = 767;
+  // Called by viewer3d.js when /api/scenes/by-code returns 401 (hazard scene).
+  window._snHazardLoginRequired = function (info) {
+    const gate = document.getElementById('sn-auth-gate');
+    if (!gate || gate.dataset.armed) return;
+    gate.dataset.armed = '1';
+    const isHazard = !info || info.kind !== 'admin';
+    if (info && info.name) gate.querySelector('h2').textContent = (isHazard ? 'Hazard report: ' : 'Sign in: ') + info.name;
+    if (!isHazard) document.getElementById('sn-auth-msg').textContent = 'Sign in with your @hcma.com.au email to add this map to your list and update its status.';
+    const g = SnAuthGate.attach({
+      next: location.pathname + location.search,
+      onSignedIn: () => location.reload(),
+    });
+    gate.style.display = 'flex';
+    g.showLoginState(document.getElementById('sn-auth-msg').textContent);
+  };
+</script>
 
-  // Mobile bottom sheet: peek ↔ mid
+<script>
+  // Single breakpoint shared with the CSS above, style.css and viewer3d.js's
+  // own `innerWidth <= 1024` test: ≤1024px is the bottom sheet (phone AND
+  // tablet), ≥1025px is the desktop side drawer.
+  const SHEET_BP = 1024;
+  const isSheet = () => window.innerWidth <= SHEET_BP;
+
+  // Mirrors the sheet's open state onto #app so CSS can position #cam-presets
+  // and #nav-progress. Writing element.style.bottom here does not work: the
+  // shared style.css rules for this range are !important and beat an inline
+  // declaration. Named for the viewer3d.js callers that already invoke it.
   function _updateCamPresetsBottom() {
-    if (window.innerWidth > MOBILE_BP) return;
     const panel = document.getElementById('side-panel');
-    const presets = document.getElementById('cam-presets');
-    if (!panel || !presets) return;
-    const isOpen = panel.classList.contains('sheet-mid') || panel.classList.contains('sheet-full');
-    presets.style.bottom = isOpen ? 'calc(22vh + 8px)' : '44px';
+    const app = document.getElementById('app');
+    if (!panel || !app) return;
+    const open = isSheet() &&
+      (panel.classList.contains('sheet-mid') || panel.classList.contains('sheet-full'));
+    app.classList.toggle('sheet-open', open);
   }
+  window._updateCamPresetsBottom = _updateCamPresetsBottom;
+
   window.togglePanel = function() {
-    if (window.innerWidth > MOBILE_BP) return;
     const panel = document.getElementById('side-panel');
+    if (!isSheet()) { window.togglePanelOpen(); return; }
     if (panel.classList.contains('sheet-mid') || panel.classList.contains('sheet-full')) {
       panel.classList.remove('sheet-full', 'sheet-mid');
     } else {
@@ -902,15 +952,28 @@
     _updateCamPresetsBottom();
   };
 
-  // Desktop/tablet slide-in panel
+  // Desktop slide-in panel
   window.togglePanelOpen = function() {
     document.getElementById('app').classList.toggle('panel-open');
   };
 
   // #panel-toggle button handles collapse via its own onclick — no header listener needed
 
-  function _positionMobileBrand() {}
-  window.addEventListener('resize', _positionMobileBrand);
+  // Crossing the breakpoint (tablet rotation, desktop window resize) must clear
+  // whichever open-state belongs to the layout we just left, or the panel stays
+  // stuck open/offscreen with no control that can close it.
+  let _wasSheet = isSheet();
+  window.addEventListener('resize', () => {
+    const nowSheet = isSheet();
+    if (nowSheet !== _wasSheet) {
+      _wasSheet = nowSheet;
+      const app = document.getElementById('app');
+      const panel = document.getElementById('side-panel');
+      if (nowSheet) app?.classList.remove('panel-open');
+      else panel?.classList.remove('sheet-mid', 'sheet-full');
+    }
+    _updateCamPresetsBottom();
+  });
 
   window.addEventListener('error', e => {
     const el = document.getElementById('load-msg');

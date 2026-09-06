@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SiteNav — Choose a map</title>
+  <style>
+    html, body { margin: 0; min-height: 100%; background: #0F172A; color: #fff; font-family: Inter, system-ui, -apple-system, sans-serif; }
+    body { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; padding: 24px; box-sizing: border-box; gap: 24px; }
+    h1 { margin: 0; font-size: 1.4rem; font-weight: 600; letter-spacing: 0.01em; }
+    h1 span { color: #14B8A6; }
+    p.sub { margin: 0; color: #94A3B8; font-size: 0.9rem; text-align: center; max-width: 460px; line-height: 1.5; }
+    .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; width: 100%; max-width: 780px; }
+    a.card { display: flex; flex-direction: column; gap: 10px; padding: 22px 20px; border-radius: 14px; background: #192134; border: 1px solid rgba(255,255,255,0.08); color: #fff; text-decoration: none; transition: transform 0.15s, border-color 0.15s, background 0.15s; min-height: 44px; }
+    a.card:hover, a.card:focus-visible { transform: translateY(-2px); border-color: rgba(255,255,255,0.2); background: #1E2A3F; outline: none; }
+    .card .icon { width: 40px; height: 40px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 20px; }
+    .card h2 { margin: 0; font-size: 1.05rem; font-weight: 600; }
+    .card p { margin: 0; color: #94A3B8; font-size: 0.85rem; line-height: 1.5; }
+    .card .tag { margin-top: auto; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em; color: #64748B; }
+    .admin .icon { background: rgba(15,118,110,0.25); }
+    .hazard .icon { background: rgba(180,83,9,0.3); }
+    .public .icon { background: rgba(59,130,246,0.22); }
+    .hazard { border-color: rgba(245,158,11,0.25) !important; }
+    footer { color: #64748B; font-size: 0.75rem; }
+    footer a { color: #94A3B8; }
+  </style>
+</head>
+<body>
+  <h1>Site<span>Nav</span></h1>
+  <p class="sub">Choose which map to open. The admin and hazard maps share the same editor and viewer — the hazard map adds photo pins and emailed reports for HCMA staff.</p>
+
+  <div class="cards">
+    <a class="card admin" id="link-admin" href="editor.html?site=landcros">
+      <div class="icon">🗺️</div>
+      <h2>Admin map</h2>
+      <p>Build named scenes of labels, buttons and widgets. Share links open for anyone, no sign-in needed.</p>
+      <span class="tag">Sign-in required to edit</span>
+    </a>
+    <a class="card hazard" id="link-hazard" href="editor.html?site=landcros&amp;mode=hazard">
+      <div class="icon">⚠️</div>
+      <h2>Hazard report map</h2>
+      <p>Drop hazard pins with descriptions and photos, then email the report with the original photos attached. Links open for @hcma.com.au staff only.</p>
+      <span class="tag">Sign-in required</span>
+    </a>
+    <a class="card public" id="link-public" href="/">
+      <div class="icon">👁️</div>
+      <h2>Public map</h2>
+      <p>The vanilla site viewer as visitors see it: drop-off and collection points, navigation, camera presets.</p>
+      <span class="tag">No sign-in</span>
+    </a>
+  </div>
+
+  <footer>Pin admin: <a href="admin3d.html">admin3d.html</a> · Platform: <a href="portal.html">portal.html</a></footer>
+
+  <script>
+    // Site slug: ?site=<slug> on this page, else whatever the server serves
+    // (/api/site); the hrefs above are the landcros fallback for static hosts.
+    (async () => {
+      let slug = new URLSearchParams(location.search).get('site');
+      if (!slug) {
+        try { const c = await fetch('/api/site').then(r => r.ok ? r.json() : null); slug = c?.slug || null; } catch {}
+      }
+      if (!slug || !/^[a-z0-9][a-z0-9-]{1,62}$/.test(slug)) return;
+      document.getElementById('link-admin').href = `editor.html?site=${encodeURIComponent(slug)}`;
+      document.getElementById('link-hazard').href = `editor.html?site=${encodeURIComponent(slug)}&mode=hazard`;
+    })();
+  </script>
+</body>
+</html>

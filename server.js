@@ -22,6 +22,7 @@ try {
 
 const sdb         = require('./supabase-db');
 const auth        = require('./auth-db');
+const mailer      = require('./mailer');
 const siteAdmin   = require('./site-admin');
 const sceneDb     = require('./scene-db');
 const submissionsDb = require('./submissions-db');
@@ -30,6 +31,7 @@ const webhooksDb    = require('./webhooks-db');
 const webhookDelivery = require('./webhook-delivery');
 const scriptsDb     = require('./scripts-db');
 const scenesDb      = require('./scenes-db');
+const hazardDb      = require('./hazard-db');
 
 // Generic client error body — logs the real error server-side, never leaks
 // DB/schema/config detail (e.message) to the client.
@@ -170,6 +172,59 @@ function _handleSubmissionPost(req, res, slug) {
     res.writeHead(500, { 'Content-Type': 'application/json' });
     res.end(_errBody(e));
   });
+}
+
+// Absolute origin for emailed links: PUBLIC_BASE_URL if set (recommended in
+// prod so a spoofed Host header can't redirect a reset link), else the
+// request's own origin.
+function _publicBase(req) {
+  if (process.env.PUBLIC_BASE_URL) return process.env.PUBLIC_BASE_URL.replace(/\/$/, '');
+  const proto = (req.headers['x-forwarded-proto'] || '').split(',')[0].trim() || 'http';
+  return `${proto}://${req.headers.host || 'localhost:' + PORT}`;
+}
+
+// Same-origin relative paths only — anything else falls back to the admin page.
+function _safeNextPath(next) {
+  return (typeof next === 'string' && /^\/(?!\/)[A-Za-z0-9_./?=&%-]*$/.test(next)) ? next : '/admin3d.html';
+}
+
+// Issues a single-use token and emails the setup/reset link. Resolves the
+// JSON body to send the client: { status: 'pin-setup-sent', emailSent }, plus
+// `devLink` when the mailer is unconfigured AND ALLOW_INSECURE_PIN_LINKS=1
+// (local dev only — it hands the link to whoever typed the email address).
+async function _sendPinLink(req, { profileId, email, mode, next }) {
+  const { token, ttlMinutes } = await auth.createPinToken(profileId);
+  const link = `${_publicBase(req)}/reset-pin.html?token=${encodeURIComponent(token)}&mode=${mode}&next=${encodeURIComponent(_safeNextPath(next))}`;
+  let sent = false;
+  try {
+    ({ sent } = await mailer.pinLinkEmail({ to: email, link, mode, ttlMinutes }));
+  } catch (e) {
+    console.error('[auth] PIN email failed:', e.message);
+  }
+  const body = { status: 'pin-setup-sent', mode, emailSent: sent };
+  if (!mailer.isConfigured() && process.env.ALLOW_INSECURE_PIN_LINKS === '1') body.devLink = link;
+  return body;
+}
+
+function _json(res, code, obj) {
+  res.writeHead(code, { 'Content-Type': 'application/json' });
+  res.end(JSON.stringify(obj));
+}
+
+// Reads a raw (binary) body up to `limit` bytes; destroys the socket and
+// calls back with an error when exceeded. Used by the hazard photo upload.
+function _readRawBody(req, limit, cb) {
+  const chunks = [];
+  let size = 0;
+  let done = false;
+  req.on('data', c => {
+    if (done) return;
+    size += c.length;
+    if (size > limit) { done = true; req.destroy(); cb(new Error('too large')); return; }
+    chunks.push(c);
+  });
+  req.on('end', () => { if (!done) { done = true; cb(null, Buffer.concat(chunks)); } });
+  req.on('error', e => { if (!done) { done = true; cb(e); } });
 }
 
 // Reads + JSON-parses the request body (shared by the auth POST routes).
@@ -315,25 +370,98 @@ const server = http.createServer((req, res) => {
     return res.end();
   }
 
-  // ── Auth (Stage 2b): per-user email login, gates the admin surface only ──
+  // ── Auth: per-user email + 6-digit PIN login, gates the admin surface ──
+  // Two-step from the client's point of view: POST {email} first, which
+  // answers 'pin-required' (has a PIN), 'pin-setup-sent' (active but no PIN
+  // yet — setup link emailed), 'pending', 'none' or 'denied'. Then POST
+  // {email, pin} to actually open a session.
   if (req.method === 'POST' && pathname === '/api/auth/login') {
     if (_rateLimited(req, res, 'auth-login', 30, 3600000)) return;
-    _readJsonBody(req, (err, { email } = {}) => {
-      if (err) { res.writeHead(400, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ error: 'Invalid JSON' })); }
-      if (!auth.emailAllowed(email)) {
-        res.writeHead(400, { 'Content-Type': 'application/json' });
-        return res.end(JSON.stringify({ status: 'denied' }));
-      }
-      auth.checkProfile(email).then(st => {
-        if (st.status === 'active') {
-          _setSessionCookie(req, res, auth.signSession({ profileId: st.profileId, email }));
+    _readJsonBody(req, async (err, { email, pin, next } = {}) => {
+      if (err) return _json(res, 400, { error: 'Invalid JSON' });
+      if (!auth.emailAllowed(email)) return _json(res, 400, { status: 'denied' });
+      try {
+        const st = await auth.checkProfile(email);
+        if (st.status !== 'active') return _json(res, 200, { status: st.status, email });
+
+        const pinState = await auth.getPinState(st.profileId);
+        if (!pinState.hasPin) {
+          return _json(res, 200, await _sendPinLink(req, { profileId: st.profileId, email, mode: 'setup', next }));
         }
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ status: st.status, email }));
-      }).catch(e => {
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(_errBody(e));
-      });
+        if (pin == null || pin === '') return _json(res, 200, { status: 'pin-required', email });
+
+        // Tighter budget for actual guesses than for the email step above.
+        if (_rateLimited(req, res, 'auth-pin', 20, 900000)) return;
+        const v = await auth.verifyPin(st.profileId, String(pin));
+        if (v.ok) {
+          _setSessionCookie(req, res, auth.signSession({ profileId: st.profileId, email }));
+          return _json(res, 200, { status: 'active', email });
+        }
+        if (v.reason === 'locked') return _json(res, 423, { status: 'locked', lockedUntil: v.lockedUntil });
+        return _json(res, 401, { status: 'pin-invalid', remaining: v.remaining });
+      } catch (e) {
+        _json(res, 500, JSON.parse(_errBody(e)));
+      }
+    });
+    return;
+  }
+
+  // Forgot PIN → email a reset link. Always answers ok:true for an allowed
+  // domain so the response can't be used to enumerate which addresses exist.
+  if (req.method === 'POST' && pathname === '/api/auth/pin/request-reset') {
+    if (_rateLimited(req, res, 'auth-pin-reset', 5, 3600000)) return;
+    _readJsonBody(req, async (err, { email, next } = {}) => {
+      if (err) return _json(res, 400, { error: 'Invalid JSON' });
+      if (!auth.emailAllowed(email)) return _json(res, 400, { status: 'denied' });
+      try {
+        const st = await auth.checkProfile(email);
+        if (st.status !== 'active') return _json(res, 200, { ok: true, emailSent: false });
+        const { hasPin } = await auth.getPinState(st.profileId);
+        const body = await _sendPinLink(req, { profileId: st.profileId, email, mode: hasPin ? 'reset' : 'setup', next });
+        return _json(res, 200, { ok: true, emailSent: body.emailSent, devLink: body.devLink });
+      } catch (e) {
+        _json(res, 500, JSON.parse(_errBody(e)));
+      }
+    });
+    return;
+  }
+
+  // Emailed link lands here: burn the token, store the new PIN, sign in.
+  if (req.method === 'POST' && pathname === '/api/auth/pin/reset') {
+    if (_rateLimited(req, res, 'auth-pin-consume', 10, 900000)) return;
+    _readJsonBody(req, async (err, { token, pin } = {}) => {
+      if (err) return _json(res, 400, { error: 'Invalid JSON' });
+      try {
+        const { profileId, email } = await auth.consumePinToken(String(token || ''), String(pin || ''));
+        _setSessionCookie(req, res, auth.signSession({ profileId, email }));
+        return _json(res, 200, { status: 'active', email });
+      } catch (e) {
+        if (e instanceof auth.PinError) return _json(res, 400, { status: e.code });
+        _json(res, 500, JSON.parse(_errBody(e)));
+      }
+    });
+    return;
+  }
+
+  // Signed-in user changes their own PIN (must know the current one).
+  if (req.method === 'POST' && pathname === '/api/auth/pin/change') {
+    const s = _session(req);
+    if (!s) return _json(res, 401, { error: 'Unauthorized' });
+    if (_rateLimited(req, res, 'auth-pin', 20, 900000)) return;
+    _readJsonBody(req, async (err, { currentPin, newPin } = {}) => {
+      if (err) return _json(res, 400, { error: 'Invalid JSON' });
+      try {
+        const v = await auth.verifyPin(s.profileId, String(currentPin || ''));
+        if (!v.ok) {
+          if (v.reason === 'locked') return _json(res, 423, { status: 'locked', lockedUntil: v.lockedUntil });
+          return _json(res, 401, { status: 'pin-invalid', remaining: v.remaining });
+        }
+        await auth.setPin(s.profileId, String(newPin || ''));
+        return _json(res, 200, { ok: true });
+      } catch (e) {
+        if (e instanceof auth.PinError) return _json(res, 400, { status: e.code });
+        _json(res, 500, JSON.parse(_errBody(e)));
+      }
     });
     return;
   }
@@ -346,12 +474,13 @@ const server = http.createServer((req, res) => {
         res.writeHead(400, { 'Content-Type': 'application/json' });
         return res.end(JSON.stringify({ status: 'denied' }));
       }
-      auth.createProfile(email).then(({ status, profileId }) => {
+      auth.createProfile(email).then(async ({ status, profileId }) => {
+        // Never sign in straight from an unverified email address: an active
+        // profile gets its PIN-setup link emailed, and logs in via that.
         if (status === 'active') {
-          _setSessionCookie(req, res, auth.signSession({ profileId, email }));
+          return _json(res, 200, await _sendPinLink(req, { profileId, email, mode: 'setup', next: undefined }));
         }
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ status }));
+        _json(res, 200, { status });
       }).catch(e => {
         res.writeHead(500, { 'Content-Type': 'application/json' });
         res.end(_errBody(e));
@@ -360,12 +489,18 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  // Which site this deployment serves — lets static pages (start.html) build
+  // links without hardcoding a slug.
+  if (req.method === 'GET' && pathname === '/api/site') {
+    return _json(res, 200, { slug: SITE });
+  }
+
   if (req.method === 'GET' && pathname === '/api/auth/me') {
     const s = _session(req);
     if (!s) { res.writeHead(401, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ error: 'Unauthorized' })); }
-    auth.getSiteRole(s.profileId, SITE).then(role => {
+    Promise.all([auth.getSiteRole(s.profileId, SITE), auth.getPinState(s.profileId)]).then(([role, pinState]) => {
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ email: s.email, role }));
+      res.end(JSON.stringify({ email: s.email, role, hasPin: pinState.hasPin }));
     }).catch(e => {
       res.writeHead(500, { 'Content-Type': 'application/json' });
       res.end(_errBody(e));
@@ -490,13 +625,78 @@ const server = http.createServer((req, res) => {
   const _sceneCodeMatch = /^\/api\/scenes\/by-code\/([a-z0-9]{10})$/.exec(pathname);
   if (_sceneCodeMatch && req.method === 'GET') {
     if (_rateLimited(req, res, 'scene-by-code', 120, 3600000)) return;
-    scenesDb.getSceneBundleByCode(_sceneCodeMatch[1]).then(bundle => {
+    const viewer = _session(req);
+    scenesDb.getSceneBundleByCode(_sceneCodeMatch[1], viewer?.profileId ?? null).then(async bundle => {
       if (!bundle) { res.writeHead(404, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ error: 'not found' })); }
+      // Hazard report links are for @hcma.com.au staff only: the code alone
+      // is not enough, the viewer must also hold a session (any active
+      // profile — the domain gate is enforced at login).
+      if (bundle.scene.kind === 'hazard' && !viewer) {
+        return _json(res, 401, { error: 'login-required', kind: 'hazard', name: bundle.scene.name });
+      }
+      // Opening a link while signed in adds the scene to that person's list.
+      if (viewer) await scenesDb.subscribe(bundle.scene.id, viewer.profileId).catch(e => console.error('[scenes] subscribe failed:', e.message));
       res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
       res.end(JSON.stringify(bundle));
     }).catch(e => {
       res.writeHead(500, { 'Content-Type': 'application/json' });
       res.end(_errBody(e));
+    });
+    return;
+  }
+
+  // Status workflow (open → escalated → resolved → open) for both scene
+  // kinds. Any signed-in user who holds the link may change it; escalating
+  // with recipients also emails them the report (hazard: pins + original
+  // photos; admin: the link). Two entry points, same handler.
+  async function _changeStatus(scene, body, s) {
+    const status = String(body.status || '');
+    if (!scenesDb.STATUSES.has(status)) return _json(res, 400, { error: 'status must be open, escalated or resolved' });
+    const result = await scenesDb.setSceneStatus(scene.id, status, s.profileId);
+    let notified = null;
+    if (status === 'escalated' && Array.isArray(body.recipients) && body.recipients.length) {
+      const shareUrl = `${_publicBase(req)}/s/${scene.shareCode}`;
+      notified = await hazardDb.notifyScene(scene.slug, scene.id, { recipients: body.recipients, message: body.message ?? null, shareUrl }, s.profileId);
+    }
+    console.log(`[scenes] ${scene.slug}/${scene.id} status → ${status} by ${s.profileId}${notified ? ` (emailed ${notified.recipients.length})` : ''}`);
+    _json(res, 200, { ...result, notified });
+  }
+  function _statusError(e) {
+    if (e instanceof hazardDb.HazardError) return _json(res, e.code === 'mail-unconfigured' ? 503 : 400, { error: e.message, code: e.code });
+    _json(res, 500, JSON.parse(_errBody(e)));
+  }
+
+  const _sceneCodeStatusMatch = /^\/api\/scenes\/by-code\/([a-z0-9]{10})\/status$/.exec(pathname);
+  if (_sceneCodeStatusMatch && req.method === 'POST') {
+    const s = _session(req);
+    if (!s) return _json(res, 401, { error: 'login-required' });
+    if (_rateLimited(req, res, 'scene-status', 60, 3600000)) return;
+    _readJsonBody(req, async (err, body = {}) => {
+      if (err) return _json(res, 400, { error: 'Invalid JSON' });
+      try {
+        const scene = await scenesDb.getSceneByCode(_sceneCodeStatusMatch[1]);
+        if (!scene) return _json(res, 404, { error: 'not found' });
+        await scenesDb.subscribe(scene.id, s.profileId);
+        await _changeStatus(scene, body, s);
+      } catch (e) { _statusError(e); }
+    });
+    return;
+  }
+
+  const _sceneStatusMatch = /^\/api\/sites\/([^/]+)\/scenes\/([0-9a-fA-F-]{36})\/status$/.exec(pathname);
+  if (_sceneStatusMatch && req.method === 'POST') {
+    const slug = _sceneStatusMatch[1];
+    if (!SLUG_RE.test(slug)) return _json(res, 404, { error: 'not found' });
+    _requireSiteRole(req, res, slug, 'viewer', (s) => {
+      if (_rateLimited(req, res, 'scene-status', 60, 3600000)) return;
+      _readJsonBody(req, async (err, body = {}) => {
+        if (err) return _json(res, 400, { error: 'Invalid JSON' });
+        try {
+          const meta = await scenesDb.getSceneMeta(slug, _sceneStatusMatch[2]);
+          if (!meta) return _json(res, 404, { error: 'not found' });
+          await _changeStatus({ ...meta, slug }, body, s);
+        } catch (e) { _statusError(e); }
+      });
     });
     return;
   }
@@ -551,7 +751,8 @@ const server = http.createServer((req, res) => {
     const id = _objectDeleteMatch[2];
     if (!SLUG_RE.test(slug)) { res.writeHead(404, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ error: 'not found' })); }
     _requireSiteEditor(req, res, slug, (s) => {
-      sceneDb.deleteSceneObject(slug, id, s.profileId).then(() => {
+      hazardDb.deletePhotosForObject(slug, id).catch(e => console.error('[hazard] photo cleanup on object delete failed:', e.message))
+        .then(() => sceneDb.deleteSceneObject(slug, id, s.profileId)).then(() => {
         console.log(`[objects] ${slug}/${id} deleted by ${s.profileId}`);
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ ok: true }));
@@ -722,8 +923,10 @@ const server = http.createServer((req, res) => {
     const slug = _scenesMatch[1];
     if (!SLUG_RE.test(slug)) { res.writeHead(404, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ error: 'not found' })); }
     if (req.method === 'GET') {
-      _requireSiteRole(req, res, slug, 'viewer', () => {
-        scenesDb.listScenes(slug).then(list => {
+      const kind = url.searchParams.get('kind') || 'admin';
+      if (!scenesDb.KINDS.has(kind)) return _json(res, 400, { error: 'invalid kind' });
+      _requireSiteRole(req, res, slug, 'viewer', (s) => {
+        scenesDb.listScenes(slug, { kind, profileId: s.profileId }).then(list => {
           res.writeHead(200, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify(list));
         }).catch(e => {
@@ -756,11 +959,27 @@ const server = http.createServer((req, res) => {
     if (!SLUG_RE.test(slug)) { res.writeHead(404, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ error: 'not found' })); }
     _requireSiteEditor(req, res, slug, (s) => {
       if (req.method === 'DELETE') {
-        scenesDb.deleteScene(slug, id, s.profileId).then(() => {
+        (async () => {
+          const meta = await scenesDb.getSceneMeta(slug, id);
+          if (!meta) return _json(res, 404, { error: 'not found' });
+          // A scene is owned by its creator. Anyone else "deleting" it only
+          // removes it from their own list (scene_subscriptions); the entity
+          // survives until the creator — or a platform admin — deletes it.
+          // Ownerless legacy scenes (created_by null) are deletable by editors.
+          if (meta.createdBy && meta.createdBy !== s.profileId && !auth.isPlatformAdmin(s.email)) {
+            await scenesDb.unsubscribe(id, s.profileId);
+            console.log(`[scenes] ${slug}/${id} removed from list of ${s.profileId}`);
+            return _json(res, 200, { ok: true, removed: 'subscription' });
+          }
+          await hazardDb.deletePhotosForScene(slug, id).catch(e => console.error('[hazard] photo cleanup on scene delete failed:', e.message));
+          return scenesDb.deleteScene(slug, id, s.profileId);
+        })().then((r) => {
+          if (res.writableEnded) return;
           console.log(`[scenes] ${slug}/${id} deleted by ${s.profileId}`);
           res.writeHead(200, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ ok: true }));
         }).catch(e => {
+          if (res.writableEnded) return;
           res.writeHead(500, { 'Content-Type': 'application/json' });
           res.end(_errBody(e));
         });
@@ -778,6 +997,126 @@ const server = http.createServer((req, res) => {
       });
     });
     return;
+  }
+
+  // ── Hazard report map: photos + notifications ─────────────────────────
+  // Photo upload is one binary request: [u32 BE header length][JSON header]
+  // [compressed JPEG bytes][original bytes]. The header carries
+  // { contentType, originalName, width, height, compressedBytes }. Avoids a
+  // multipart parser on this dependency-free server and a 20 MB base64 JSON.
+  const _hazardPhotosMatch = /^\/api\/sites\/([^/]+)\/hazard\/objects\/([0-9a-fA-F-]{36})\/photos$/.exec(pathname);
+  if (_hazardPhotosMatch && (req.method === 'GET' || req.method === 'POST')) {
+    const slug = _hazardPhotosMatch[1];
+    const objectId = _hazardPhotosMatch[2];
+    if (!SLUG_RE.test(slug)) return _json(res, 404, { error: 'not found' });
+    if (req.method === 'GET') {
+      _requireSiteRole(req, res, slug, 'viewer', () => {
+        hazardDb.listPhotos(slug, objectId).then(list => _json(res, 200, list))
+          .catch(e => _json(res, 500, JSON.parse(_errBody(e))));
+      });
+      return;
+    }
+    _requireSiteEditor(req, res, slug, (s) => {
+      if (_rateLimited(req, res, 'hazard-photo', 60, 3600000)) return;
+      _readRawBody(req, hazardDb.MAX_ORIGINAL_BYTES + hazardDb.MAX_COMPRESSED_BYTES + 4096, (err, buf) => {
+        if (err) return _json(res, 413, { error: 'upload too large' });
+        try {
+          if (buf.length < 4) throw new Error('short');
+          const hlen = buf.readUInt32BE(0);
+          if (hlen <= 0 || hlen > 4000 || 4 + hlen > buf.length) throw new Error('bad header');
+          const header = JSON.parse(buf.subarray(4, 4 + hlen).toString('utf8'));
+          const cLen = header.compressedBytes | 0;
+          if (cLen <= 0 || 4 + hlen + cLen > buf.length) throw new Error('bad lengths');
+          const compressed = buf.subarray(4 + hlen, 4 + hlen + cLen);
+          const original = buf.subarray(4 + hlen + cLen);
+          hazardDb.addPhoto(slug, objectId, {
+            compressed, original,
+            contentType: String(header.contentType || ''),
+            originalName: typeof header.originalName === 'string' ? header.originalName.slice(0, 120) : null,
+            width: header.width | 0 || null, height: header.height | 0 || null,
+          }, s.profileId).then(photo => {
+            console.log(`[hazard] ${slug}/${objectId} photo ${photo.id} (${photo.bytes}B / ${photo.originalBytes}B) by ${s.profileId}`);
+            _json(res, 200, photo);
+          }).catch(e => {
+            if (e instanceof hazardDb.HazardError) return _json(res, e.code === 'not-found' ? 404 : e.code === 'too-large' ? 413 : 400, { error: e.message });
+            _json(res, 500, JSON.parse(_errBody(e)));
+          });
+        } catch {
+          _json(res, 400, { error: 'malformed upload' });
+        }
+      });
+    });
+    return;
+  }
+
+  const _hazardPhotoItemMatch = /^\/api\/sites\/([^/]+)\/hazard\/photos\/([0-9a-fA-F-]{36})$/.exec(pathname);
+  if (_hazardPhotoItemMatch && req.method === 'DELETE') {
+    const slug = _hazardPhotoItemMatch[1];
+    if (!SLUG_RE.test(slug)) return _json(res, 404, { error: 'not found' });
+    _requireSiteEditor(req, res, slug, () => {
+      hazardDb.deletePhoto(slug, _hazardPhotoItemMatch[2]).then(() => _json(res, 200, { ok: true }))
+        .catch(e => {
+          if (e instanceof hazardDb.HazardError) return _json(res, 404, { error: 'not found' });
+          _json(res, 500, JSON.parse(_errBody(e)));
+        });
+    });
+    return;
+  }
+
+  // Image bytes, login-gated (any active profile): the viewer and editor both
+  // read through here, so a photo URL never works without a session.
+  const _hazardPhotoReadMatch = /^\/api\/hazard-photos\/([0-9a-fA-F-]{36})$/.exec(pathname);
+  if (_hazardPhotoReadMatch && (req.method === 'GET' || req.method === 'HEAD')) {
+    if (!_session(req)) return _json(res, 401, { error: 'Unauthorized' });
+    hazardDb.readPhoto(_hazardPhotoReadMatch[1], { original: url.searchParams.get('original') === '1' }).then(p => {
+      if (!p) return _json(res, 404, { error: 'not found' });
+      res.writeHead(200, {
+        'Content-Type': p.contentType,
+        'Content-Length': p.buffer.length,
+        'Cache-Control': 'private, max-age=3600',
+        'Content-Disposition': `inline; filename="${(p.row.original_name || 'photo').replace(/[^\w.-]/g, '_')}"`,
+      });
+      res.end(req.method === 'HEAD' ? undefined : p.buffer);
+    }).catch(e => _json(res, 500, JSON.parse(_errBody(e))));
+    return;
+  }
+
+  const _hazardNotifyMatch = /^\/api\/sites\/([^/]+)\/scenes\/([0-9a-fA-F-]{36})\/(notify|notifications)$/.exec(pathname);
+  if (_hazardNotifyMatch) {
+    const slug = _hazardNotifyMatch[1];
+    const sceneId = _hazardNotifyMatch[2];
+    if (!SLUG_RE.test(slug)) return _json(res, 404, { error: 'not found' });
+    if (_hazardNotifyMatch[3] === 'notifications' && req.method === 'GET') {
+      _requireSiteRole(req, res, slug, 'viewer', () => {
+        hazardDb.listNotifications(slug, sceneId).then(list => _json(res, 200, list))
+          .catch(e => _json(res, 500, JSON.parse(_errBody(e))));
+      });
+      return;
+    }
+    if (_hazardNotifyMatch[3] === 'notify' && req.method === 'POST') {
+      _requireSiteEditor(req, res, slug, (s) => {
+        if (_rateLimited(req, res, 'hazard-notify', 20, 3600000)) return;
+        _readJsonBody(req, async (err, { recipients, message } = {}) => {
+          if (err) return _json(res, 400, { error: 'Invalid JSON' });
+          try {
+            const meta = await scenesDb.getSceneMeta(slug, sceneId);
+            if (!meta) return _json(res, 404, { error: 'not found' });
+            const shareUrl = `${_publicBase(req)}/s/${meta.shareCode}`;
+            const result = await hazardDb.notifyScene(slug, sceneId, { recipients, message, shareUrl }, s.profileId);
+            // Passing a report on to other people is the escalation step.
+            const st = await scenesDb.setSceneStatus(sceneId, 'escalated', s.profileId);
+            console.log(`[hazard] ${slug}/${sceneId} report emailed to ${result.recipients.length} by ${s.profileId}`);
+            _json(res, 200, { ...result, status: st.status, statusChangedAt: st.statusChangedAt });
+          } catch (e) {
+            if (e instanceof hazardDb.HazardError) {
+              return _json(res, e.code === 'not-found' ? 404 : e.code === 'mail-unconfigured' ? 503 : 400, { error: e.message, code: e.code });
+            }
+            _json(res, 500, JSON.parse(_errBody(e)));
+          }
+        });
+      });
+      return;
+    }
   }
 
   // ── Share link store ──────────────────────────────────────────────────
@@ -1122,4 +1461,12 @@ if (sdb.isConfigured()) {
   setInterval(() => {
     webhookDelivery.runDeliveryTick().catch(e => console.error('[webhook-delivery] unhandled:', e.message));
   }, 15000);
+}
+
+// Hazard photos are kept 30 days (hazard-db.js RETENTION_DAYS). Sweep on
+// boot and hourly; needs the Storage client, so also requires SUPABASE_URL.
+if (sdb.isConfigured() && process.env.SUPABASE_URL && process.env.SUPABASE_SECRET_KEY) {
+  const sweep = () => hazardDb.sweepExpiredPhotos().catch(e => console.error('[hazard] sweep failed:', e.message));
+  setTimeout(sweep, 30000);
+  setInterval(sweep, 3600000);
 }

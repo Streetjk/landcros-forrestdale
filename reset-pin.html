@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SiteNav — Set login PIN</title>
+  <style>
+    html, body { margin: 0; height: 100%; background: #0F172A; color: #fff; font-family: Inter, system-ui, -apple-system, sans-serif; }
+    body { display: flex; align-items: center; justify-content: center; padding: 16px; box-sizing: border-box; }
+    .card { background: #192134; border: 1px solid rgba(255,255,255,0.1); border-radius: 14px; padding: 24px; width: 100%; max-width: 340px; display: flex; flex-direction: column; gap: 12px; }
+    h1 { margin: 0; font-size: 1.15rem; font-weight: 600; }
+    p { margin: 0; color: #94A3B8; font-size: 0.875rem; line-height: 1.5; }
+    input { width: 100%; box-sizing: border-box; padding: 11px 12px; border: 1px solid rgba(255,255,255,0.12); border-radius: 8px; background: #0F172A; color: #fff; font-size: 1.1rem; letter-spacing: 0.35em; text-align: center; outline: none; }
+    input:focus { border-color: #14B8A6; }
+    button { padding: 11px; background: #0F766E; border: none; border-radius: 8px; color: #fff; font-weight: 600; font-size: 0.95rem; cursor: pointer; }
+    button:disabled { opacity: 0.6; cursor: default; }
+    .err { color: #DC2626; font-size: 0.85rem; display: none; }
+    a { color: #14B8A6; }
+  </style>
+</head>
+<body>
+  <form class="card" id="form">
+    <h1 id="title">Set your login PIN</h1>
+    <p id="intro">Choose a 6-digit PIN. You'll enter it with your email each time you sign in.</p>
+    <input id="pin1" type="password" inputmode="numeric" maxlength="6" placeholder="New PIN" autocomplete="new-password" autofocus>
+    <input id="pin2" type="password" inputmode="numeric" maxlength="6" placeholder="Repeat PIN" autocomplete="new-password">
+    <p class="err" id="err"></p>
+    <button type="submit" id="save">Save PIN and sign in</button>
+    <p id="foot">Avoid obvious PINs like 000000 or 123456.</p>
+  </form>
+  <script>
+    const q = new URLSearchParams(location.search);
+    const token = q.get('token') || '';
+    const mode = q.get('mode') === 'reset' ? 'reset' : 'setup';
+    const rawNext = q.get('next') || '/admin3d.html';
+    // Same-origin relative paths only — never bounce to another host.
+    const next = /^\/(?!\/)/.test(rawNext) ? rawNext : '/admin3d.html';
+    const form = document.getElementById('form'), err = document.getElementById('err');
+    const pin1 = document.getElementById('pin1'), pin2 = document.getElementById('pin2'), save = document.getElementById('save');
+    if (mode === 'reset') {
+      document.getElementById('title').textContent = 'Reset your login PIN';
+      document.getElementById('intro').textContent = 'Choose a new 6-digit PIN. Your old PIN stops working as soon as you save.';
+    }
+    const showErr = (t) => { err.textContent = t; err.style.display = 'block'; };
+    [pin1, pin2].forEach((i) => { i.oninput = () => { i.value = i.value.replace(/\D/g, '').slice(0, 6); }; });
+    if (!token) {
+      form.innerHTML = '<h1>Link missing</h1><p>This page needs the link from your email. Go back to the <a href="/admin3d.html">sign-in page</a> and choose "Forgot PIN".</p>';
+    }
+    form.onsubmit = async (e) => {
+      e.preventDefault();
+      if (!/^\d{6}$/.test(pin1.value)) return showErr('PIN must be exactly 6 digits.');
+      if (pin1.value !== pin2.value) return showErr('PINs do not match.');
+      err.style.display = 'none';
+      save.disabled = true;
+      try {
+        const r = await fetch('/api/auth/pin/reset', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token, pin: pin1.value }),
+        });
+        const d = await r.json().catch(() => ({}));
+        if (r.ok && d.status === 'active') { location.replace(next); return; }
+        if (d.status === 'token-invalid') {
+          form.innerHTML = '<h1>Link expired</h1><p>This link has already been used or is older than 30 minutes. Go back to the <a href="' + next.replace(/"/g, '') + '">sign-in page</a> and request a new one.</p>';
+          return;
+        }
+        if (d.status === 'pin-unacceptable') showErr('Choose a less guessable PIN (not 000000, 123456, etc).');
+        else if (r.status === 429) showErr('Too many attempts — wait a few minutes.');
+        else showErr('Could not save PIN — try again.');
+      } catch { showErr('Network error — try again.'); }
+      save.disabled = false;
+    };
+  </script>
+</body>
+</html>

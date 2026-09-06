@@ -138,6 +138,44 @@
     #scene-share-url { font-size: 12px; font-family: var(--mono); color: var(--text-secondary); }
     #scene-qr-wrap { display: flex; justify-content: center; margin-top: 8px; }
 
+    /* ── Hazard report map (editor.html?mode=hazard) ── */
+    /* .form-input is width:100% + padding with content-box sizing, so inside
+       this fixed-width toolbar it overflowed by its padding. */
+    #editor-toolbar .form-input { box-sizing: border-box; }
+    #prop-hazard-group { flex-direction: column; gap: 6px; }
+    #prop-hazard-group .form-label { margin-bottom: 0; }
+    body[data-mode="hazard"] .panel-title { color: #b45309 !important; }
+    #hazard-send-row { display: none; flex-direction: column; gap: 6px; margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border); }
+    #hazard-send-row .form-input { font-size: 12px; }
+    #hazard-send-btn { background: #b45309; }
+    #hazard-send-btn:hover { background: #92400e; }
+    #hazard-send-status { font-size: 11px; color: var(--text-secondary); min-height: 14px; }
+    #hazard-history { display: flex; flex-direction: column; gap: 4px; max-height: 120px; overflow-y: auto; }
+    .hazard-history-item { font-size: 11px; color: var(--text-secondary); line-height: 1.4; }
+    .hazard-history-item strong { color: #111827; font-weight: 500; }
+    .scene-list-item .scene-author { font-size: 10px; color: var(--text-secondary); margin-left: 6px; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .hazard-photos { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 4px; }
+    .hazard-photo { position: relative; aspect-ratio: 1; border-radius: 6px; overflow: hidden; background: #e5e7eb; }
+    .hazard-photo img { width: 100%; height: 100%; object-fit: cover; display: block; cursor: zoom-in; }
+    .hazard-photo button { position: absolute; top: 2px; right: 2px; width: 20px; height: 20px; border: none; border-radius: 10px; background: rgba(0,0,0,0.6); color: #fff; font-size: 12px; line-height: 20px; cursor: pointer; padding: 0; }
+    .hazard-photo .uploading { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 10px; color: #374151; background: rgba(255,255,255,0.7); }
+    /* Status + archive (both maps) */
+    .scene-status { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; padding: 1px 5px; border-radius: 4px; margin-left: 6px; flex-shrink: 0; }
+    .scene-status.open      { background: rgba(24,95,165,0.12); color: #185fa5; }
+    .scene-status.escalated { background: rgba(180,83,9,0.15);  color: #b45309; }
+    .scene-status.resolved  { background: rgba(22,163,74,0.14); color: #15803d; }
+    .scenes-section { display: flex; align-items: center; gap: 6px; font-size: 10px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.08em; margin: 8px 0 2px; }
+    .scenes-section button { border: none; background: none; color: inherit; font: inherit; cursor: pointer; padding: 0; display: flex; align-items: center; gap: 4px; }
+    .scenes-section button::before { content: '▸'; font-size: 11px; transition: transform 0.15s; }
+    .scenes-section button.open::before { transform: rotate(90deg); }
+    #scene-status-row { display: none; align-items: center; gap: 6px; margin-top: 10px; font-size: 12px; color: var(--text-secondary); flex-wrap: wrap; }
+    #scene-status-row .status-btn { padding: 4px 10px; border-radius: 6px; border: 1px solid var(--border); background: transparent; color: #111827; font: 500 11px var(--font); cursor: pointer; }
+    #scene-status-row .status-btn:hover { background: rgba(0,0,0,0.05); }
+    #scene-status-meta { font-size: 10px; color: var(--text-secondary); width: 100%; }
+    #add-hazard-btn { background: #b45309; display: none; }
+    #add-hazard-btn:hover { background: #92400e; }
+    body[data-mode="hazard"] #add-hazard-btn { display: inline-flex; }
+
     #no-site-msg {
       display: none; padding: 40px 20px; text-align: center; color: var(--text-secondary); font-size: 14px;
     }
@@ -201,12 +239,27 @@
           <button class="share-copy-btn" id="scene-share-copy-btn">Copy</button>
         </div>
         <div id="scene-qr-wrap"></div>
+        <div id="scene-status-row">
+          <span>Status:</span><span class="scene-status open" id="scene-status-badge">open</span>
+          <button class="status-btn" id="scene-resolve-btn">Mark resolved</button>
+          <div id="scene-status-meta"></div>
+        </div>
+      </div>
+      <!-- Escalate: email this scene (hazard: all pins + original photos; admin: the link) -->
+      <div id="hazard-send-row">
+        <label class="form-label" id="hazard-send-label">Escalate to (@hcma.com.au)</label>
+        <input class="form-input" id="hazard-recipients" placeholder="name@hcma.com.au, other@hcma.com.au" autocomplete="off">
+        <textarea class="form-input" id="hazard-message" rows="2" maxlength="4000" placeholder="Optional note for the email"></textarea>
+        <button class="btn-primary" id="hazard-send-btn">Escalate &amp; send report</button>
+        <div id="hazard-send-status"></div>
+        <div id="hazard-history"></div>
       </div>
     </div>
     <div id="add-buttons">
       <button class="btn-primary" id="add-label-btn" disabled>＋ Label</button>
       <button class="btn-primary" id="add-button-btn" disabled>＋ Button</button>
       <button class="btn-primary" id="add-widget-btn" disabled>＋ Widget</button>
+      <button class="btn-primary" id="add-hazard-btn" disabled>＋ Hazard pin</button>
     </div>
     <div id="no-scene-hint">Select or create a scene above to start placing objects.</div>
     <div id="property-panel">
@@ -227,6 +280,15 @@
         <input class="form-input" id="prop-action-preset" maxlength="60" placeholder="Preset name (e.g. overhead)" style="display:none;margin-top:6px">
         <input class="form-input" id="prop-action-title" maxlength="80" placeholder="Title" style="display:none;margin-top:6px">
         <textarea class="form-input" id="prop-action-body" maxlength="500" rows="3" placeholder="Panel body text" style="display:none;margin-top:6px"></textarea>
+      </div>
+      <div class="form-group" id="prop-hazard-group" style="display:none">
+        <label class="form-label">Description</label>
+        <textarea class="form-input" id="prop-hazard-desc" maxlength="2000" rows="4" placeholder="What is the hazard, where exactly, what should be done?"></textarea>
+        <label class="form-label" style="margin-top:8px">Photos <span id="prop-hazard-photo-count" style="font-weight:400;text-transform:none"></span></label>
+        <div id="prop-hazard-photos" class="hazard-photos"></div>
+        <input type="file" id="prop-hazard-file" accept="image/*" multiple style="display:none">
+        <button class="btn-primary" id="prop-hazard-add-photo" style="margin-top:6px;width:100%">＋ Add photos</button>
+        <div id="prop-hazard-photo-status" style="font-size:11px;color:var(--text-secondary);margin-top:4px;min-height:14px"></div>
       </div>
       <div class="form-group" id="prop-widget-group" style="display:none">
         <label class="form-label">Script</label>
@@ -314,6 +376,8 @@
     </button>
   </div>
 
+  <script src="auth-gate.js"></script>
+
   <script>
   (function() {
     const gate = document.getElementById('sn-auth-gate');
@@ -323,29 +387,17 @@
     const emailBtn = document.getElementById('sn-email-submit');
     const createBtn = document.getElementById('sn-create-submit');
     const err = document.getElementById('sn-auth-error');
-    let lastEmail = '';
 
     function showError(text) { err.textContent = text; err.style.display = ''; }
     function clearError() { err.style.display = 'none'; }
 
-    function showLoginState(message) {
-      msg.textContent = message;
-      emailRow.style.display = 'flex';
-      createBtn.style.display = 'none';
-      clearError();
-    }
-    function showPending() {
-      msg.textContent = 'Your access is pending admin approval.';
-      emailRow.style.display = 'none';
-      createBtn.style.display = 'none';
-      clearError();
-    }
-    function showCreatePrompt(email) {
-      msg.textContent = `No profile found for ${email}. Create one?`;
-      emailRow.style.display = 'none';
-      createBtn.style.display = '';
-      clearError();
-    }
+    // Email → PIN → session flow lives in auth-gate.js (shared with the
+    // other admin pages). This page only decides what happens after sign-in.
+    const authGate = SnAuthGate.attach({
+      next: location.pathname + location.search,
+      onSignedIn: afterLogin,
+    });
+    const showLoginState = authGate.showLoginState;
 
     async function afterLogin() {
       gate.style.display = 'none';
@@ -356,41 +408,6 @@
       window.dispatchEvent(new CustomEvent('sn-auth:signed-in'));
     }
 
-    async function login() {
-      const email = emailInput.value.trim();
-      if (!email) return;
-      lastEmail = email;
-      clearError();
-      try {
-        const r = await fetch('/api/auth/login', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email }),
-        });
-        const d = await r.json();
-        if (d.status === 'active') afterLogin();
-        else if (d.status === 'pending') showPending();
-        else if (d.status === 'none') showCreatePrompt(email);
-        else showError('Only @hcma.com.au emails may sign in.');
-      } catch { showError('Login failed — try again.'); }
-    }
-
-    async function createProfile() {
-      clearError();
-      try {
-        const r = await fetch('/api/auth/create', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email: lastEmail }),
-        });
-        const d = await r.json();
-        if (d.status === 'active') afterLogin();
-        else if (d.status === 'pending') showPending();
-        else showError('Only @hcma.com.au emails may sign in.');
-      } catch { showError('Could not create profile — try again.'); }
-    }
-
-    emailBtn.onclick = login;
-    emailInput.onkeydown = e => { if (e.key === 'Enter') login(); };
-    createBtn.onclick = createProfile;
 
     window._snShowLoginGate = () => { gate.style.display = 'flex'; showLoginState('Session expired — sign in again.'); };
 
@@ -405,6 +422,7 @@
     const bar = document.getElementById('sn-auth-bar');
     bar.style.display = 'flex';
     document.getElementById('sn-auth-email-label').textContent = (info && info.email) || '';
+    SnAuthGate.decorateAuthBar();
     document.getElementById('sn-signout-btn').onclick = async () => {
       await fetch('/api/auth/logout', { method: 'POST' });
       location.reload();

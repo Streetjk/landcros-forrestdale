@@ -696,6 +696,14 @@
       .cam-preset-btn { width: 44px !important; height: 44px !important; }
       .cam-preset-btn .icon-wrap { width: 44px !important; height: 44px !important; }
       .speed-limit-sign .icon-wrap img { width: 44px !important; height: 44px !important; }
+      #panel-toggle { margin-left: 0 !important; }
+      /* style.css hides both by ID over this whole range; restore them so
+         tablet matches index.html instead of losing the branding. */
+      #site-brand {
+        position: fixed !important; top: 16px !important; right: 16px !important;
+        display: flex !important;
+      }
+      #site-address { display: block !important; }
     }
 
     /* ── Mobile only (≤767px): viewer-specific sizes + show logo ── */
@@ -704,9 +712,8 @@
       .load-logo-mark img { height: 44px; max-width: 160px; }
       .load-bar { width: 200px; }
       #side-panel { padding-bottom: env(safe-area-inset-bottom, 0px) !important; }
-      #site-brand { position: fixed !important; top: 16px !important; right: 16px !important; display: flex !important; }
       #site-brand img { height: 28px !important; }
-      #site-address { font-size: 11px !important; text-align: center !important; display: block !important; }
+      #site-address { font-size: 11px !important; text-align: center !important; }
     }
 
     .list-empty {

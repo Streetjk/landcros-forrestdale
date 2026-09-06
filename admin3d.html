@@ -459,6 +459,8 @@
     <div id="sn-admin-pending-list" style="display:flex;flex-direction:column;gap:6px;font-size:0.75rem;"></div>
   </div>
 
+  <script src="auth-gate.js"></script>
+
   <script>
   (function() {
     const gate = document.getElementById('sn-auth-gate');
@@ -468,29 +470,17 @@
     const emailBtn = document.getElementById('sn-email-submit');
     const createBtn = document.getElementById('sn-create-submit');
     const err = document.getElementById('sn-auth-error');
-    let lastEmail = '';
 
     function showError(text) { err.textContent = text; err.style.display = ''; }
     function clearError() { err.style.display = 'none'; }
 
-    function showLoginState(message) {
-      msg.textContent = message;
-      emailRow.style.display = 'flex';
-      createBtn.style.display = 'none';
-      clearError();
-    }
-    function showPending() {
-      msg.textContent = 'Your access is pending admin approval.';
-      emailRow.style.display = 'none';
-      createBtn.style.display = 'none';
-      clearError();
-    }
-    function showCreatePrompt(email) {
-      msg.textContent = `No profile found for ${email}. Create one?`;
-      emailRow.style.display = 'none';
-      createBtn.style.display = '';
-      clearError();
-    }
+    // Email → PIN → session flow lives in auth-gate.js (shared with the
+    // other admin pages). This page only decides what happens after sign-in.
+    const authGate = SnAuthGate.attach({
+      next: location.pathname + location.search,
+      onSignedIn: afterLogin,
+    });
+    const showLoginState = authGate.showLoginState;
 
     async function afterLogin() {
       gate.remove();
@@ -500,41 +490,6 @@
       } catch { showAuthBar(null); }
     }
 
-    async function login() {
-      const email = emailInput.value.trim();
-      if (!email) return;
-      lastEmail = email;
-      clearError();
-      try {
-        const r = await fetch('/api/auth/login', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email }),
-        });
-        const d = await r.json();
-        if (d.status === 'active') afterLogin();
-        else if (d.status === 'pending') showPending();
-        else if (d.status === 'none') showCreatePrompt(email);
-        else showError('Only @hcma.com.au emails may sign in.');
-      } catch { showError('Login failed — try again.'); }
-    }
-
-    async function createProfile() {
-      clearError();
-      try {
-        const r = await fetch('/api/auth/create', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email: lastEmail }),
-        });
-        const d = await r.json();
-        if (d.status === 'active') afterLogin();
-        else if (d.status === 'pending') showPending();
-        else showError('Only @hcma.com.au emails may sign in.');
-      } catch { showError('Could not create profile — try again.'); }
-    }
-
-    emailBtn.onclick = login;
-    emailInput.onkeydown = e => { if (e.key === 'Enter') login(); };
-    createBtn.onclick = createProfile;
 
     // Skip the gate entirely if already logged in.
     fetch('/api/auth/me').then(r => r.ok ? r.json() : null).then(d => {
@@ -547,6 +502,7 @@
     const bar = document.getElementById('sn-auth-bar');
     bar.style.display = 'flex';
     document.getElementById('sn-auth-email-label').textContent = (info && info.email) || '';
+    SnAuthGate.decorateAuthBar();
     document.getElementById('sn-signout-btn').onclick = async () => {
       await fetch('/api/auth/logout', { method: 'POST' });
       location.reload();
