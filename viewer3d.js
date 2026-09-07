@@ -549,7 +549,7 @@ function _buildCamButtons(cfg) {
   if (_cfg.site?.speedLimitSign) {
     const speedBtn = document.createElement('div');
     speedBtn.className = 'cam-preset-btn speed-limit-sign';
-    speedBtn.innerHTML = `<div class="icon-wrap"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10" fill="#fff" stroke="#C0392B" stroke-width="2"/><text x="12" y="12.5" text-anchor="middle" dominant-baseline="central" font-size="9" font-weight="700" font-family="Arial,Helvetica,sans-serif" fill="#111">10</text></svg></div><span class="label-wrap">Speed limit</span>`;
+    speedBtn.innerHTML = `<div class="icon-wrap"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10.4" fill="#fff" stroke="#C0392B" stroke-width="1.3"/><text x="12" y="12.7" text-anchor="middle" dominant-baseline="central" font-size="11" font-weight="700" font-family="Arial,Helvetica,sans-serif" fill="#161616">10</text></svg></div><span class="label-wrap">Speed limit</span>`;
     speedBtn.title = 'Speed limit 10 km/h';
     wrap.appendChild(speedBtn);
   }
