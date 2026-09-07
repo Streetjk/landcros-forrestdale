@@ -176,6 +176,11 @@ const _LS_PT_VISITS   = 'sn_point_visits';
 
 const _bldRefs = {}; // id → { css2d, name, x, y, z }
 const _allScaleEls = []; // inner elements for all CSS2D labels — zoom scaling target
+// Last scale() written to the label layer. animate() skips the per-frame write
+// when unchanged; _invalidateLabelScale() forces one on the next frame so a
+// label added after that write still gets scaled.
+let _lastLabelScale = null;
+function _invalidateLabelScale() { _lastLabelScale = null; }
 // Label positions are baked into buildings.geojson — localStorage overrides
 // are only applied in debug mode so desktop/mobile always share the same source.
 let _labelPos     = _debugMode ? _lsGet(_LS_LABELS, {}) : {};
@@ -415,7 +420,16 @@ function animate() {
   const _zoomScale = _zoom >= 20 ? Math.max(0.5, 20 / _zoom) : 1.0;
   const _finalScale = (_zoomScale * _mobileScale).toFixed(3);
   // Apply to all label types (buildings, pins, zones) via unified array.
-  for (const el of _allScaleEls) el.style.transform = `scale(${_finalScale})`;
+  // Only when it actually changed: this value depends solely on zoom
+  // distance, so during an orbit/drag (the case that felt laggiest) it is
+  // constant, and writing style.transform to every label every frame was
+  // invalidating style for the whole label layer for no reason. Measured:
+  // labels accounted for ~9x more main-thread long-task time than the rest
+  // of the frame, which is what a drag actually feels like.
+  if (_finalScale !== _lastLabelScale) {
+    _lastLabelScale = _finalScale;
+    for (const el of _allScaleEls) el.style.transform = `scale(${_finalScale})`;
+  }
 
 
   // Pulse ground squares on all pins (smooth sine, no abs bounce)
@@ -728,7 +742,7 @@ function _addPinToScene(pt) {
     selectPoint(pt);
   });
   iconWrap.appendChild(labelDiv);
-  _allScaleEls.push(labelInner);
+  _allScaleEls.push(labelInner); _invalidateLabelScale();
 
   const icon = new CSS2DObject(iconWrap);
   icon.position.set(0, 0, 0);
@@ -1717,7 +1731,7 @@ async function renderBuildings(geoData) {
     label.position.set(lx, ly, lz);
     scene.add(label);
     _bldRefs[p.id] = { css2d: label, name: p.name, x: lx, y: ly, z: lz };
-    if (label._scaleEl) _allScaleEls.push(label._scaleEl);
+    if (label._scaleEl) _allScaleEls.push(label._scaleEl); _invalidateLabelScale();
 
     // Loading zone floor patch
     const zone = p.loadingZone;
@@ -1752,7 +1766,7 @@ async function renderBuildings(geoData) {
       zoneWrapper.appendChild(zoneDiv);
       const zoneLabel = new CSS2DObject(zoneWrapper);
       zoneLabel._scaleEl = zoneDiv;
-      _allScaleEls.push(zoneDiv);
+      _allScaleEls.push(zoneDiv); _invalidateLabelScale();
       zoneLabel.position.set(cx, 0.5, cz);
       scene.add(zoneLabel);
     }
@@ -2014,7 +2028,7 @@ function _restoreCustomLabels() {
     label.position.set(data.x, data.y, data.z);
     scene.add(label);
     _bldRefs[id] = { css2d: label, name: data.name, x: data.x, y: data.y, z: data.z, isCustom: true };
-    if (label._scaleEl) _allScaleEls.push(label._scaleEl);
+    if (label._scaleEl) _allScaleEls.push(label._scaleEl); _invalidateLabelScale();
   }
 }
 
@@ -2027,7 +2041,7 @@ function _addCustomLabel() {
   label.position.set(x, 1.5, z);
   scene.add(label);
   _bldRefs[id] = { css2d: label, name: 'New Label', x, y: 1.5, z, isCustom: true };
-  if (label._scaleEl) _allScaleEls.push(label._scaleEl);
+  if (label._scaleEl) _allScaleEls.push(label._scaleEl); _invalidateLabelScale();
   const panel = document.getElementById('sn-editor-panel');
   if (panel) _renderEdPanel(panel);
 }
