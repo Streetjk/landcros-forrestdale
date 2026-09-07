@@ -229,7 +229,7 @@ function startAutoOrbit(target, radius, elevDeg) {
       _camAnimating = false;
       controls.enabled         = true;
       controls.autoRotate      = true;
-      controls.autoRotateSpeed = 0.3; // ~200 s per orbit, matches old speed
+      controls.autoRotateSpeed = 0.45; // ~133 s per orbit (+50% over the old 0.3/200s)
       controls.target.copy(target);
       controls.update();
       window._syncRotateBtn?.();
@@ -481,7 +481,7 @@ function _buildCamButtons(cfg) {
     } else {
       if (_orbitActive) stopAutoOrbit();
       controls.autoRotate      = true;
-      controls.autoRotateSpeed = 0.3;
+      controls.autoRotateSpeed = 0.45;
       window._syncRotateBtn?.();
     }
   };
@@ -1480,7 +1480,7 @@ async function selectPoint(pt) {
 
   // Orbit starts immediately from click — theta offset accumulates during fly-to.
   const orbitStartTime   = performance.now();
-  const orbitRadsPerSec  = 2 * Math.PI * 0.3 / 60; // same speed as controls.autoRotateSpeed 0.3
+  const orbitRadsPerSec  = 2 * Math.PI * 0.45 / 60; // same speed as controls.autoRotateSpeed 0.45
 
   const prog = { t: 0 };
   _camTween = gsap.to(prog, {
@@ -1510,7 +1510,7 @@ async function selectPoint(pt) {
       _orbitActive = true;
       _orbitTarget.copy(pinPos);
       controls.autoRotate      = true;
-      controls.autoRotateSpeed = 0.3;
+      controls.autoRotateSpeed = 0.45;
       controls.update();
     },
   });
@@ -2795,7 +2795,7 @@ function _doIntroAnimation() {
       _camTween = null;
       controls.update();
       controls.autoRotate      = true;
-      controls.autoRotateSpeed = 0.3;
+      controls.autoRotateSpeed = 0.45;
       window._syncRotateBtn?.();
     },
   });
@@ -2861,8 +2861,12 @@ async function loadSplatBackground(opts = {}) {
       useBuiltInControls: false,
       renderer,
       camera,
-      gpuAcceleratedSort: false,
-      sharedMemoryForWorkers: false,
+      // Both true: this page's COOP/COEP headers give a genuine cross-origin-
+      // isolated context (verified live), so SharedArrayBuffer is available —
+      // the library recommends pairing these two, never gpuAcceleratedSort
+      // true with sharedMemoryForWorkers false.
+      gpuAcceleratedSort: true,
+      sharedMemoryForWorkers: true,
       splatAlphaRemovalThreshold: 1,
     });
 
