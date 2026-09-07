@@ -13,13 +13,14 @@
     .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; width: 100%; max-width: 780px; }
     a.card { display: flex; flex-direction: column; gap: 10px; padding: 22px 20px; border-radius: 14px; background: #192134; border: 1px solid rgba(255,255,255,0.08); color: #fff; text-decoration: none; transition: transform 0.15s, border-color 0.15s, background 0.15s; min-height: 44px; }
     a.card:hover, a.card:focus-visible { transform: translateY(-2px); border-color: rgba(255,255,255,0.2); background: #1E2A3F; outline: none; }
-    .card .icon { width: 40px; height: 40px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 20px; }
+    .card .icon { width: 40px; height: 40px; border-radius: 10px; display: flex; align-items: center; justify-content: center; }
+    .card .icon svg { width: 20px; height: 20px; }
     .card h2 { margin: 0; font-size: 1.05rem; font-weight: 600; }
     .card p { margin: 0; color: #94A3B8; font-size: 0.85rem; line-height: 1.5; }
     .card .tag { margin-top: auto; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em; color: #64748B; }
-    .admin .icon { background: rgba(15,118,110,0.25); }
-    .hazard .icon { background: rgba(180,83,9,0.3); }
-    .public .icon { background: rgba(59,130,246,0.22); }
+    .admin .icon { background: rgba(15,118,110,0.25); color: #2DD4BF; }
+    .hazard .icon { background: rgba(180,83,9,0.3); color: #FBBF24; }
+    .public .icon { background: rgba(59,130,246,0.22); color: #60A5FA; }
     .hazard { border-color: rgba(245,158,11,0.25) !important; }
     footer { color: #64748B; font-size: 0.75rem; }
     footer a { color: #94A3B8; }
@@ -31,19 +32,19 @@
 
   <div class="cards">
     <a class="card admin" id="link-admin" href="editor.html?site=landcros">
-      <div class="icon">🗺️</div>
+      <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg></div>
       <h2>Admin map</h2>
       <p>Build named scenes of labels, buttons and widgets. Share links open for anyone, no sign-in needed.</p>
       <span class="tag">Sign-in required to edit</span>
     </a>
     <a class="card hazard" id="link-hazard" href="editor.html?site=landcros&amp;mode=hazard">
-      <div class="icon">⚠️</div>
+      <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg></div>
       <h2>Hazard report map</h2>
       <p>Drop hazard pins with descriptions and photos, then email the report with the original photos attached. Links open for @hcma.com.au staff only.</p>
       <span class="tag">Sign-in required</span>
     </a>
     <a class="card public" id="link-public" href="/">
-      <div class="icon">👁️</div>
+      <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></div>
       <h2>Public map</h2>
       <p>The vanilla site viewer as visitors see it: drop-off and collection points, navigation, camera presets.</p>
       <span class="tag">No sign-in</span>

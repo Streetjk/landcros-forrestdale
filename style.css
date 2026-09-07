@@ -98,7 +98,9 @@ html, body {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  padding: 11px 16px;
+  padding: 13px 16px;
+  min-height: 44px;
+  box-sizing: border-box;
   border-radius: 10px;
   border: none;
   background: var(--primary);
@@ -120,7 +122,9 @@ html, body {
   align-items: center;
   justify-content: center;
   gap: 6px;
-  padding: 9px 14px;
+  padding: 12px 14px;
+  min-height: 44px;
+  box-sizing: border-box;
   border-radius: 10px;
   border: 1px solid var(--border);
   background: transparent;

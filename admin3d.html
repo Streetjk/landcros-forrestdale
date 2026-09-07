@@ -157,6 +157,12 @@
       border-left: 1px solid var(--border);
       display: flex; flex-direction: column; overflow: hidden; z-index: 20;
     }
+    /* #sn-auth-bar (below) is fixed top-right at the viewport level, same
+       corner #side-panel occupies here — offset it clear of the panel so the
+       signed-in email/Sign-out bar never overlaps the panel header's title.
+       Reset to the plain viewport corner at the ≤1024px breakpoint (below),
+       where #side-panel becomes a bottom sheet and no longer owns that corner. */
+    #sn-auth-bar { right: calc(var(--panel-width) + 12px) !important; }
     #panel-header {
       padding: 18px 20px 14px; border-bottom: 1px solid var(--border); flex-shrink: 0;
     }
@@ -170,6 +176,7 @@
     #admin-controls { padding: 12px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
     #admin-controls .btn-primary { margin-bottom: 8px; }
     #admin-controls .btn-secondary { margin-bottom: 8px; }
+    #search-input { min-height: 44px; box-sizing: border-box; } /* touch-target minimum */
 
     /* ── Pin action row ── */
     .pin-action-row {
@@ -212,6 +219,7 @@
     }
     .point-item {
       display: flex; align-items: center; gap: 11px; padding: 10px; border-radius: 10px;
+      min-height: 44px; box-sizing: border-box; /* touch-target minimum */
       cursor: pointer; margin-bottom: 2px; transition: background 0.1s;
     }
     .point-item:hover   { background: var(--surface-secondary); }
@@ -299,6 +307,13 @@
     .panel-fold-btn:hover { background: var(--surface); }
     .panel-fold-btn.folded { transform: rotate(180deg); }
     #panel-header-row { display: flex; align-items: center; justify-content: space-between; }
+
+    /* #side-panel becomes a bottom sheet below this breakpoint (style.css's
+       shared rule) and no longer owns the top-right corner, so #sn-auth-bar
+       goes back to hugging the plain viewport edge. */
+    @media (max-width: 1024px) {
+      #sn-auth-bar { right: 8px !important; }
+    }
   </style>
 </head>
 <body>
