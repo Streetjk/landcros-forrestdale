@@ -289,6 +289,29 @@ function resize() {
   camera.updateProjectionMatrix();
 }
 
+// ── Dynamic resolution while the camera moves ──────────────────────────────
+// Splat rasterisation is fragment-bound: cost scales with the number of
+// pixels drawn, so dropping the pixel ratio during a drag/orbit is the one
+// lever that meaningfully changes frame time. Measured on real hardware
+// (not the headless software renderer, which misled an earlier pass): zero
+// main-thread long tasks, ~42-47ms frames — the time is on the GPU, not in
+// JS or DOM label work.
+//
+// setPixelRatio alone does not reallocate the drawing buffer, so each switch
+// is paired with a resize(). That reallocation is itself a hitch, so it only
+// happens on transitions (moving <-> settled), never per frame, and the
+// restore waits for a short idle so an intermittent drag doesn't thrash it.
+const _DRAG_PIXEL_RATIO = Math.min(_Q.pixelRatio, 1.0);
+const _RESTORE_AFTER_IDLE_FRAMES = 8; // ~130ms at 60fps
+let _lowResActive = false;
+function _setLowRes(on) {
+  if (on === _lowResActive) return;
+  if (on && _DRAG_PIXEL_RATIO >= _Q.pixelRatio) return; // nothing to gain
+  _lowResActive = on;
+  renderer.setPixelRatio(on ? _DRAG_PIXEL_RATIO : _Q.pixelRatio);
+  resize();
+}
+
 window.addEventListener('resize', resize);
 resize();
 
@@ -404,8 +427,12 @@ function animate() {
     _idleFrames = 0;
     _prevCamPos.copy(camera.position);
     _prevCamQuat.copy(camera.quaternion);
+    _setLowRes(true);
   } else {
     _idleFrames++;
+    // Restore full resolution once the camera has actually settled, so the
+    // still image the user reads detail from is always full quality.
+    if (_lowResActive && _idleFrames >= _RESTORE_AFTER_IDLE_FRAMES) _setLowRes(false);
   }
 
   const now = performance.now();
