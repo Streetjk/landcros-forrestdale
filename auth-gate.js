@@ -233,7 +233,44 @@
     b.textContent = 'Change PIN';
     b.onclick = changePin;
     signout.insertAdjacentElement('beforebegin', b);
+    foldAuthBar();
   }
 
-  window.SnAuthGate = { attach, changePin, decorateAuthBar };
+  // Collapses the signed-in bar to a small avatar button (email initial) so
+  // it stays out of the way of page content beneath it; click again to see
+  // the full email + Change PIN + Sign out. State persists per-viewer.
+  function foldAuthBar() {
+    const bar = $('sn-auth-bar');
+    const label = $('sn-auth-email-label');
+    const changePinBtn = $('sn-change-pin-btn');
+    const signout = $('sn-signout-btn');
+    if (!bar || !label || !signout || $('sn-fold-toggle')) return;
+
+    const initial = (label.textContent || '?').trim().charAt(0).toUpperCase() || '?';
+    const toggle = document.createElement('button');
+    toggle.id = 'sn-fold-toggle';
+    toggle.type = 'button';
+    toggle.textContent = initial;
+    toggle.style.cssText = 'width:22px;height:22px;border-radius:50%;background:#192134;border:1px solid rgba(255,255,255,0.14);color:#fff;font-size:0.68rem;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;flex-shrink:0;';
+    bar.insertBefore(toggle, label);
+
+    let folded = false;
+    try { folded = localStorage.getItem('sn_authbar_folded') === '1'; } catch {}
+
+    const apply = () => {
+      label.style.display = folded ? 'none' : '';
+      signout.style.display = folded ? 'none' : '';
+      if (changePinBtn) changePinBtn.style.display = folded ? 'none' : '';
+      bar.style.gap = folded ? '0' : '8px';
+      toggle.title = folded ? `${label.textContent} — click to expand` : 'Click to collapse';
+    };
+    toggle.onclick = () => {
+      folded = !folded;
+      try { localStorage.setItem('sn_authbar_folded', folded ? '1' : '0'); } catch {}
+      apply();
+    };
+    apply();
+  }
+
+  window.SnAuthGate = { attach, changePin, decorateAuthBar, foldAuthBar };
 })();
