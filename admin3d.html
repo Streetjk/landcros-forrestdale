@@ -158,14 +158,21 @@
       border-left: 1px solid var(--border);
       display: flex; flex-direction: column; overflow: hidden; z-index: 20;
     }
-    /* #sn-auth-bar (below) is fixed top-right at the viewport level, same
-       corner #side-panel occupies here — offset it clear of the panel so the
-       signed-in email/Sign-out bar never overlaps the panel header's title.
-       Reset to the plain viewport corner at the ≤1024px breakpoint (below),
-       where #side-panel becomes a bottom sheet and no longer owns that corner. */
-    #sn-auth-bar { right: calc(var(--panel-width) + 12px) !important; }
     #panel-header {
       padding: 18px 20px 14px; border-bottom: 1px solid var(--border); flex-shrink: 0;
+    }
+    /* #sn-auth-bar is fixed top-right at the viewport level (top:8;right:8,
+       inline in the HTML) and #side-panel occupies that same corner here —
+       give the panel's own header enough top clearance to clear the bar's
+       ~8-38px band instead of moving the bar sideways: #site-address (this
+       file, ~line 356) already anchors at calc(var(--panel-width) + 22px)
+       from the right specifically to stay clear of the panel, and shifting
+       the auth-bar into that same strip put it on a collision course with
+       that pre-existing element instead of fixing anything. Desktop only —
+       below the breakpoint #side-panel becomes a bottom sheet and no longer
+       shares this corner with the bar at all. */
+    @media (min-width: 1025px) {
+      #panel-header { padding-top: 48px; }
     }
     .panel-site { font-size: 11px; font-weight: 500; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 3px; }
     /* Unlike .ev-title/.form-input below (which sit on .panel-page's own dark
@@ -308,13 +315,6 @@
     .panel-fold-btn:hover { background: var(--surface); }
     .panel-fold-btn.folded { transform: rotate(180deg); }
     #panel-header-row { display: flex; align-items: center; justify-content: space-between; }
-
-    /* #side-panel becomes a bottom sheet below this breakpoint (style.css's
-       shared rule) and no longer owns the top-right corner, so #sn-auth-bar
-       goes back to hugging the plain viewport edge. */
-    @media (max-width: 1024px) {
-      #sn-auth-bar { right: 8px !important; }
-    }
   </style>
 </head>
 <body>
