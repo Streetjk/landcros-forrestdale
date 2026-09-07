@@ -173,9 +173,16 @@
     #qr-canvas-wrap { display: inline-block; margin-bottom: 10px; }
 
     /* ── Right panel (admin controls) ── */
+    /* Opaque, no backdrop-filter — deliberately. blur() here forced the
+       compositor to re-blur the continuously-redrawing 3D canvas behind a
+       full-height 340px strip on every frame, and at 0.90 alpha only ~10%
+       of that result was ever visible. Removing it is why the panel being
+       open no longer costs frame rate (user-reported: fps dropped whenever
+       the full desktop panel was showing, recovered when it collapsed to a
+       bottom sheet). The small blurs on the round camera buttons are left
+       alone — 44px circles are cheap; a full-height panel is not. */
     #side-panel {
-      width: var(--panel-width); background: rgba(255,255,255,0.90);
-      backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+      width: var(--panel-width); background: #eef0f3;
       border-left: 1px solid var(--border);
       display: flex; flex-direction: column; overflow: hidden; z-index: 20;
     }

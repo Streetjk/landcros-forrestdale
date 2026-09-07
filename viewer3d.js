@@ -411,6 +411,10 @@ let _lastRenderMs = 0;
 const IDLE_AFTER = _Q.idleAfter;
 const IDLE_INTERVAL = _Q.idleInterval;
 let _pins = {}; // id → { group, pinGroup, sphere, icon, label, squareMat, squareGroup, pt }
+// How far above the ground square the pin marker floats, in scene units.
+// The square is ~0.9 units across, so this reads as clearly airborne without
+// detaching the marker from the spot it labels.
+const PIN_FLOAT_HEIGHT = 1.3;
 let _selectedId = null;
 const _sceneWidgets = new Map(); // id → { obj, anchor, raycastMesh } — read-only 'button' scene_objects (Phase 2 SLICE 4)
 
@@ -772,7 +776,11 @@ function _addPinToScene(pt) {
   _allScaleEls.push(labelInner); _invalidateLabelScale();
 
   const icon = new CSS2DObject(iconWrap);
-  icon.position.set(0, 0, 0);
+  // Float the marker above the ground square rather than sitting flat on it:
+  // the square stays on the floor marking the spot, the pin hovers over it.
+  // (The block comment above already specified y=1.3 as the anchor; the code
+  // had drifted to 0, which is why pins read as lying on the ground.)
+  icon.position.set(0, PIN_FLOAT_HEIGHT, 0);
   group.add(icon);
 
   scene.add(group);
