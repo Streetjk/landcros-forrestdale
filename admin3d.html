@@ -63,8 +63,12 @@
     .cam-preset-btn:hover  { background: rgba(24,95,165,0.35); border-color: rgba(24,95,165,0.6); }
     .cam-preset-btn.active { background: rgba(24,95,165,0.45); border-color: #185FA5; color: #fff; }
     .cam-preset-btn.active .icon-wrap svg { opacity: 1; }
-    /* Speed limit sign is viewer-only decoration, hide in admin */
-    .speed-limit-sign { display: none !important; }
+    /* Speed limit sign — same treatment as viewer3d.html/index.html: no
+       button chrome behind it (the sign's own red ring is the visible
+       edge), not clickable, no hover label. */
+    .speed-limit-sign { cursor: default !important; pointer-events: none; background: transparent !important; border-color: transparent !important; justify-content: center !important; }
+    .speed-limit-sign .label-wrap { display: none !important; }
+    .speed-limit-sign .icon-wrap svg { width: 44px !important; height: 44px !important; opacity: 1; }
     /* Legacy rectangular button style (Edit, etc.) */
     .cam-btn {
       background: rgba(15,17,23,0.82); backdrop-filter: blur(8px);
