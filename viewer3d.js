@@ -587,14 +587,26 @@ function _buildCamButtons(cfg) {
   wrap.appendChild(mBtn);
 
   // Speed limit sign — decorative, site-specific (omitted when config lacks
-  // speedLimitSign). Inline SVG rather than the raster PNG this used to be:
-  // text-anchor="middle" + dominant-baseline="central" centers the "10"
-  // exactly, which a fixed-size raster image scaled to fit a 44px circle
-  // could not guarantee regardless of how carefully the source PNG was drawn.
+  // speedLimitSign). The "10" is outlined vector paths, not live text, for
+  // two reasons:
+  //
+  // Typeface: Australian road signs follow AS 1744, derived from Highway
+  // Gothic. Overpass is the closest freely-licensed match (it was drawn
+  // after Highway Gothic), so its Bold digits are used — converted to paths
+  // so the sign needs no webfont, can't flash unstyled, and renders
+  // identically regardless of what fonts a viewer has.
+  //
+  // Centering: <text> with text-anchor="middle" centres the ADVANCE width,
+  // not the visible ink. For "10" in this face those differ by 38 font
+  // units (ink centre 1019.5 vs advance centre 1057.5 of 2000upem), which
+  // pushed the digits visibly right — the residual offset reported after
+  // the earlier dominant-baseline fix. These outlines are positioned on the
+  // measured ink bounding box instead, so the digits are optically centred
+  // on the circle rather than metrically centred.
   if (_cfg.site?.speedLimitSign) {
     const speedBtn = document.createElement('div');
     speedBtn.className = 'cam-preset-btn speed-limit-sign';
-    speedBtn.innerHTML = `<div class="icon-wrap"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10.4" fill="#fff" stroke="#C0392B" stroke-width="1.3"/><text x="12" y="12" text-anchor="middle" dominant-baseline="central" font-size="12.5" font-weight="700" font-family="Arial,Helvetica,sans-serif" fill="#161616">10</text></svg></div><span class="label-wrap">Speed limit</span>`;
+    speedBtn.innerHTML = `<div class="icon-wrap"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10.4" fill="#fff" stroke="#C0392B" stroke-width="1.3"/><path d="M6.67 17.08V9.5H5.11V8.03Q5.59 8.03 5.98 7.92Q6.38 7.82 6.65 7.58Q6.92 7.34 7.06 6.92H8.54V17.08ZM15.18 17.25Q14.09 17.25 13.37 16.79Q12.66 16.33 12.24 15.56Q11.82 14.79 11.64 13.86Q11.46 12.94 11.46 12Q11.46 11.26 11.57 10.51Q11.68 9.76 11.93 9.08Q12.18 8.41 12.61 7.88Q13.03 7.36 13.67 7.05Q14.3 6.75 15.18 6.75Q16.26 6.75 16.98 7.21Q17.7 7.66 18.12 8.43Q18.54 9.19 18.71 10.12Q18.89 11.05 18.89 12Q18.89 12.74 18.78 13.49Q18.67 14.23 18.42 14.91Q18.17 15.58 17.74 16.11Q17.31 16.64 16.68 16.95Q16.05 17.25 15.18 17.25ZM15.18 15.48Q15.72 15.48 16.07 15.18Q16.42 14.88 16.63 14.38Q16.83 13.88 16.92 13.26Q17.01 12.65 17.01 12Q17.01 11.35 16.92 10.73Q16.83 10.11 16.62 9.61Q16.42 9.11 16.07 8.81Q15.72 8.52 15.18 8.52Q14.64 8.52 14.28 8.82Q13.93 9.11 13.71 9.62Q13.5 10.12 13.42 10.74Q13.33 11.35 13.33 12Q13.33 12.65 13.42 13.27Q13.5 13.89 13.71 14.39Q13.93 14.89 14.28 15.18Q14.64 15.48 15.18 15.48Z" fill="#161616"/></svg></div><span class="label-wrap">Speed limit</span>`;
     speedBtn.title = 'Speed limit 10 km/h';
     wrap.appendChild(speedBtn);
   }
