@@ -2856,23 +2856,32 @@ async function loadSplatBackground(opts = {}) {
 
     if (!onProgress && msg) msg.textContent = `Loading ${ext}… 0%`;
     const GS3D = await import('@mkkellogg/gaussian-splats-3d');
+    // gpuAcceleratedSort computes per-splat distances on the GPU via WebGL2
+    // transform feedback + a fence-sync readback, every frame. Confirmed
+    // live (2026-09-07) that this broke splat loading entirely on both Edge
+    // and Brave, while genuinely improving rotation smoothness elsewhere.
+    // Brave's own docs: it deliberately randomizes WebGL readback per
+    // session as an anti-fingerprinting measure — exactly the operation
+    // this needs every frame. Feature-detect rather than block outright:
+    // navigator.brave.isBrave() is Brave's own documented, supported
+    // detection API (not fingerprinting-adjacent — this exists to route
+    // Brave to the WORKING path, the opposite of discriminating against
+    // it). Edge has no equivalent API; the "Edg/" UA token is the
+    // established way to identify Chromium Edge specifically (distinct
+    // from legacy EdgeHTML's "Edge/" token). If detection itself fails for
+    // any reason, fail toward the slower-but-always-correct CPU path.
+    let _gpuSortOk = true;
+    try {
+      if (navigator.brave && await navigator.brave.isBrave()) _gpuSortOk = false;
+      else if (/Edg\//.test(navigator.userAgent)) _gpuSortOk = false;
+    } catch { _gpuSortOk = false; }
     const sv = new GS3D.Viewer({
       selfDrivenMode: false,
       useBuiltInControls: false,
       renderer,
       camera,
-      // Reverted to false/false (2026-09-07): true/true is faster on a plain
-      // Chromium profile (crossOriginIsolated is genuinely true here, that
-      // part checked out), but broke splat loading entirely on Edge and
-      // Brave, both confirmed live. Brave's own docs: it deliberately
-      // randomizes WebGL readback per session as an anti-fingerprinting
-      // measure, which corrupts the GPU distance-precompute this library's
-      // gpuAcceleratedSort path reads back every frame. Edge's Tracking
-      // Prevention likely interferes similarly. Do not re-enable without a
-      // real fix for privacy-hardened browsers — that's most of this app's
-      // actual audience, not an edge case.
-      gpuAcceleratedSort: false,
-      sharedMemoryForWorkers: false,
+      gpuAcceleratedSort: _gpuSortOk,
+      sharedMemoryForWorkers: _gpuSortOk,
       splatAlphaRemovalThreshold: 1,
     });
 
