@@ -65,8 +65,15 @@ if ! command -v caddy >/dev/null; then
 fi
 
 echo "==> Firewall: Oracle images ship iptables rules that block 80/443 even when the VCN allows them"
-sudo iptables -I INPUT 6 -m state --state NEW -p tcp --dport 80  -j ACCEPT
-sudo iptables -I INPUT 6 -m state --state NEW -p tcp --dport 443 -j ACCEPT
+# Insert just above the chain's REJECT rule, not at a hardcoded position: the
+# stock chain ends in a catch-all REJECT whose line number varies by image
+# (seen at both 5 and 7 across Ubuntu 24.04 builds), and an ACCEPT inserted
+# below it never matches - traffic is rejected before it's reached.
+REJECT_LINE=$(sudo iptables -L INPUT --line-numbers -n | awk '$2=="REJECT"{print $1; exit}')
+REJECT_LINE="${REJECT_LINE:-6}"  # no REJECT rule found -> fall back to appending near the end
+sudo iptables -I INPUT "$REJECT_LINE" -m state --state NEW -p tcp --dport 80  -j ACCEPT
+sudo iptables -I INPUT "$REJECT_LINE" -m state --state NEW -p tcp --dport 443 -j ACCEPT
+echo "    inserted ACCEPT rules for 80/443 at position $REJECT_LINE (before REJECT)"
 sudo apt-get install -y -qq iptables-persistent >/dev/null 2>&1 || true
 sudo netfilter-persistent save >/dev/null 2>&1 || true
 
