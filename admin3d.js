@@ -60,13 +60,6 @@ window.addEventListener('viewer3d:ready', async () => {
     if (chip) window._adminRemoveContact(chip.dataset.removeContact);
   });
 
-  document.getElementById('drawer-body').addEventListener('change', e => {
-    const typeEl = e.target.closest('[data-type-value]');
-    if (typeEl) window._adminSetType(typeEl.dataset.typeValue);
-    const scopeEl = e.target.closest('[data-scope-value]');
-    if (scopeEl) window._adminSetScope(scopeEl.dataset.scopeValue);
-  });
-
   _loadAnalytics();
   window._updateCamPresetsBottom();
 });
@@ -224,7 +217,7 @@ function _placePin(pos3d) {
   const newPt = {
     id: _uuid(),
     label: 'New pin',
-    type: 'drop-off',
+    type: 'meet-point',
     scope: 'personal',
     latlng,
     position3d: { x: pos3d.x, y: 0, z: pos3d.z },
@@ -255,27 +248,20 @@ function renderPointList(filter = '') {
     !lf || p.label.toLowerCase().includes(lf) || p.type.includes(lf)
   );
 
-  const groups = { 'drop-off': [], 'collection': [], 'both': [], 'meet-point': [] };
-  visibleShared.forEach(p => (groups[p.type] ?? groups['drop-off']).push(p));
   const dotColor = { 'drop-off': 'var(--primary)', 'collection': 'var(--accent)', 'both': 'var(--amber)', 'meet-point': '#f59e0b' };
-  const typeLabel = { 'drop-off': 'Drop-off', 'collection': 'Collection', 'both': 'Both', 'meet-point': 'Meet Point' };
 
   let html = '';
 
   if (visibleShared.length) {
     html += `<div class="list-section">Shared pins</div>`;
-    for (const [type, pts] of Object.entries(groups)) {
-      if (!pts.length) continue;
-      html += `<div class="list-section" style="font-size:11px;padding-left:12px">${typeLabel[type]}</div>`;
-      pts.forEach(p => {
-        const isActive = _editingPoint?.id === p.id;
-        const item = document.createElement('div');
-        item.className = 'point-item' + (isActive ? ' selected' : '');
-        item.dataset.ptId = p.id;
-        item.innerHTML = `<div class="pt-dot" style="background:${dotColor[type]}"></div><div class="pt-label">${_esc(p.label)}</div><span style="color:var(--text-tertiary);font-size:16px">›</span>`;
-        html += item.outerHTML;
-      });
-    }
+    visibleShared.forEach(p => {
+      const isActive = _editingPoint?.id === p.id;
+      const item = document.createElement('div');
+      item.className = 'point-item' + (isActive ? ' selected' : '');
+      item.dataset.ptId = p.id;
+      item.innerHTML = `<div class="pt-dot" style="background:${dotColor[p.type] ?? dotColor['meet-point']}"></div><div class="pt-label">${_esc(p.label)}</div><span style="color:var(--text-tertiary);font-size:16px">›</span>`;
+      html += item.outerHTML;
+    });
   }
 
   html += `<div class="list-section">My pins</div>`;
@@ -338,7 +324,6 @@ function renderDrawerBody() {
   const allContacts = _contacts.filter(c => c.active);
   const assigned   = _editingContactIds.map(id => allContacts.find(c => c.id === id)).filter(Boolean);
   const unassigned = allContacts.filter(c => !_editingContactIds.includes(c.id));
-  const typeLabel  = { 'drop-off': 'Drop-off', 'collection': 'Collection', 'both': 'Both', 'meet-point': 'Meet Point' };
   const isPersonal = _editingScope === 'personal';
 
   const chips = assigned.map(c => {
@@ -354,54 +339,23 @@ function renderDrawerBody() {
     return span.outerHTML;
   }).join('');
 
-  const typeRadios = ['drop-off', 'collection', 'both', 'meet-point'].map(t => {
-    const label = document.createElement('label');
-    label.style.cssText = 'display:flex;align-items:center;gap:5px;font-size:13px;cursor:pointer';
-    const input = document.createElement('input');
-    input.type = 'radio';
-    input.name = 'pt-type';
-    input.value = t;
-    input.dataset.typeValue = t;
-    if (_editingType === t) input.checked = true;
-    label.appendChild(input);
-    label.appendChild(document.createTextNode(' ' + typeLabel[t]));
-    return label.outerHTML;
-  }).join('');
-
-  const scopeRadios = ['personal', 'shared'].map(s => {
-    const label = document.createElement('label');
-    label.style.cssText = 'display:flex;align-items:center;gap:5px;font-size:13px;cursor:pointer';
-    const input = document.createElement('input');
-    input.type = 'radio';
-    input.name = 'pt-scope';
-    input.value = s;
-    input.dataset.scopeValue = s;
-    if (_editingScope === s) input.checked = true;
-    label.appendChild(input);
-    label.appendChild(document.createTextNode(s === 'personal' ? ' My pin (this device only)' : ' Shared (saved to site)'));
-    return label.outerHTML;
-  }).join('');
-
   // unassigned contacts used by the search autocomplete (attached after innerHTML)
 
   const actionButtons = isPersonal
-    ? `<button class="pin-action-btn action" onclick="window._adminShowShareLink()">Share</button>`
+    ? `<button class="pin-action-btn action" onclick="window._adminShowShareLink()">Share link</button>`
     : `<button class="pin-action-btn action" onclick="window._adminToggleQR()">QR</button>
-       <button class="pin-action-btn action" onclick="window._adminShowShareLink()">Share</button>`;
+       <button class="pin-action-btn action" onclick="window._adminShowShareLink()">Share link</button>`;
 
   document.getElementById('drawer-body').innerHTML = `
     <div class="form-group">
       <label class="form-label">Label <span style="color:var(--red)">*</span></label>
       <input class="form-input" id="field-label" value="${_esc(pt.label)}" maxlength="80" placeholder="e.g. Dock 1 – Receiving">
     </div>
-    <div class="form-group">
-      <label class="form-label">Type</label>
-      <div style="display:flex;gap:8px;flex-wrap:wrap">${typeRadios}</div>
-    </div>
-    <div class="form-group">
-      <label class="form-label">Pin scope</label>
-      <div style="display:flex;gap:8px;flex-wrap:wrap">${scopeRadios}</div>
-    </div>
+    ${isPersonal ? `
+    <div class="pin-scope-note">
+      <span>Saved on this device only</span>
+      <button type="button" class="pin-scope-promote" onclick="window._adminPromoteToShared()">Share with everyone</button>
+    </div>` : ''}
     <div class="form-group full">
       <label class="form-label">Contacts</label>
       <div id="contact-chips" style="margin-bottom:6px">
@@ -416,10 +370,11 @@ function renderDrawerBody() {
       <label class="form-label">Notes (optional)</label>
       <textarea class="form-input" id="field-notes">${_esc(pt.notes ?? '')}</textarea>
     </div>
+    <div class="full">
+      <button class="btn-primary" onclick="window._adminSave()">Save</button>
+    </div>
     <div class="full pin-action-row">
-      <button class="pin-action-btn save" onclick="window._adminSave()">Save</button>
       ${actionButtons}
-      <button class="pin-action-btn del" onclick="window._adminDelete()">Delete</button>
     </div>
     <div id="share-link-row" style="display:none;padding-top:10px">
       <label class="form-label">Share link</label>
@@ -465,9 +420,6 @@ function renderDrawerBody() {
     if (e.key === 'Escape') { suggestionsEl.style.display = 'none'; searchInput.blur(); }
   });
 }
-
-window._adminSetType  = type  => { _editingType  = type;  };
-window._adminSetScope = scope => { _editingScope = scope; renderDrawerBody(); };
 
 window._adminAddContact = id => {
   if (!id || _editingContactIds.includes(id)) return;
@@ -528,6 +480,12 @@ window._adminSave = async () => {
   } finally {
     _saving = false;
   }
+};
+
+window._adminPromoteToShared = async () => {
+  if (!_editingPoint || _editingScope !== 'personal') return;
+  _editingScope = 'shared';
+  await window._adminSave();
 };
 
 window._adminDelete = async () => {

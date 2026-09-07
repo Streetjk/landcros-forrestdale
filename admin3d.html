@@ -132,7 +132,7 @@
     /* ── Editor view ── */
     .ev-header {
       display: flex; align-items: center; gap: 10px;
-      padding: 12px 14px; border-bottom: 1px solid var(--border); flex-shrink: 0;
+      padding: 8px 14px; border-bottom: 1px solid var(--border); flex-shrink: 0;
     }
     .back-btn {
       display: flex; align-items: center; gap: 4px;
@@ -143,6 +143,17 @@
     }
     .back-btn:hover { background: var(--primary-light); color: var(--primary); border-color: var(--primary); }
     .ev-title { font-size: 14px; font-weight: 600; color: var(--text); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    /* 44px touch target (ui-ux-pro-max Priority 2, CRITICAL) — visually
+       compact via a 7px radius/muted border so it doesn't compete with Save
+       for attention, but the actual tappable area meets the minimum rather
+       than shrinking to match .back-btn's narrower height next to it. */
+    .ev-delete-btn {
+      display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+      width: 44px; height: 44px; border-radius: 9px; box-sizing: border-box;
+      background: transparent; border: 1px solid var(--border); color: var(--text-secondary);
+      cursor: pointer; transition: background 0.15s, color 0.15s, border-color 0.15s;
+    }
+    .ev-delete-btn:hover { background: rgba(220,38,38,0.12); color: var(--red); border-color: var(--red); }
     .ev-body { flex: 1; overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 12px; }
     .ev-body .form-group { margin-bottom: 0; }
 
@@ -220,12 +231,23 @@
       line-height: 1;
     }
     .pin-action-btn:active { transform: scale(0.97); }
-    .pin-action-btn.save    { background: var(--primary); color: #fff; }
-    .pin-action-btn.save:hover { background: #0f4a87; }
+    .pin-scope-note {
+      display: flex; align-items: center; justify-content: space-between; gap: 8px;
+      background: var(--surface-secondary); border-radius: 8px;
+      padding: 8px 10px; font-size: 12px; color: var(--text-secondary);
+      margin-bottom: 14px;
+    }
+    .pin-scope-promote {
+      background: none; border: none;
+      color: var(--primary); font-size: 12px; font-weight: 600;
+      font-family: var(--font); cursor: pointer; white-space: nowrap; flex-shrink: 0;
+      /* Extend the hit area beyond the visible text (ui-ux-pro-max
+         touch-target-size) rather than enlarging the text itself. */
+      padding: 14px 4px; margin: -14px -4px;
+    }
+    .pin-scope-promote:hover { text-decoration: underline; }
     .pin-action-btn.action  { background: transparent; border: 1px solid var(--border); color: var(--text); }
     .pin-action-btn.action:hover { background: var(--surface-secondary); }
-    .pin-action-btn.del     { background: var(--red); color: #fff; }
-    .pin-action-btn.del:hover { background: #b91c1c; }
     @media (min-width: 600px) {
       .pin-action-btn { font-size: 13px; padding: 11px 8px; }
     }
@@ -404,6 +426,9 @@
         <div class="ev-header">
           <button class="back-btn" onclick="window.closeEditor()">&#8592; Back</button>
           <span class="ev-title" id="drawer-title">New pin</span>
+          <button class="ev-delete-btn" onclick="window._adminDelete()" aria-label="Delete pin" title="Delete pin">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2m3 0v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6h14z"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
+          </button>
         </div>
         <div class="ev-body">
           <div id="drawer-body"></div>
