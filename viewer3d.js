@@ -2861,12 +2861,18 @@ async function loadSplatBackground(opts = {}) {
       useBuiltInControls: false,
       renderer,
       camera,
-      // Both true: this page's COOP/COEP headers give a genuine cross-origin-
-      // isolated context (verified live), so SharedArrayBuffer is available —
-      // the library recommends pairing these two, never gpuAcceleratedSort
-      // true with sharedMemoryForWorkers false.
-      gpuAcceleratedSort: true,
-      sharedMemoryForWorkers: true,
+      // Reverted to false/false (2026-09-07): true/true is faster on a plain
+      // Chromium profile (crossOriginIsolated is genuinely true here, that
+      // part checked out), but broke splat loading entirely on Edge and
+      // Brave, both confirmed live. Brave's own docs: it deliberately
+      // randomizes WebGL readback per session as an anti-fingerprinting
+      // measure, which corrupts the GPU distance-precompute this library's
+      // gpuAcceleratedSort path reads back every frame. Edge's Tracking
+      // Prevention likely interferes similarly. Do not re-enable without a
+      // real fix for privacy-hardened browsers — that's most of this app's
+      // actual audience, not an edge case.
+      gpuAcceleratedSort: false,
+      sharedMemoryForWorkers: false,
       splatAlphaRemovalThreshold: 1,
     });
 
