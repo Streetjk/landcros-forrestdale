@@ -253,6 +253,29 @@
       padding: 14px 4px; margin: -14px -4px;
     }
     .pin-scope-promote:hover { text-decoration: underline; }
+
+    /* Pin photos — mirrors editor.html's .hazard-photo* grid. */
+    .pin-photos { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 4px; }
+    .pin-photo { position: relative; aspect-ratio: 1; border-radius: 6px; overflow: hidden; background: #e5e7eb; }
+    .pin-photo img { width: 100%; height: 100%; object-fit: cover; display: block; cursor: zoom-in; }
+    .pin-photo button {
+      position: absolute; top: 2px; right: 2px; width: 20px; height: 20px;
+      border: none; border-radius: 10px; background: rgba(0,0,0,0.6);
+      color: #fff; font-size: 12px; line-height: 20px; cursor: pointer; padding: 0;
+    }
+    /* Retention pill, bottom-left: click to flip 30 days <-> indefinite. */
+    .pin-photo .keep {
+      position: absolute; left: 2px; bottom: 2px; right: 24px;
+      border: none; border-radius: 4px; padding: 1px 4px;
+      background: rgba(0,0,0,0.6); color: #fff;
+      font-size: 9px; line-height: 14px; text-align: left;
+      cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .pin-photo .keep.forever { background: rgba(13,148,136,0.85); }
+    .pin-photo .uploading {
+      position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+      font-size: 10px; color: #374151; background: rgba(255,255,255,0.7);
+    }
     .pin-action-btn.action  { background: transparent; border: 1px solid var(--border); color: var(--text); }
     .pin-action-btn.action:hover { background: var(--surface-secondary); }
     @media (min-width: 600px) {

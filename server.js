@@ -32,6 +32,7 @@ const webhookDelivery = require('./webhook-delivery');
 const scriptsDb     = require('./scripts-db');
 const scenesDb      = require('./scenes-db');
 const hazardDb      = require('./hazard-db');
+const pointPhotosDb = require('./point-photos-db');
 
 // Generic client error body — logs the real error server-side, never leaks
 // DB/schema/config detail (e.message) to the client.
@@ -1081,6 +1082,103 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  // ── Admin-map pins: photos ────────────────────────────────────────────
+  // Same binary upload shape as the hazard route above. The header may also
+  // carry { keepIndefinitely: true } to store expires_at NULL instead of the
+  // 30-day default — admin pins are permanent wayfinding, so retention is
+  // per-photo rather than always-expiring. Only SHARED pins reach here;
+  // personal pins live in localStorage and have no row to reference.
+  const _pointPhotosMatch = /^\/api\/sites\/([^/]+)\/points\/([0-9a-fA-F-]{36})\/photos$/.exec(pathname);
+  if (_pointPhotosMatch && (req.method === 'GET' || req.method === 'POST')) {
+    const slug = _pointPhotosMatch[1];
+    const pointId = _pointPhotosMatch[2];
+    if (!SLUG_RE.test(slug)) return _json(res, 404, { error: 'not found' });
+    if (req.method === 'GET') {
+      _requireSiteRole(req, res, slug, 'viewer', () => {
+        pointPhotosDb.listPhotos(slug, pointId).then(list => _json(res, 200, list))
+          .catch(e => _json(res, 500, JSON.parse(_errBody(e))));
+      });
+      return;
+    }
+    _requireSiteEditor(req, res, slug, (s) => {
+      if (_rateLimited(req, res, 'point-photo', 60, 3600000)) return;
+      _readRawBody(req, pointPhotosDb.MAX_ORIGINAL_BYTES + pointPhotosDb.MAX_COMPRESSED_BYTES + 4096, (err, buf) => {
+        if (err) return _json(res, 413, { error: 'upload too large' });
+        try {
+          if (buf.length < 4) throw new Error('short');
+          const hlen = buf.readUInt32BE(0);
+          if (hlen <= 0 || hlen > 4000 || 4 + hlen > buf.length) throw new Error('bad header');
+          const header = JSON.parse(buf.subarray(4, 4 + hlen).toString('utf8'));
+          const cLen = header.compressedBytes | 0;
+          if (cLen <= 0 || 4 + hlen + cLen > buf.length) throw new Error('bad lengths');
+          const compressed = buf.subarray(4 + hlen, 4 + hlen + cLen);
+          const original = buf.subarray(4 + hlen + cLen);
+          pointPhotosDb.addPhoto(slug, pointId, {
+            compressed, original,
+            contentType: String(header.contentType || ''),
+            originalName: typeof header.originalName === 'string' ? header.originalName.slice(0, 120) : null,
+            width: header.width | 0 || null, height: header.height | 0 || null,
+            keepIndefinitely: header.keepIndefinitely === true,
+          }, s.profileId).then(photo => {
+            console.log(`[point-photos] ${slug}/${pointId} photo ${photo.id} (${photo.bytes}B / ${photo.originalBytes}B) by ${s.profileId}`);
+            _json(res, 200, photo);
+          }).catch(e => {
+            if (e instanceof pointPhotosDb.PointPhotoError) return _json(res, e.code === 'not-found' ? 404 : e.code === 'too-large' ? 413 : 400, { error: e.message });
+            _json(res, 500, JSON.parse(_errBody(e)));
+          });
+        } catch {
+          _json(res, 400, { error: 'malformed upload' });
+        }
+      });
+    });
+    return;
+  }
+
+  // DELETE removes the photo; PATCH { keep: bool } flips its retention.
+  const _pointPhotoItemMatch = /^\/api\/sites\/([^/]+)\/points\/photos\/([0-9a-fA-F-]{36})$/.exec(pathname);
+  if (_pointPhotoItemMatch && (req.method === 'DELETE' || req.method === 'PATCH')) {
+    const slug = _pointPhotoItemMatch[1];
+    const photoId = _pointPhotoItemMatch[2];
+    if (!SLUG_RE.test(slug)) return _json(res, 404, { error: 'not found' });
+    _requireSiteEditor(req, res, slug, () => {
+      if (req.method === 'PATCH') {
+        _readJsonBody(req, (err, body = {}) => {
+          if (err) return _json(res, 400, { error: 'Invalid JSON' });
+          pointPhotosDb.setRetention(slug, photoId, body.keep === true).then(p => _json(res, 200, p))
+            .catch(e => {
+              if (e instanceof pointPhotosDb.PointPhotoError) return _json(res, 404, { error: 'not found' });
+              _json(res, 500, JSON.parse(_errBody(e)));
+            });
+        });
+        return;
+      }
+      pointPhotosDb.deletePhoto(slug, photoId).then(() => _json(res, 200, { ok: true }))
+        .catch(e => {
+          if (e instanceof pointPhotosDb.PointPhotoError) return _json(res, 404, { error: 'not found' });
+          _json(res, 500, JSON.parse(_errBody(e)));
+        });
+    });
+    return;
+  }
+
+  // Image bytes, login-gated (any active profile) — same model as
+  // /api/hazard-photos: a photo URL never works without a session.
+  const _pointPhotoReadMatch = /^\/api\/point-photos\/([0-9a-fA-F-]{36})$/.exec(pathname);
+  if (_pointPhotoReadMatch && (req.method === 'GET' || req.method === 'HEAD')) {
+    if (!_session(req)) return _json(res, 401, { error: 'Unauthorized' });
+    pointPhotosDb.readPhoto(_pointPhotoReadMatch[1], { original: url.searchParams.get('original') === '1' }).then(p => {
+      if (!p) return _json(res, 404, { error: 'not found' });
+      res.writeHead(200, {
+        'Content-Type': p.contentType,
+        'Content-Length': p.buffer.length,
+        'Cache-Control': 'private, max-age=3600',
+        'Content-Disposition': `inline; filename="${(p.row.original_name || 'photo').replace(/[^\w.-]/g, '_')}"`,
+      });
+      res.end(req.method === 'HEAD' ? undefined : p.buffer);
+    }).catch(e => _json(res, 500, JSON.parse(_errBody(e))));
+    return;
+  }
+
   const _hazardNotifyMatch = /^\/api\/sites\/([^/]+)\/scenes\/([0-9a-fA-F-]{36})\/(notify|notifications)$/.exec(pathname);
   if (_hazardNotifyMatch) {
     const slug = _hazardNotifyMatch[1];
@@ -1272,7 +1370,11 @@ const server = http.createServer((req, res) => {
       return res.end(JSON.stringify({ error: 'Supabase not configured: set SUPABASE_DB_URL' }));
     }
     _requireRole(req, res, 'editor', (s) => {
-      sdb.deletePoint(SITE, _pointDeleteMatch[1], s.profileId).then(() => {
+      // Photos first: the FK cascade drops point_photos rows but would leave
+      // the Storage objects orphaned. Same ordering as the hazard object route.
+      pointPhotosDb.deletePhotosForPoint(SITE, _pointDeleteMatch[1])
+        .catch(e => console.error('[point-photos] cleanup on point delete failed:', e.message))
+        .then(() => sdb.deletePoint(SITE, _pointDeleteMatch[1], s.profileId)).then(() => {
         console.log(`[points] ${SITE}/${_pointDeleteMatch[1]} deleted by ${s.profileId}`);
         res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
         res.end(JSON.stringify({ ok: true }));
@@ -1469,4 +1571,10 @@ if (sdb.isConfigured() && process.env.SUPABASE_URL && process.env.SUPABASE_SECRE
   const sweep = () => hazardDb.sweepExpiredPhotos().catch(e => console.error('[hazard] sweep failed:', e.message));
   setTimeout(sweep, 30000);
   setInterval(sweep, 3600000);
+
+  // Admin-pin photos default to the same 30-day window but may be kept
+  // indefinitely (expires_at NULL), which this sweep skips.
+  const sweepPoints = () => pointPhotosDb.sweepExpiredPhotos().catch(e => console.error('[point-photos] sweep failed:', e.message));
+  setTimeout(sweepPoints, 45000);
+  setInterval(sweepPoints, 3600000);
 }
