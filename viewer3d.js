@@ -298,15 +298,32 @@ function resize() {
 // JS or DOM label work.
 //
 // setPixelRatio alone does not reallocate the drawing buffer, so each switch
-// is paired with a resize(). That reallocation is itself a hitch, so it only
-// happens on transitions (moving <-> settled), never per frame, and the
-// restore waits for a short idle so an intermittent drag doesn't thrash it.
+// is paired with a resize(). That reallocation is a real GPU hitch, so
+// switching must be rare.
+//
+// The first version restored after only 8 idle frames (~130ms), which was
+// fine for dragging (continuous motion, so it stays low-res throughout) but
+// wrong for wheel zoom: each tick produces a short damped burst
+// (dampingFactor 0.06) and then a pause, so a normal scroll cadence sat
+// right on that threshold and thrashed low->full->low, reallocating the
+// framebuffer on nearly every tick. That showed up as zoom-specific lag
+// while dragging stayed smooth.
+//
+// Two guards now: restore only after a much longer idle, and never switch
+// twice inside a cooldown window. The cooldown can only ever delay a switch
+// — the restore is re-attempted every idle frame, so it cannot get stuck at
+// low resolution.
 const _DRAG_PIXEL_RATIO = Math.min(_Q.pixelRatio, 1.0);
-const _RESTORE_AFTER_IDLE_FRAMES = 8; // ~130ms at 60fps
+const _RESTORE_AFTER_IDLE_FRAMES = 45;  // ~750ms, well past a wheel-tick gap
+const _MIN_SWITCH_INTERVAL_MS = 400;
 let _lowResActive = false;
+let _lastResSwitchMs = 0;
 function _setLowRes(on) {
   if (on === _lowResActive) return;
   if (on && _DRAG_PIXEL_RATIO >= _Q.pixelRatio) return; // nothing to gain
+  const now = performance.now();
+  if (now - _lastResSwitchMs < _MIN_SWITCH_INTERVAL_MS) return;
+  _lastResSwitchMs = now;
   _lowResActive = on;
   renderer.setPixelRatio(on ? _DRAG_PIXEL_RATIO : _Q.pixelRatio);
   resize();
