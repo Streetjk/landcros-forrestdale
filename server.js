@@ -1163,9 +1163,14 @@ const server = http.createServer((req, res) => {
 
   // Image bytes, login-gated (any active profile) — same model as
   // /api/hazard-photos: a photo URL never works without a session.
+  // Deliberately PUBLIC, unlike /api/hazard-photos which requires a session.
+  // Admin-map pins are public wayfinding — their share links are documented as
+  // "open for anyone, no sign-in needed" — so a photo attached to one has to be
+  // readable by an anonymous share-link visitor or it renders as a broken tile.
+  // Access still requires knowing the photo's UUID, which is only handed out
+  // with the pin itself. Hazard photos stay gated: those are incident evidence.
   const _pointPhotoReadMatch = /^\/api\/point-photos\/([0-9a-fA-F-]{36})$/.exec(pathname);
   if (_pointPhotoReadMatch && (req.method === 'GET' || req.method === 'HEAD')) {
-    if (!_session(req)) return _json(res, 401, { error: 'Unauthorized' });
     pointPhotosDb.readPhoto(_pointPhotoReadMatch[1], { original: url.searchParams.get('original') === '1' }).then(p => {
       if (!p) return _json(res, 404, { error: 'not found' });
       res.writeHead(200, {

@@ -1430,6 +1430,56 @@ renderer.domElement.addEventListener('click', e => {
 
 // ── Point selection & panel ────────────────────────────────────────────────
 
+// Photos attached to an admin-map pin, shown to anyone opening the pin —
+// including anonymous share-link visitors, which is why /api/point-photos is
+// public. The grid element is shared with the hazard path, so it must be
+// explicitly hidden again when a pin has no photos.
+let _pointPhotoSlug = null;
+let _photoReqPt = null;   // pin whose photos are currently being fetched
+async function _renderPointPhotos(pt) {
+  _photoReqPt = pt.id;
+  const notes = document.getElementById('detail-notes');
+  let grid = document.getElementById('detail-photos');
+  if (!grid) {
+    if (!notes) return;
+    grid = document.createElement('div');
+    grid.id = 'detail-photos';
+    grid.style.cssText = 'display:grid;grid-template-columns:repeat(2,1fr);gap:6px;margin-top:10px;';
+    notes.insertAdjacentElement('afterend', grid);
+  }
+  grid.replaceChildren();
+  grid.style.display = 'none';
+  // Personal pins live only in localStorage and have no server row, so they
+  // can never carry photos — skip the request entirely.
+  if (pt.scope === 'personal') return;
+  try {
+    if (_pointPhotoSlug === null) {
+      _pointPhotoSlug = await fetch('/api/site').then(r => r.ok ? r.json() : null).then(d => d?.slug ?? '').catch(() => '');
+    }
+    if (!_pointPhotoSlug) return;
+    const list = await fetch(`/api/sites/${encodeURIComponent(_pointPhotoSlug)}/points/${encodeURIComponent(pt.id)}/photos`)
+      .then(r => r.ok ? r.json() : []).catch(() => []);
+    if (!Array.isArray(list) || !list.length) return;
+    // The panel may have moved on to another pin while this was in flight;
+    // _photoReqPt is set by the caller on every selectPoint().
+    if (_photoReqPt !== pt.id) return;
+    list.forEach(ph => {
+      const a = document.createElement('a');
+      a.href = `/api/point-photos/${encodeURIComponent(ph.id)}?original=1`;
+      a.target = '_blank';
+      a.rel = 'noopener';
+      const img = document.createElement('img');
+      img.src = `/api/point-photos/${encodeURIComponent(ph.id)}`;
+      img.alt = ph.originalName || 'Pin photo';
+      img.loading = 'lazy';
+      img.style.cssText = 'width:100%;height:80px;object-fit:cover;border-radius:6px;display:block;';
+      a.appendChild(img);
+      grid.appendChild(a);
+    });
+    grid.style.display = 'grid';
+  } catch {}
+}
+
 async function selectPoint(pt) {
   // Second click on same pin deselects it
   if (_selectedId === pt.id) {
@@ -1446,8 +1496,8 @@ async function selectPoint(pt) {
   document.getElementById('detail-chip').className = `chip ${chipClass[pt.type] ?? ''}`;
   document.getElementById('detail-chip').textContent = chipLabel[pt.type] ?? pt.type;
   document.getElementById('detail-label').textContent = pt.label;
-  { const g = document.getElementById('detail-photos'); if (g) g.style.display = 'none'; }
   document.getElementById('detail-notes').textContent = pt.notes ?? '';
+  _renderPointPhotos(pt);
 
   const navSection = document.getElementById('detail-nav-section');
   if (navSection) {
