@@ -16,6 +16,9 @@ let _saving        = false;
 let _isNewPoint    = false;
 let _placing        = false;
 let _userId        = null;
+let _slug          = null;   // site slug, for the /api/sites/:slug/points/... photo routes
+let _pinPhotos     = [];     // photos of the pin currently open in the editor
+let _pinPhotosFor  = null;   // which pin id _pinPhotos belongs to
 
 // ── Esc key ───────────────────────────────────────────────────────────────────
 document.addEventListener('keydown', e => {
@@ -36,6 +39,9 @@ window.addEventListener('viewer3d:ready', async () => {
   wrap.addEventListener('click', _onWrapClick, { capture: true });
 
   _siteBounds = await fetch('./assets/site-map-bounds.json').then(r => r.json());
+  // Photo routes are per-slug (/api/sites/:slug/points/...), unlike the
+  // env-pinned /api/points this page otherwise uses.
+  _slug = await fetch('/api/site').then(r => r.ok ? r.json() : null).then(d => d?.slug ?? null).catch(() => null);
   [_points, _contacts] = await Promise.all([getPoints(), getContacts()]);
   _contactsAll = [..._contacts];
 
@@ -58,13 +64,6 @@ window.addEventListener('viewer3d:ready', async () => {
   document.getElementById('drawer-body').addEventListener('click', e => {
     const chip = e.target.closest('[data-remove-contact]');
     if (chip) window._adminRemoveContact(chip.dataset.removeContact);
-  });
-
-  document.getElementById('drawer-body').addEventListener('change', e => {
-    const typeEl = e.target.closest('[data-type-value]');
-    if (typeEl) window._adminSetType(typeEl.dataset.typeValue);
-    const scopeEl = e.target.closest('[data-scope-value]');
-    if (scopeEl) window._adminSetScope(scopeEl.dataset.scopeValue);
   });
 
   _loadAnalytics();
@@ -224,7 +223,7 @@ function _placePin(pos3d) {
   const newPt = {
     id: _uuid(),
     label: 'New pin',
-    type: 'drop-off',
+    type: 'meet-point',
     scope: 'personal',
     latlng,
     position3d: { x: pos3d.x, y: 0, z: pos3d.z },
@@ -255,27 +254,20 @@ function renderPointList(filter = '') {
     !lf || p.label.toLowerCase().includes(lf) || p.type.includes(lf)
   );
 
-  const groups = { 'drop-off': [], 'collection': [], 'both': [], 'meet-point': [] };
-  visibleShared.forEach(p => (groups[p.type] ?? groups['drop-off']).push(p));
   const dotColor = { 'drop-off': 'var(--primary)', 'collection': 'var(--accent)', 'both': 'var(--amber)', 'meet-point': '#f59e0b' };
-  const typeLabel = { 'drop-off': 'Drop-off', 'collection': 'Collection', 'both': 'Both', 'meet-point': 'Meet Point' };
 
   let html = '';
 
   if (visibleShared.length) {
     html += `<div class="list-section">Shared pins</div>`;
-    for (const [type, pts] of Object.entries(groups)) {
-      if (!pts.length) continue;
-      html += `<div class="list-section" style="font-size:11px;padding-left:12px">${typeLabel[type]}</div>`;
-      pts.forEach(p => {
-        const isActive = _editingPoint?.id === p.id;
-        const item = document.createElement('div');
-        item.className = 'point-item' + (isActive ? ' selected' : '');
-        item.dataset.ptId = p.id;
-        item.innerHTML = `<div class="pt-dot" style="background:${dotColor[type]}"></div><div class="pt-label">${_esc(p.label)}</div><span style="color:var(--text-tertiary);font-size:16px">›</span>`;
-        html += item.outerHTML;
-      });
-    }
+    visibleShared.forEach(p => {
+      const isActive = _editingPoint?.id === p.id;
+      const item = document.createElement('div');
+      item.className = 'point-item' + (isActive ? ' selected' : '');
+      item.dataset.ptId = p.id;
+      item.innerHTML = `<div class="pt-dot" style="background:${dotColor[p.type] ?? dotColor['meet-point']}"></div><div class="pt-label">${_esc(p.label)}</div><span style="color:var(--text-tertiary);font-size:16px">›</span>`;
+      html += item.outerHTML;
+    });
   }
 
   html += `<div class="list-section">My pins</div>`;
@@ -315,7 +307,11 @@ function openEditor(pt) {
   document.getElementById('drawer-title').textContent = pt.label || 'New pin';
   document.getElementById('list-view').classList.add('panel-slide-out');
   document.getElementById('editor-view').classList.add('panel-slide-in');
+  // Photos only exist for shared pins that are already saved server-side.
+  _pinPhotos = [];
+  _pinPhotosFor = null;
   renderDrawerBody();
+  if (_editingScope === 'shared' && !_isNewPoint && _slug) _loadPinPhotos(pt.id);
   _v3d?.updatePinHighlight(pt.id);
 }
 
@@ -326,6 +322,8 @@ window.closeEditor = function() {
   }
   _editingPoint = null;
   _editingType  = null;
+  _pinPhotos    = [];
+  _pinPhotosFor = null;
   document.getElementById('list-view').classList.remove('panel-slide-out');
   document.getElementById('editor-view').classList.remove('panel-slide-in');
   document.getElementById('qr-section').style.display = 'none';
@@ -338,7 +336,6 @@ function renderDrawerBody() {
   const allContacts = _contacts.filter(c => c.active);
   const assigned   = _editingContactIds.map(id => allContacts.find(c => c.id === id)).filter(Boolean);
   const unassigned = allContacts.filter(c => !_editingContactIds.includes(c.id));
-  const typeLabel  = { 'drop-off': 'Drop-off', 'collection': 'Collection', 'both': 'Both', 'meet-point': 'Meet Point' };
   const isPersonal = _editingScope === 'personal';
 
   const chips = assigned.map(c => {
@@ -354,54 +351,23 @@ function renderDrawerBody() {
     return span.outerHTML;
   }).join('');
 
-  const typeRadios = ['drop-off', 'collection', 'both', 'meet-point'].map(t => {
-    const label = document.createElement('label');
-    label.style.cssText = 'display:flex;align-items:center;gap:5px;font-size:13px;cursor:pointer';
-    const input = document.createElement('input');
-    input.type = 'radio';
-    input.name = 'pt-type';
-    input.value = t;
-    input.dataset.typeValue = t;
-    if (_editingType === t) input.checked = true;
-    label.appendChild(input);
-    label.appendChild(document.createTextNode(' ' + typeLabel[t]));
-    return label.outerHTML;
-  }).join('');
-
-  const scopeRadios = ['personal', 'shared'].map(s => {
-    const label = document.createElement('label');
-    label.style.cssText = 'display:flex;align-items:center;gap:5px;font-size:13px;cursor:pointer';
-    const input = document.createElement('input');
-    input.type = 'radio';
-    input.name = 'pt-scope';
-    input.value = s;
-    input.dataset.scopeValue = s;
-    if (_editingScope === s) input.checked = true;
-    label.appendChild(input);
-    label.appendChild(document.createTextNode(s === 'personal' ? ' My pin (this device only)' : ' Shared (saved to site)'));
-    return label.outerHTML;
-  }).join('');
-
   // unassigned contacts used by the search autocomplete (attached after innerHTML)
 
   const actionButtons = isPersonal
-    ? `<button class="pin-action-btn action" onclick="window._adminShowShareLink()">Share</button>`
+    ? `<button class="pin-action-btn action" onclick="window._adminShowShareLink()">Share link</button>`
     : `<button class="pin-action-btn action" onclick="window._adminToggleQR()">QR</button>
-       <button class="pin-action-btn action" onclick="window._adminShowShareLink()">Share</button>`;
+       <button class="pin-action-btn action" onclick="window._adminShowShareLink()">Share link</button>`;
 
   document.getElementById('drawer-body').innerHTML = `
     <div class="form-group">
       <label class="form-label">Label <span style="color:var(--red)">*</span></label>
       <input class="form-input" id="field-label" value="${_esc(pt.label)}" maxlength="80" placeholder="e.g. Dock 1 – Receiving">
     </div>
-    <div class="form-group">
-      <label class="form-label">Type</label>
-      <div style="display:flex;gap:8px;flex-wrap:wrap">${typeRadios}</div>
-    </div>
-    <div class="form-group">
-      <label class="form-label">Pin scope</label>
-      <div style="display:flex;gap:8px;flex-wrap:wrap">${scopeRadios}</div>
-    </div>
+    ${isPersonal ? `
+    <div class="pin-scope-note">
+      <span>Saved on this device only</span>
+      <button type="button" class="pin-scope-promote" onclick="window._adminPromoteToShared()">Share with everyone</button>
+    </div>` : ''}
     <div class="form-group full">
       <label class="form-label">Contacts</label>
       <div id="contact-chips" style="margin-bottom:6px">
@@ -416,10 +382,32 @@ function renderDrawerBody() {
       <label class="form-label">Notes (optional)</label>
       <textarea class="form-input" id="field-notes">${_esc(pt.notes ?? '')}</textarea>
     </div>
+    ${isPersonal ? `
+    <div class="form-group full">
+      <label class="form-label">Photos</label>
+      <div style="font-size:12px;color:var(--text-secondary)">
+        Photos need the pin shared — use “Share with everyone” above.
+      </div>
+    </div>` : `
+    <div class="form-group full">
+      <label class="form-label">Photos <span id="pin-photo-count" style="font-weight:400;text-transform:none"></span></label>
+      <div id="pin-photos" class="pin-photos"></div>
+      <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-secondary);margin-top:8px;cursor:pointer">
+        <input type="checkbox" id="pin-photo-keep"> Keep new photos indefinitely (otherwise deleted after 30 days)
+      </label>
+      <div style="margin-top:6px">
+        <button type="button" class="pin-action-btn action" id="pin-add-photo"
+          onclick="document.getElementById('pin-photo-input').click()">Add photo</button>
+        <input type="file" id="pin-photo-input" accept="image/*" multiple hidden
+          onchange="window._adminPinFilesChosen(event)">
+      </div>
+      <div id="pin-photo-status" style="font-size:11px;color:var(--text-secondary);margin-top:4px;min-height:14px">${_isNewPoint ? 'Save the pin before adding photos.' : ''}</div>
+    </div>`}
+    <div class="full">
+      <button class="btn-primary" onclick="window._adminSave()">Save</button>
+    </div>
     <div class="full pin-action-row">
-      <button class="pin-action-btn save" onclick="window._adminSave()">Save</button>
       ${actionButtons}
-      <button class="pin-action-btn del" onclick="window._adminDelete()">Delete</button>
     </div>
     <div id="share-link-row" style="display:none;padding-top:10px">
       <label class="form-label">Share link</label>
@@ -464,10 +452,167 @@ function renderDrawerBody() {
   searchInput.addEventListener('keydown', e => {
     if (e.key === 'Escape') { suggestionsEl.style.display = 'none'; searchInput.blur(); }
   });
+
+  // innerHTML above wiped the photo grid — repaint it from state. Photos are
+  // fetched by openEditor/_adminSave, not here, so re-rendering on every
+  // contact add/remove doesn't refetch.
+  if (!isPersonal) _renderPinPhotos(pt.id);
 }
 
-window._adminSetType  = type  => { _editingType  = type;  };
-window._adminSetScope = scope => { _editingScope = scope; renderDrawerBody(); };
+// ── Pin photos (shared pins only) ─────────────────────────────────────────────
+// Personal pins live only in localStorage, so there is no server row for a
+// photo to reference — the panel points at "Share with everyone" instead.
+const PHOTO_TARGET_BYTES = 300 * 1024;
+const MAX_PIN_PHOTOS = 6;
+
+// Browser-side compression: longest edge <= 1600px, JPEG quality stepped down
+// until under 300 KB (then the dimensions, if needed). EXIF orientation is
+// applied by createImageBitmap where supported. Same approach as the hazard
+// editor's compressImage.
+async function _compressImage(file) {
+  let bitmap;
+  try { bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' }); }
+  catch { bitmap = await createImageBitmap(file); }
+  let scale = Math.min(1, 1600 / Math.max(bitmap.width, bitmap.height));
+  for (let pass = 0; pass < 4; pass++) {
+    const w = Math.max(1, Math.round(bitmap.width * scale));
+    const h = Math.max(1, Math.round(bitmap.height * scale));
+    const canvas = document.createElement('canvas');
+    canvas.width = w; canvas.height = h;
+    canvas.getContext('2d').drawImage(bitmap, 0, 0, w, h);
+    for (const q of [0.85, 0.75, 0.65, 0.55, 0.45]) {
+      const blob = await new Promise(res => canvas.toBlob(res, 'image/jpeg', q));
+      if (blob && blob.size <= PHOTO_TARGET_BYTES) { bitmap.close?.(); return { blob, width: w, height: h }; }
+    }
+    scale *= 0.75;
+  }
+  bitmap.close?.();
+  throw new Error('Could not compress image under 300 KB');
+}
+
+// One binary request: [u32 BE header length][JSON header][compressed][original].
+async function _uploadPinPhoto(pointId, file, keepIndefinitely) {
+  const { blob, width, height } = await _compressImage(file);
+  const header = new TextEncoder().encode(JSON.stringify({
+    contentType: file.type || 'image/jpeg', originalName: file.name,
+    width, height, compressedBytes: blob.size, keepIndefinitely,
+  }));
+  const len = new Uint8Array(4);
+  new DataView(len.buffer).setUint32(0, header.length, false);
+  const body = new Blob([len, header, blob, file]);
+  const r = await fetch(`/api/sites/${encodeURIComponent(_slug)}/points/${encodeURIComponent(pointId)}/photos`, {
+    method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body,
+  });
+  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `upload failed (${r.status})`);
+  return r.json();
+}
+
+async function _loadPinPhotos(pointId) {
+  _pinPhotos = [];
+  _pinPhotosFor = pointId;
+  try {
+    const r = await fetch(`/api/sites/${encodeURIComponent(_slug)}/points/${encodeURIComponent(pointId)}/photos`);
+    if (r.ok) _pinPhotos = await r.json();
+  } catch {}
+  if (_editingPoint?.id === pointId) _renderPinPhotos(pointId);
+}
+
+function _retentionLabel(p) {
+  if (!p.expiresAt) return 'Kept indefinitely';
+  const days = Math.ceil((new Date(p.expiresAt) - Date.now()) / 86400000);
+  return days > 0 ? `Expires in ${days}d` : 'Expiring';
+}
+
+function _renderPinPhotos(pointId, pending = 0) {
+  const grid = document.getElementById('pin-photos');
+  if (!grid) return;
+  grid.replaceChildren();
+  _pinPhotos.forEach(p => {
+    const cell = document.createElement('div');
+    cell.className = 'pin-photo';
+
+    const img = document.createElement('img');
+    img.src = `/api/point-photos/${encodeURIComponent(p.id)}`;
+    img.alt = p.originalName || 'Pin photo';
+    img.title = `${p.originalName || ''} — click to open original`;
+    img.addEventListener('click', () => window.open(`/api/point-photos/${encodeURIComponent(p.id)}?original=1`, '_blank', 'noopener'));
+
+    const keep = document.createElement('button');
+    keep.type = 'button';
+    keep.className = 'keep' + (p.expiresAt ? '' : ' forever');
+    keep.textContent = _retentionLabel(p);
+    keep.title = p.expiresAt ? 'Click to keep this photo indefinitely' : 'Click to expire this photo after 30 days';
+    keep.addEventListener('click', async () => {
+      const r = await fetch(`/api/sites/${encodeURIComponent(_slug)}/points/photos/${encodeURIComponent(p.id)}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ keep: !!p.expiresAt }),   // flip
+      });
+      if (!r.ok) { showToast('Could not change retention'); return; }
+      const updated = await r.json();
+      const i = _pinPhotos.findIndex(x => x.id === p.id);
+      if (i >= 0) _pinPhotos[i] = updated;
+      _renderPinPhotos(pointId);
+    });
+
+    const del = document.createElement('button');
+    del.type = 'button';
+    del.textContent = '✕';
+    del.title = 'Remove photo';
+    del.addEventListener('click', async () => {
+      const r = await fetch(`/api/sites/${encodeURIComponent(_slug)}/points/photos/${encodeURIComponent(p.id)}`, { method: 'DELETE' });
+      if (!r.ok) { showToast('Delete failed'); return; }
+      _pinPhotos = _pinPhotos.filter(x => x.id !== p.id);
+      _renderPinPhotos(pointId);
+    });
+
+    cell.append(img, keep, del);
+    grid.appendChild(cell);
+  });
+  for (let i = 0; i < pending; i++) {
+    const cell = document.createElement('div');
+    cell.className = 'pin-photo';
+    const ov = document.createElement('div');
+    ov.className = 'uploading';
+    ov.textContent = 'Uploading…';
+    cell.appendChild(ov);
+    grid.appendChild(cell);
+  }
+  const count = document.getElementById('pin-photo-count');
+  if (count) count.textContent = `${_pinPhotos.length}/${MAX_PIN_PHOTOS}`;
+  const add = document.getElementById('pin-add-photo');
+  if (add) add.disabled = _pinPhotos.length + pending >= MAX_PIN_PHOTOS;
+}
+
+window._adminPinFilesChosen = async (e) => {
+  const files = Array.from(e.target.files || []);
+  e.target.value = '';
+  if (!_editingPoint || !files.length) return;
+  const pointId = _editingPoint.id;
+  const status = document.getElementById('pin-photo-status');
+  if (_isNewPoint) { if (status) status.textContent = 'Save the pin before adding photos.'; return; }
+  const room = MAX_PIN_PHOTOS - _pinPhotos.length;
+  if (room <= 0) { if (status) status.textContent = `At most ${MAX_PIN_PHOTOS} photos per pin.`; return; }
+  const batch = files.slice(0, room);
+  if (batch.length < files.length) showToast(`Only ${room} more photo${room === 1 ? '' : 's'} allowed on this pin`);
+  const keep = !!document.getElementById('pin-photo-keep')?.checked;
+
+  let pending = batch.length;
+  _renderPinPhotos(pointId, pending);
+  for (const file of batch) {
+    if (status) status.textContent = `Compressing ${file.name}…`;
+    try {
+      const saved = await _uploadPinPhoto(pointId, file, keep);
+      if (saved) _pinPhotos.push(saved);
+    } catch (err) {
+      if (status) status.textContent = `${file.name}: ${err.message}`;
+    }
+    pending -= 1;
+    if (_editingPoint?.id === pointId) _renderPinPhotos(pointId, pending);
+  }
+  if (_editingPoint?.id === pointId && status) {
+    status.textContent = `${_pinPhotos.length} photo${_pinPhotos.length === 1 ? '' : 's'} attached.`;
+  }
+};
 
 window._adminAddContact = id => {
   if (!id || _editingContactIds.includes(id)) return;
@@ -521,6 +666,9 @@ window._adminSave = async () => {
       renderPointList();
       renderDrawerBody();
       document.getElementById('drawer-title').textContent = _editingPoint.label;
+      // Now that the pin exists server-side (first save, or just promoted from
+      // personal), its photo list becomes available.
+      if (_slug && _pinPhotosFor !== _editingPoint.id) _loadPinPhotos(_editingPoint.id);
       showToast('Saved');
     }
   } catch (e) {
@@ -528,6 +676,12 @@ window._adminSave = async () => {
   } finally {
     _saving = false;
   }
+};
+
+window._adminPromoteToShared = async () => {
+  if (!_editingPoint || _editingScope !== 'personal') return;
+  _editingScope = 'shared';
+  await window._adminSave();
 };
 
 window._adminDelete = async () => {
@@ -549,6 +703,8 @@ window._adminDelete = async () => {
     _isNewPoint   = false;
     _editingPoint = null;
     _editingType  = null;
+    _pinPhotos    = [];
+    _pinPhotosFor = null;
     document.getElementById('list-view').classList.remove('panel-slide-out');
     document.getElementById('editor-view').classList.remove('panel-slide-in');
     document.getElementById('qr-section').style.display = 'none';
@@ -603,7 +759,9 @@ window._toggleInfoBar = () => {
   const btn = document.getElementById('panel-fold-btn');
   const folded = panel.classList.toggle('panel-folded');
   if (btn) btn.classList.toggle('folded', folded);
-  setTimeout(window._updateCamPresetsBottom, 290);
+  // Sync immediately — the CSS transition does the animating, and a delayed
+  // call left the buttons 290ms behind the panel on browsers without :has().
+  window._updateCamPresetsBottom();
 };
 
 // ── QR / link ─────────────────────────────────────────────────────────────────

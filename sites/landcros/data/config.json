@@ -10,6 +10,7 @@
   "assets": {
     "satellite": "./assets/satellite.png",
     "splat": [
+      "./assets/site-lite.splat",
       "./assets/site.splat",
       "./assets/site.ply"
     ]

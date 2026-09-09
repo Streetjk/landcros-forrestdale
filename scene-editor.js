@@ -13,6 +13,23 @@ import { CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
 import { generateQR } from './qr.js';
 
 const SLUG = new URLSearchParams(location.search).get('site');
+// 'admin' (default) = the admin map; 'hazard' = the hazard report map. Same
+// editor, same scenes machinery — MODE only selects which scene kind is
+// listed/created, shows the hazard-pin tool and the send-report panel, and
+// changes the page titles. Anything built for one applies to both.
+const MODE = new URLSearchParams(location.search).get('mode') === 'hazard' ? 'hazard' : 'admin';
+document.body.dataset.mode = MODE;
+if (MODE === 'hazard') {
+  document.title = 'SiteNav Hazard Report Map';
+  for (const el of document.querySelectorAll('.panel-title, #sn-auth-gate h2')) {
+    if (el.textContent.includes('Scene Editor')) el.textContent = el.textContent.replace('Scene Editor', 'Hazard Report Map');
+    else if (el.classList.contains('panel-title')) el.textContent = 'Hazard Report Map';
+  }
+  const logo = document.querySelector('.load-logo');
+  if (logo) logo.innerHTML = 'Site<span>Nav</span> Hazard Report Map';
+}
+let _me = null; // { email, role } from /api/auth/me — used for per-user scene ownership
+let _archiveOpen = false; // "Archived" (resolved) section folded by default
 
 // ── State ────────────────────────────────────────────────────────────────
 let _v3d              = null;
@@ -53,6 +70,14 @@ async function init() {
   document.getElementById('add-label-btn').addEventListener('click', () => togglePlacing('label'));
   document.getElementById('add-button-btn').addEventListener('click', () => togglePlacing('button'));
   document.getElementById('add-widget-btn').addEventListener('click', () => togglePlacing('widget'));
+  document.getElementById('add-hazard-btn').addEventListener('click', () => togglePlacing('hazard'));
+  document.getElementById('prop-hazard-desc').addEventListener('input', onHazardDescInput);
+  document.getElementById('prop-hazard-add-photo').addEventListener('click', () => document.getElementById('prop-hazard-file').click());
+  document.getElementById('prop-hazard-file').addEventListener('change', onHazardFilesChosen);
+  document.getElementById('hazard-send-btn').addEventListener('click', onSendReport);
+  document.getElementById('scene-resolve-btn').addEventListener('click', onToggleResolved);
+  if (MODE !== 'hazard') document.getElementById('hazard-send-btn').textContent = 'Escalate & send link';
+  try { _me = await fetch('/api/auth/me').then(r => r.ok ? r.json() : null); } catch { _me = null; }
   document.getElementById('add-scene-btn').addEventListener('click', onAddSceneClick);
   document.getElementById('new-scene-confirm-btn').addEventListener('click', onNewSceneConfirm);
   document.getElementById('new-scene-cancel-btn').addEventListener('click', onNewSceneCancel);
@@ -91,7 +116,7 @@ async function init() {
 // scene exists and is selected.
 async function loadScenes() {
   try {
-    const r = await fetch(`/api/sites/${encodeURIComponent(SLUG)}/scenes`);
+    const r = await fetch(`/api/sites/${encodeURIComponent(SLUG)}/scenes?kind=${MODE}`);
     if (r.ok) _scenes = await r.json();
   } catch {
     showToast('Could not load scenes');
@@ -100,24 +125,89 @@ async function loadScenes() {
   if (!_currentSceneId && _scenes.length) await selectScene(_scenes[0].id);
 }
 
+// The list is per user (created + opened-via-link), split into Active and a
+// folded Archived section for resolved scenes. Applies to both maps.
 function renderScenesList() {
   const list = document.getElementById('scenes-list');
   list.replaceChildren();
-  _scenes.forEach(scene => {
+  const active = _scenes.filter(s => s.status !== 'resolved');
+  const archived = _scenes.filter(s => s.status === 'resolved');
+  const noun = MODE === 'hazard' ? 'report' : 'scene';
+
+  const renderRow = (scene) => {
     const row = document.createElement('div');
     row.className = 'scene-list-item' + (scene.id === _currentSceneId ? ' active' : '');
     const name = document.createElement('span');
     name.textContent = scene.name;
     row.appendChild(name);
+    const who = document.createElement('span');
+    who.className = 'scene-author';
+    who.textContent = scene.createdByEmail ? (scene.isMine || scene.createdByEmail === _me?.email ? 'you' : scene.createdByEmail.split('@')[0]) : '';
+    who.title = scene.createdByEmail || '';
+    row.appendChild(who);
+    if (scene.status && scene.status !== 'open') {
+      const st = document.createElement('span');
+      st.className = `scene-status ${scene.status}`;
+      st.textContent = scene.status;
+      row.appendChild(st);
+    }
+    // Creator (or ownerless legacy scene): deletes the scene for everyone.
+    // Anyone else: removes it from their own list only — the server decides the same.
+    const mine = scene.isMine || !scene.createdByEmail || scene.createdByEmail === _me?.email;
     const del = document.createElement('button');
     del.className = 'scene-del-btn';
     del.textContent = '✕';
-    del.title = 'Delete scene';
-    del.addEventListener('click', e => { e.stopPropagation(); onDeleteSceneClick(scene.id); });
+    del.title = mine ? `Delete ${noun} for everyone` : 'Remove from my list';
+    del.dataset.action = mine ? 'delete' : 'remove';
+    del.addEventListener('click', e => { e.stopPropagation(); onDeleteSceneClick(scene.id, mine); });
     row.appendChild(del);
     row.addEventListener('click', () => selectScene(scene.id));
-    list.appendChild(row);
+    return row;
+  };
+
+  active.forEach(s => list.appendChild(renderRow(s)));
+  if (archived.length) {
+    const head = document.createElement('div');
+    head.className = 'scenes-section';
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = _archiveOpen ? 'open' : '';
+    btn.id = 'archive-toggle';
+    btn.textContent = `Archived (${archived.length})`;
+    btn.addEventListener('click', () => { _archiveOpen = !_archiveOpen; renderScenesList(); });
+    head.appendChild(btn);
+    list.appendChild(head);
+    if (_archiveOpen) archived.forEach(s => list.appendChild(renderRow(s)));
+  }
+}
+
+function showSceneStatus(scene) {
+  const row = document.getElementById('scene-status-row');
+  if (!scene) { row.style.display = 'none'; return; }
+  row.style.display = 'flex';
+  const badge = document.getElementById('scene-status-badge');
+  badge.className = `scene-status ${scene.status || 'open'}`;
+  badge.textContent = scene.status || 'open';
+  document.getElementById('scene-resolve-btn').textContent = scene.status === 'resolved' ? 'Reopen' : 'Mark resolved';
+  const meta = document.getElementById('scene-status-meta');
+  meta.textContent = scene.statusChangedAt
+    ? `Changed ${new Date(scene.statusChangedAt).toLocaleString()}${scene.statusChangedByEmail ? ` by ${scene.statusChangedByEmail.split('@')[0]}` : ''}`
+    : '';
+}
+
+async function onToggleResolved() {
+  const scene = _scenes.find(s => s.id === _currentSceneId);
+  if (!scene) return;
+  const status = scene.status === 'resolved' ? 'open' : 'resolved';
+  const r = await apiWrite(`/api/sites/${encodeURIComponent(SLUG)}/scenes/${encodeURIComponent(scene.id)}/status`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status }),
   });
+  if (!r) return;
+  Object.assign(scene, { status: r.status, statusChangedAt: r.statusChangedAt, statusChangedByEmail: _me?.email ?? null });
+  if (status === 'resolved') _archiveOpen = true; // keep the just-archived scene visible
+  renderScenesList();
+  showSceneStatus(scene);
+  showToast(status === 'resolved' ? 'Marked resolved — moved to Archived' : 'Reopened');
 }
 
 async function selectScene(id) {
@@ -132,7 +222,9 @@ async function selectScene(id) {
   renderScenesList();
   updateAddButtonsEnabled();
   const scene = _scenes.find(s => s.id === id);
-  if (scene) showSceneShare(scene);
+  if (scene) { showSceneShare(scene); showSceneStatus(scene); }
+  document.getElementById('hazard-send-row').style.display = 'flex';
+  loadHazardHistory();
   await loadObjects();
 }
 
@@ -158,7 +250,7 @@ function onCopySceneShareUrl() {
 
 function updateAddButtonsEnabled() {
   const enabled = !!_currentSceneId;
-  ['add-label-btn', 'add-button-btn', 'add-widget-btn'].forEach(id => {
+  ['add-label-btn', 'add-button-btn', 'add-widget-btn', 'add-hazard-btn'].forEach(id => {
     document.getElementById(id).disabled = !enabled;
   });
   document.getElementById('no-scene-hint').style.display = enabled ? 'none' : 'block';
@@ -181,7 +273,7 @@ async function onNewSceneConfirm() {
   const created = await apiWrite(`/api/sites/${encodeURIComponent(SLUG)}/scenes`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name }),
+    body: JSON.stringify({ name, kind: MODE }),
   });
   if (!created) return;
   onNewSceneCancel();
@@ -189,7 +281,8 @@ async function onNewSceneConfirm() {
   await selectScene(created.id);
 }
 
-async function onDeleteSceneClick(id) {
+async function onDeleteSceneClick(id, mine = true) {
+  if (mine && !confirm(MODE === 'hazard' ? 'Delete this report for everyone? Photos are removed too.' : 'Delete this scene for everyone?')) return;
   // Cancel (don't flush) pending autosaves for the scene being deleted —
   // its objects are about to be cascade-deleted, so saving them is wasted
   // work and could otherwise race the DELETE (a debounced save landing after
@@ -198,11 +291,14 @@ async function onDeleteSceneClick(id) {
   if (id === _currentSceneId) cancelAllPending();
   const ok = await apiWrite(`/api/sites/${encodeURIComponent(SLUG)}/scenes/${encodeURIComponent(id)}`, { method: 'DELETE' });
   if (!ok) return;
+  if (ok.removed === 'subscription') showToast('Removed from your list');
   _scenes = _scenes.filter(s => s.id !== id);
   if (_currentSceneId === id) {
     _currentSceneId = null;
     Array.from(_objects.keys()).forEach(disposeEntry);
     document.getElementById('scene-share-row').style.display = 'none';
+    document.getElementById('hazard-send-row').style.display = 'none';
+    showSceneStatus(null);
     updateAddButtonsEnabled();
     if (_scenes.length) await selectScene(_scenes[0].id);
     else renderScenesList();
@@ -226,11 +322,12 @@ async function loadObjects() {
   // clicking between scenes) — a stale response must not render into
   // whatever scene is current now.
   if (_currentSceneId !== requestedSceneId) return;
-  list.filter(o => o.kind === 'label' || o.kind === 'button' || o.kind === 'widget').forEach(renderObject);
+  list.filter(o => o.kind === 'label' || o.kind === 'button' || o.kind === 'widget' || o.kind === 'hazard').forEach(renderObject);
 }
 
 // ── Render (kind → mesh + CSS2D text) ───────────────────────────────────
 function objectDisplayText(obj) {
+  if (obj.kind === 'hazard') return obj.props?.title ?? '';
   return (obj.kind === 'button' || obj.kind === 'widget') ? (obj.props?.label ?? '') : (obj.props?.text ?? '');
 }
 
@@ -240,7 +337,14 @@ function renderObject(obj) {
   anchor.position.set(x, y, z);
 
   let raycastMesh;
-  if (obj.kind === 'button' || obj.kind === 'widget') {
+  if (obj.kind === 'hazard') {
+    // Amber warning cone — distinct from every admin-map object kind.
+    raycastMesh = new THREE.Mesh(
+      new THREE.ConeGeometry(0.3, 0.7, 12),
+      new THREE.MeshStandardMaterial({ color: 0xf59e0b, emissive: 0x7c2d12, emissiveIntensity: 0.25 })
+    );
+    raycastMesh.position.y = 0.35;
+  } else if (obj.kind === 'button' || obj.kind === 'widget') {
     raycastMesh = new THREE.Mesh(
       new THREE.BoxGeometry(0.4, 0.4, 0.4),
       new THREE.MeshStandardMaterial({ color: obj.kind === 'button' ? 0x0f766e : 0x7c3aed })
@@ -258,11 +362,11 @@ function renderObject(obj) {
 
   const div = document.createElement('div');
   div.className = 'scene-obj-label';
-  const bg = obj.kind === 'widget' ? 'rgba(124,58,237,0.88)' : (obj.kind === 'button' ? 'rgba(15,118,110,0.88)' : 'rgba(24,95,165,0.88)');
+  const bg = obj.kind === 'hazard' ? 'rgba(180,83,9,0.92)' : obj.kind === 'widget' ? 'rgba(124,58,237,0.88)' : (obj.kind === 'button' ? 'rgba(15,118,110,0.88)' : 'rgba(24,95,165,0.88)');
   div.style.cssText = `pointer-events:none;white-space:nowrap;font:600 13px 'DM Sans',sans-serif;color:#fff;background:${bg};padding:3px 8px;border-radius:6px;transform:translate(-50%,-130%);`;
   div.textContent = objectDisplayText(obj);
   const css2dObj = new CSS2DObject(div);
-  css2dObj.position.set(0, (obj.kind === 'button' || obj.kind === 'widget') ? 0.4 : 0.1, 0);
+  css2dObj.position.set(0, obj.kind === 'hazard' ? 0.75 : (obj.kind === 'button' || obj.kind === 'widget') ? 0.4 : 0.1, 0);
   anchor.add(css2dObj);
 
   _scene.add(anchor);
@@ -328,7 +432,10 @@ async function createObject(kind, pos) {
     scriptId: null,
     transform: { position: [pos.x, pos.y, pos.z], rotation: [0, 0, 0], scale: [1, 1, 1] },
     style: {},
-    props: kind === 'label' ? { text: 'New label' } : (kind === 'button' ? { label: 'Button', action: { type: 'none' } } : { label: 'Widget' }),
+    props: kind === 'label' ? { text: 'New label' }
+         : kind === 'button' ? { label: 'Button', action: { type: 'none' } }
+         : kind === 'hazard' ? { title: 'Hazard', description: '' }
+         : { label: 'Widget' },
   };
   renderObject(obj);
   select(id);
@@ -378,8 +485,15 @@ const ACTION_FIELDS = {
 function showPropertyPanel(obj) {
   document.getElementById('empty-selection').style.display = 'none';
   document.getElementById('property-panel').style.display = 'flex';
-  document.getElementById('prop-kind-label').textContent = (obj.kind === 'button' || obj.kind === 'widget') ? (obj.kind === 'widget' ? 'Widget label' : 'Button label') : 'Label text';
+  document.getElementById('prop-kind-label').textContent = obj.kind === 'hazard' ? 'Hazard title' : (obj.kind === 'button' || obj.kind === 'widget') ? (obj.kind === 'widget' ? 'Widget label' : 'Button label') : 'Label text';
   document.getElementById('prop-text').value = objectDisplayText(obj);
+
+  const hazardGroup = document.getElementById('prop-hazard-group');
+  hazardGroup.style.display = obj.kind === 'hazard' ? 'flex' : 'none';
+  if (obj.kind === 'hazard') {
+    document.getElementById('prop-hazard-desc').value = obj.props?.description ?? '';
+    loadHazardPhotos(obj.id);
+  }
 
   const actionGroup = document.getElementById('prop-action-group');
   actionGroup.style.display = obj.kind === 'button' ? 'flex' : 'none';
@@ -456,10 +570,191 @@ function onPropTextInput(e) {
   const entry = _objects.get(_selectedId);
   if (!entry) return;
   const val = e.target.value;
-  if (entry.obj.kind === 'button' || entry.obj.kind === 'widget') entry.obj.props.label = val;
+  if (entry.obj.kind === 'hazard') entry.obj.props.title = val;
+  else if (entry.obj.kind === 'button' || entry.obj.kind === 'widget') entry.obj.props.label = val;
   else entry.obj.props.text = val;
   entry.div.textContent = val;
   scheduleSave(_selectedId);
+}
+
+// ── Hazard report map: description, photos, send ────────────────────────
+function onHazardDescInput(e) {
+  if (!_selectedId) return;
+  const entry = _objects.get(_selectedId);
+  if (!entry || entry.obj.kind !== 'hazard') return;
+  entry.obj.props.description = e.target.value;
+  scheduleSave(_selectedId);
+}
+
+const HAZARD_TARGET_BYTES = 300 * 1024;
+const HAZARD_MAX_PHOTOS = 6;
+
+// Browser-side compression: longest edge <= 1600px, JPEG quality stepped
+// down until the file is under 300 KB (then the dimensions, if needed).
+// EXIF orientation is applied by createImageBitmap where supported.
+async function compressImage(file) {
+  let bitmap;
+  try { bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' }); }
+  catch { bitmap = await createImageBitmap(file); }
+  let scale = Math.min(1, 1600 / Math.max(bitmap.width, bitmap.height));
+  for (let pass = 0; pass < 4; pass++) {
+    const w = Math.max(1, Math.round(bitmap.width * scale));
+    const h = Math.max(1, Math.round(bitmap.height * scale));
+    const canvas = document.createElement('canvas');
+    canvas.width = w; canvas.height = h;
+    canvas.getContext('2d').drawImage(bitmap, 0, 0, w, h);
+    for (const q of [0.85, 0.75, 0.65, 0.55, 0.45]) {
+      const blob = await new Promise(res => canvas.toBlob(res, 'image/jpeg', q));
+      if (blob && blob.size <= HAZARD_TARGET_BYTES) { bitmap.close?.(); return { blob, width: w, height: h }; }
+    }
+    scale *= 0.75;
+  }
+  bitmap.close?.();
+  throw new Error('Could not compress image under 300 KB');
+}
+
+// One binary request: [u32 header length][JSON header][compressed][original].
+async function uploadHazardPhoto(objectId, file) {
+  const { blob, width, height } = await compressImage(file);
+  const header = new TextEncoder().encode(JSON.stringify({
+    contentType: file.type || 'image/jpeg', originalName: file.name, width, height, compressedBytes: blob.size,
+  }));
+  const len = new Uint8Array(4);
+  new DataView(len.buffer).setUint32(0, header.length, false);
+  const body = new Blob([len, header, blob, file]);
+  return apiWrite(`/api/sites/${encodeURIComponent(SLUG)}/hazard/objects/${encodeURIComponent(objectId)}/photos`, {
+    method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body,
+  });
+}
+
+let _hazardPhotos = [];
+async function loadHazardPhotos(objectId) {
+  _hazardPhotos = [];
+  renderHazardPhotos(objectId);
+  try {
+    const r = await fetch(`/api/sites/${encodeURIComponent(SLUG)}/hazard/objects/${encodeURIComponent(objectId)}/photos`);
+    if (r.ok) _hazardPhotos = await r.json();
+  } catch {}
+  if (_selectedId === objectId) renderHazardPhotos(objectId);
+}
+
+function renderHazardPhotos(objectId, pending = 0) {
+  const grid = document.getElementById('prop-hazard-photos');
+  grid.replaceChildren();
+  _hazardPhotos.forEach(p => {
+    const cell = document.createElement('div');
+    cell.className = 'hazard-photo';
+    const img = document.createElement('img');
+    img.src = `/api/hazard-photos/${encodeURIComponent(p.id)}`;
+    img.alt = p.originalName || 'Hazard photo';
+    img.title = `${p.originalName || ''} — click to open original`;
+    img.addEventListener('click', () => window.open(`/api/hazard-photos/${encodeURIComponent(p.id)}?original=1`, '_blank', 'noopener'));
+    const del = document.createElement('button');
+    del.textContent = '✕';
+    del.title = 'Remove photo';
+    del.addEventListener('click', async () => {
+      const ok = await apiWrite(`/api/sites/${encodeURIComponent(SLUG)}/hazard/photos/${encodeURIComponent(p.id)}`, { method: 'DELETE' });
+      if (ok) { _hazardPhotos = _hazardPhotos.filter(x => x.id !== p.id); renderHazardPhotos(objectId); }
+    });
+    cell.append(img, del);
+    grid.appendChild(cell);
+  });
+  for (let i = 0; i < pending; i++) {
+    const cell = document.createElement('div');
+    cell.className = 'hazard-photo';
+    const ov = document.createElement('div'); ov.className = 'uploading'; ov.textContent = 'Uploading…';
+    cell.appendChild(ov);
+    grid.appendChild(cell);
+  }
+  document.getElementById('prop-hazard-photo-count').textContent = `${_hazardPhotos.length}/${HAZARD_MAX_PHOTOS}`;
+  document.getElementById('prop-hazard-add-photo').disabled = _hazardPhotos.length + pending >= HAZARD_MAX_PHOTOS;
+}
+
+async function onHazardFilesChosen(e) {
+  const files = Array.from(e.target.files || []);
+  e.target.value = '';
+  if (!_selectedId || !files.length) return;
+  const objectId = _selectedId;
+  const room = HAZARD_MAX_PHOTOS - _hazardPhotos.length;
+  const status = document.getElementById('prop-hazard-photo-status');
+  if (room <= 0) { status.textContent = `At most ${HAZARD_MAX_PHOTOS} photos per pin.`; return; }
+  const batch = files.slice(0, room);
+  if (batch.length < files.length) showToast(`Only ${room} more photo${room === 1 ? '' : 's'} allowed on this pin`);
+  // The pin must exist server-side before photos can reference it.
+  await flushAllPending();
+  let pending = batch.length;
+  renderHazardPhotos(objectId, pending);
+  for (const file of batch) {
+    status.textContent = `Compressing ${file.name}…`;
+    try {
+      const saved = await uploadHazardPhoto(objectId, file);
+      if (saved) _hazardPhotos.push(saved);
+      else status.textContent = `Upload failed: ${file.name}`;
+    } catch (err) {
+      status.textContent = `${file.name}: ${err.message}`;
+    }
+    pending -= 1;
+    if (_selectedId === objectId) renderHazardPhotos(objectId, pending);
+  }
+  if (_selectedId === objectId) status.textContent = `${_hazardPhotos.length} photo${_hazardPhotos.length === 1 ? '' : 's'} attached (kept 30 days).`;
+}
+
+function parseRecipients(text) {
+  return text.split(/[\s,;]+/).map(s => s.trim().toLowerCase()).filter(Boolean);
+}
+
+async function onSendReport() {
+  if (!_currentSceneId) return;
+  const status = document.getElementById('hazard-send-status');
+  const recipients = parseRecipients(document.getElementById('hazard-recipients').value);
+  const bad = recipients.filter(r => !/^[^@\s]+@hcma\.com\.au$/.test(r));
+  if (!recipients.length) { status.textContent = 'Add at least one @hcma.com.au address.'; return; }
+  if (bad.length) { status.textContent = `Only @hcma.com.au addresses are allowed: ${bad.join(', ')}`; return; }
+  const hazardCount = Array.from(_objects.values()).filter(e => e.obj.kind === 'hazard').length;
+  if (MODE === 'hazard' && !hazardCount) { status.textContent = 'Place at least one hazard pin first.'; return; }
+  await flushAllPending();
+  const btn = document.getElementById('hazard-send-btn');
+  btn.disabled = true;
+  status.textContent = 'Sending…';
+  try {
+    const res = await fetch(`/api/sites/${encodeURIComponent(SLUG)}/scenes/${encodeURIComponent(_currentSceneId)}/notify`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+      body: JSON.stringify({ recipients, message: document.getElementById('hazard-message').value.trim() || null }),
+    });
+    const d = await res.json().catch(() => ({}));
+    if (res.ok) {
+      status.textContent = `Escalated — sent to ${d.recipients.length} recipient${d.recipients.length === 1 ? '' : 's'}${MODE === 'hazard' ? ` with ${d.attached} original photo${d.attached === 1 ? '' : 's'}${d.skipped ? ` (${d.skipped} too large to attach)` : ''}` : ''}.`;
+      document.getElementById('hazard-message').value = '';
+      const scene = _scenes.find(sc => sc.id === _currentSceneId);
+      if (scene && d.status) { Object.assign(scene, { status: d.status, statusChangedAt: d.statusChangedAt, statusChangedByEmail: _me?.email ?? null }); renderScenesList(); showSceneStatus(scene); }
+      loadHazardHistory();
+    } else if (res.status === 401) { window._snShowLoginGate?.(); status.textContent = 'Session expired — sign in again.'; }
+    else if (d.code === 'mail-unconfigured') status.textContent = 'This server cannot send email yet — ask an admin to configure email.';
+    else status.textContent = d.error || `Send failed (${res.status})`;
+  } catch { status.textContent = 'Network error — try again.'; }
+  btn.disabled = false;
+}
+
+async function loadHazardHistory() {
+  const box = document.getElementById('hazard-history');
+  box.replaceChildren();
+  if (!_currentSceneId) return;
+  const sceneId = _currentSceneId;
+  let list = [];
+  try {
+    const r = await fetch(`/api/sites/${encodeURIComponent(SLUG)}/scenes/${encodeURIComponent(sceneId)}/notifications`);
+    if (r.ok) list = await r.json();
+  } catch {}
+  if (_currentSceneId !== sceneId) return;
+  list.forEach(n => {
+    const row = document.createElement('div');
+    row.className = 'hazard-history-item';
+    const when = new Date(n.sentAt).toLocaleString();
+    const strong = document.createElement('strong');
+    strong.textContent = when;
+    row.append(strong, ` — ${n.recipients.join(', ')}${n.sentBy ? ` (by ${n.sentBy.split('@')[0]})` : ''}${n.photoCount ? `, ${n.photoCount} photo${n.photoCount === 1 ? '' : 's'}` : ''}`);
+    box.appendChild(row);
+  });
 }
 
 // ── Delete ───────────────────────────────────────────────────────────────

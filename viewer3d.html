@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>SiteNav — 3D Viewer</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 100 100%27%3E%3Crect width=%27100%27 height=%27100%27 rx=%2718%27 fill=%27%23F97316%27/%3E%3Ctext x=%2750%27 y=%2768%27 font-size=%2760%27 font-family=%27Arial,sans-serif%27 font-weight=%27700%27 fill=%27%23fff%27 text-anchor=%27middle%27%3ES%3C/text%3E%3C/svg%3E">
   <script src="coi-serviceworker.js"></script>
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -250,7 +251,7 @@
     .cam-preset-btn.active .label-wrap { color: #ffffff; }
     .speed-limit-sign { cursor: default !important; pointer-events: none; background: transparent !important; border-color: transparent !important; box-shadow: none !important; justify-content: center !important; }
     .speed-limit-sign .label-wrap { display: none !important; }
-    .speed-limit-sign .icon-wrap img { width: 44px !important; height: 44px !important; opacity: 1; }
+    .speed-limit-sign .icon-wrap svg { width: 44px !important; height: 44px !important; opacity: 1; }
 
     /* ── FEATURE 1 & 2: Nav Tour & Measurement ── */
     .btn-nav-tour {
@@ -695,7 +696,15 @@
       #panel-close { display: none !important; }
       .cam-preset-btn { width: 44px !important; height: 44px !important; }
       .cam-preset-btn .icon-wrap { width: 44px !important; height: 44px !important; }
-      .speed-limit-sign .icon-wrap img { width: 44px !important; height: 44px !important; }
+      .speed-limit-sign .icon-wrap svg { width: 44px !important; height: 44px !important; }
+      #panel-toggle { margin-left: 0 !important; }
+      /* style.css hides both by ID over this whole range; restore them so
+         tablet matches index.html instead of losing the branding. */
+      #site-brand {
+        position: fixed !important; top: 16px !important; right: 16px !important;
+        display: flex !important;
+      }
+      #site-address { display: block !important; }
     }
 
     /* ── Mobile only (≤767px): viewer-specific sizes + show logo ── */
@@ -704,9 +713,8 @@
       .load-logo-mark img { height: 44px; max-width: 160px; }
       .load-bar { width: 200px; }
       #side-panel { padding-bottom: env(safe-area-inset-bottom, 0px) !important; }
-      #site-brand { position: fixed !important; top: 16px !important; right: 16px !important; display: flex !important; }
       #site-brand img { height: 28px !important; }
-      #site-address { font-size: 11px !important; text-align: center !important; display: block !important; }
+      #site-address { font-size: 11px !important; text-align: center !important; }
     }
 
     .list-empty {
