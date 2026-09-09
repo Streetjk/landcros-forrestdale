@@ -3008,13 +3008,29 @@ async function loadSplatBackground(opts = {}) {
       if (navigator.brave && await navigator.brave.isBrave()) _gpuSortOk = false;
       else if (/Edg\//.test(navigator.userAgent)) _gpuSortOk = false;
     } catch { _gpuSortOk = false; }
+    // These two are INDEPENDENT and were wrongly tied together when the
+    // Brave/Edge detection went in:
+    //   gpuAcceleratedSort    — precomputes splat distances on the GPU and
+    //                           reads them back. Brave randomises WebGL
+    //                           readback to defeat fingerprinting, which
+    //                           corrupts exactly that, so it stays off there.
+    //   sharedMemoryForWorkers — a SharedArrayBuffer shared with the sort
+    //                           worker. Nothing to do with WebGL readback, so
+    //                           Brave/Edge don't affect it at all. With it
+    //                           off, every sort structured-clones the whole
+    //                           splat buffer to the worker and back — megabytes
+    //                           per sort at this splat count.
+    // false/true is also the library's own default combination on mobile, so
+    // it is a supported pairing rather than an exotic one. Gated on real
+    // cross-origin isolation because SharedArrayBuffer requires it.
+    const _sharedMemOk = typeof SharedArrayBuffer !== 'undefined' && self.crossOriginIsolated === true;
     const sv = new GS3D.Viewer({
       selfDrivenMode: false,
       useBuiltInControls: false,
       renderer,
       camera,
       gpuAcceleratedSort: _gpuSortOk,
-      sharedMemoryForWorkers: _gpuSortOk,
+      sharedMemoryForWorkers: _sharedMemOk,
       splatAlphaRemovalThreshold: 1,
     });
 
