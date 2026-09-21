@@ -33,6 +33,7 @@ const scriptsDb     = require('./scripts-db');
 const scenesDb      = require('./scenes-db');
 const hazardDb      = require('./hazard-db');
 const pointPhotosDb = require('./point-photos-db');
+const { canManageScene } = require('./resource-ownership');
 
 // Generic client error body — logs the real error server-side, never leaks
 // DB/schema/config detail (e.message) to the client.
@@ -133,6 +134,18 @@ function _requireSiteRole(req, res, slug, minRole, cb) {
 // Phase 2 SLICE 2a: editor+ role on :slug.
 function _requireSiteEditor(req, res, slug, cb) {
   _requireSiteRole(req, res, slug, 'editor', cb);
+}
+
+// Object-level guard layered on top of the site editor role. Scene
+// subscriptions are read/list membership only; they do not grant edit rights.
+async function _managedSceneOrRespond(res, slug, sceneId, session) {
+  const meta = await scenesDb.getSceneMeta(slug, sceneId);
+  if (!meta) { _json(res, 404, { error: 'not found' }); return null; }
+  if (!canManageScene(meta, session, auth.isPlatformAdmin(session.email))) {
+    _json(res, 403, { error: 'forbidden' });
+    return null;
+  }
+  return meta;
 }
 
 // Phase 3: admin+ role on :slug — gates webhook CRUD (webhooks.secret must
@@ -719,28 +732,27 @@ const server = http.createServer((req, res) => {
       // every scene's objects into the editor's single canvas).
       const sceneId = url.searchParams.get('scene');
       if (!sceneId) { res.writeHead(400, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ error: 'scene query param is required' })); }
-      _requireSiteEditor(req, res, slug, () => {
-        sceneDb.listSceneObjects(slug, sceneId).then(objects => {
-          res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify(objects));
-        }).catch(e => {
-          res.writeHead(500, { 'Content-Type': 'application/json' });
-          res.end(_errBody(e));
-        });
+      _requireSiteEditor(req, res, slug, (s) => {
+        (async () => {
+          if (!await _managedSceneOrRespond(res, slug, sceneId, s)) return;
+          const objects = await sceneDb.listSceneObjects(slug, sceneId);
+          _json(res, 200, objects);
+        })().catch(e => { if (!res.writableEnded) _json(res, 500, JSON.parse(_errBody(e))); });
       });
       return;
     }
     _requireSiteEditor(req, res, slug, (s) => {
-      _readJsonBody(req, (err, obj) => {
-        if (err) { res.writeHead(400, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ error: 'Invalid JSON' })); }
-        sceneDb.saveSceneObject(slug, obj, s.profileId).then(saved => {
+      _readJsonBody(req, async (err, obj) => {
+        if (err) return _json(res, 400, { error: 'Invalid JSON' });
+        try {
+          if (!obj?.sceneId) return _json(res, 400, { error: 'sceneId is required' });
+          if (!await _managedSceneOrRespond(res, slug, obj.sceneId, s)) return;
+          const saved = await sceneDb.saveSceneObject(slug, obj, s.profileId);
           console.log(`[objects] ${slug}/${saved.id} saved by ${s.profileId}`);
-          res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify(saved));
-        }).catch(e => {
-          res.writeHead(500, { 'Content-Type': 'application/json' });
-          res.end(_errBody(e));
-        });
+          _json(res, 200, saved);
+        } catch (e) {
+          if (!res.writableEnded) _json(res, 500, JSON.parse(_errBody(e)));
+        }
       });
     });
     return;
@@ -752,15 +764,17 @@ const server = http.createServer((req, res) => {
     const id = _objectDeleteMatch[2];
     if (!SLUG_RE.test(slug)) { res.writeHead(404, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ error: 'not found' })); }
     _requireSiteEditor(req, res, slug, (s) => {
-      hazardDb.deletePhotosForObject(slug, id).catch(e => console.error('[hazard] photo cleanup on object delete failed:', e.message))
-        .then(() => sceneDb.deleteSceneObject(slug, id, s.profileId)).then(() => {
+      (async () => {
+        const objectMeta = await sceneDb.getSceneObjectMeta(slug, id);
+        if (!objectMeta) return _json(res, 404, { error: 'not found' });
+        if (!await _managedSceneOrRespond(res, slug, objectMeta.sceneId, s)) return;
+        // Authorization precedes destructive photo cleanup.
+        await hazardDb.deletePhotosForObject(slug, id)
+          .catch(e => console.error('[hazard] photo cleanup on object delete failed:', e.message));
+        await sceneDb.deleteSceneObject(slug, id, s.profileId, objectMeta.sceneId);
         console.log(`[objects] ${slug}/${id} deleted by ${s.profileId}`);
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ ok: true }));
-      }).catch(e => {
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(_errBody(e));
-      });
+        _json(res, 200, { ok: true });
+      })().catch(e => { if (!res.writableEnded) _json(res, 500, JSON.parse(_errBody(e))); });
     });
     return;
   }
@@ -986,15 +1000,15 @@ const server = http.createServer((req, res) => {
         });
         return;
       }
-      _readJsonBody(req, (err, body) => {
-        if (err) { res.writeHead(400, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ error: 'Invalid JSON' })); }
-        scenesDb.updateScene(slug, id, body, s.profileId).then(updated => {
-          res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify(updated));
-        }).catch(e => {
-          res.writeHead(400, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: e.message || 'Invalid scene' }));
-        });
+      _readJsonBody(req, async (err, body) => {
+        if (err) return _json(res, 400, { error: 'Invalid JSON' });
+        try {
+          if (!await _managedSceneOrRespond(res, slug, id, s)) return;
+          const updated = await scenesDb.updateScene(slug, id, body, s.profileId);
+          _json(res, 200, updated);
+        } catch (e) {
+          if (!res.writableEnded) _json(res, 400, { error: e.message || 'Invalid scene' });
+        }
       });
     });
     return;

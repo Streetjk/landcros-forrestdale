@@ -122,8 +122,11 @@ async function getSceneByCode(code) {
   return { id: r.id, siteId: r.site_id, slug: r.slug, kind: r.kind, status: r.status, shareCode: r.share_code, name: r.name, createdBy: r.created_by };
 }
 
+const UUID_RE = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+
 // Minimal row for authorization decisions (owner / kind) — no joins.
 async function getSceneMeta(slug, id) {
+  if (typeof id !== 'string' || !UUID_RE.test(id)) return null;
   const siteId = await getSiteId(slug);
   const { rows } = await _getPool().query(
     'select id, kind, status, created_by, share_code, name from scenes where id = $1 and site_id = $2', [id, siteId]

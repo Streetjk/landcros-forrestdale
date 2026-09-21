@@ -95,28 +95,45 @@ async function saveSceneObject(slug, obj, changedBy = null) {
        props = excluded.props, script_id = excluded.script_id, z_index = excluded.z_index,
        updated_at = now()
      where scene_objects.site_id = excluded.site_id
+       and scene_objects.scene_id = excluded.scene_id
      returning *`,
     [
       obj.id, siteId, obj.sceneId, obj.kind, j(obj.transform || {}), j(obj.style || {}), j(obj.props || {}),
       obj.scriptId ?? null, obj.zIndex ?? 0,
     ]
   );
-  // WHERE scene_objects.site_id = excluded.site_id blocks the update if `id`
-  // already belongs to a different site — surface that as an error instead of
-  // silently no-op'ing (same contract as supabase-db.js's savePoint).
-  if (!rows.length) throw new Error(`Scene object ${obj.id} belongs to a different site`);
+  // Existing object IDs are immutable to their original site + scene. This
+  // prevents authorizing against one owned scene while modifying an object in another.
+  if (!rows.length) throw new Error(`Scene object ${obj.id} belongs to a different site or scene`);
   const saved = sceneObjectToJson(rows[0]);
   await _appendAudit(siteId, changedBy, 'save', 'scene_object', saved.id, saved.kind);
   return saved;
 }
 
-async function deleteSceneObject(slug, id, changedBy = null) {
+async function deleteSceneObject(slug, id, changedBy = null, expectedSceneId = null) {
   const siteId = await getSiteId(slug);
   const { rows } = await _getPool().query(
-    'delete from scene_objects where id = $1::uuid and site_id = $2::uuid returning kind',
-    [id, siteId]
+    `delete from scene_objects
+     where id = $1::uuid and site_id = $2::uuid
+       and ($3::uuid is null or scene_id = $3::uuid)
+     returning kind`,
+    [id, siteId, expectedSceneId]
   );
   if (rows.length) await _appendAudit(siteId, changedBy, 'delete', 'scene_object', id, rows[0].kind);
+}
+
+// Scene-object metadata lookup for authorization decisions (resolving sceneId).
+// Returns { id, sceneId } scoped by site, or null. Does not expose object contents.
+const UUID_RE = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+
+async function getSceneObjectMeta(slug, id) {
+  if (typeof id !== 'string' || !UUID_RE.test(id)) return null;
+  const siteId = await getSiteId(slug);
+  const { rows } = await _getPool().query(
+    'select id, scene_id from scene_objects where id = $1::uuid and site_id = $2::uuid',
+    [id, siteId]
+  );
+  return rows.length ? { id: rows[0].id, sceneId: rows[0].scene_id } : null;
 }
 
 module.exports = {
@@ -124,5 +141,6 @@ module.exports = {
   isSitePublished,
   saveSceneObject,
   deleteSceneObject,
+  getSceneObjectMeta,
   sceneObjectToJson, // exported so scenes-db.js's by-code bundle returns the exact viewer-expected object shape
 };

@@ -15,6 +15,10 @@ Keep the current public front page, 3D assets, label positions, staff dropdown a
 | E. Operational field qualification | Approved public content; upload/reader UX; iPhone/Android tests; runtime and memory checks | Core guide usable during model/data delays; actual camera/gallery photos and QR tested | Approved content + physical device checks pending |
 | F. Reporting adapter | Private report draft, category/description/photos/reference, reliable email queue/status; Assura adapter contract | Retry does not duplicate; failed delivery visible; evidence never public by default | Existing backend to reuse; integration not qualified |
 
+## Ownership-hardening checkpoint
+
+The current development slice adds server-side creator/platform-admin checks for scene edits and scene-object CRUD, while preserving ownerless legacy scenes for site editors. Scene subscriptions remain read/list only. This hardening is a prerequisite, not completion of My Pins: browser-local personal pins, scene-scoped point CRUD and point-photo authorization are still later work.
+
 ## Staff workflow architecture
 
 Reuse existing `scenes.created_by`, `points.scene_id` and `scene_subscriptions` rather than introduce a competing guide database. A simple single-pin guide can use this model without forcing users to understand scene editing. Optional grouped guides can follow later.
