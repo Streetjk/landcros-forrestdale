@@ -165,6 +165,7 @@ const handleScenePointPhotos = createScenePointPhotoHandler({
   managedScene: _managedSceneOrRespond,
   readRawBody: _readRawBody,
   readJson: _readJsonBody,
+  rateLimit: _rateLimited,
   json: _json,
   db: pointPhotosDb,
   onError: e => console.error('[scene-point-photos]', e?.name || 'Error'),

@@ -502,3 +502,185 @@ test('admin scenes preserve existing owner, platform admin, and legacy semantics
   assert.equal(resLegacy.statusCode, 200);
   assert.deepEqual(callsLegacy, [['editor'], ['scene', ADMIN_SCENE], ['list', SLUG, ADMIN_SCENE, POINT]]);
 });
+
+test('authorized admin POST that is rate-limited returns immediately and readRawBody/DAL are untouched', async () => {
+  const rateLimitCalls = [];
+  let readRawBodyCalled = false;
+  let addPhotoCalled = false;
+
+  const { handle, calls } = make({
+    rateLimit(r, res, bucket, max, windowMs) {
+      rateLimitCalls.push({ bucket, max, windowMs, hasReq: Boolean(r), hasRes: Boolean(res) });
+      res.writeHead(429, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'rate limit' }));
+      return true;
+    },
+    readRawBody(_req, _limit, cb) {
+      readRawBodyCalled = true;
+      cb(null, Buffer.from('payload'));
+    },
+    db: {
+      async addScenePointPhoto() {
+        addPhotoCalled = true;
+        throw new Error('DAL should not be called');
+      },
+    },
+  });
+
+  const res = response();
+  const handled = handle(req('POST', COLL_URL), res, new URL('http://local' + COLL_URL));
+  assert.equal(handled, true);
+  await settle();
+
+  assert.equal(res.statusCode, 429);
+  assert.deepEqual(jsonBody(res), { error: 'rate limit' });
+  assert.deepEqual(rateLimitCalls, [{
+    bucket: 'scene-point-photo',
+    max: 60,
+    windowMs: 3600000,
+    hasReq: true,
+    hasRes: true,
+  }]);
+  assert.equal(readRawBodyCalled, false, 'readRawBody must not be called when rate limited');
+  assert.equal(addPhotoCalled, false, 'db.addScenePointPhoto must not be called when rate limited');
+  assert.deepEqual(calls, [['editor'], ['scene']]);
+});
+
+test('unauthorized, non-owner, and hazard POST never calls the limiter', async () => {
+  // 1. Unauthorized editor
+  {
+    const rateLimitCalls = [];
+    const { handle } = make({
+      rateLimit(...args) {
+        rateLimitCalls.push(args);
+        return false;
+      },
+      requireEditor(_req, res) {
+        res.statusCode = 401;
+        res.end(JSON.stringify({ error: 'UNAUTHORIZED' }));
+      },
+    });
+    const res = response();
+    handle(req('POST', COLL_URL), res, new URL('http://local' + COLL_URL));
+    await settle();
+    assert.equal(res.statusCode, 401);
+    assert.deepEqual(rateLimitCalls, [], 'Limiter must not be called for unauthenticated POST');
+  }
+
+  // 2. Non-owner / subscriber fails managedScene
+  {
+    const rateLimitCalls = [];
+    const { handle } = make({
+      rateLimit(...args) {
+        rateLimitCalls.push(args);
+        return false;
+      },
+      async managedScene(res) {
+        res.statusCode = 403;
+        res.end(JSON.stringify({ error: 'forbidden' }));
+        return null;
+      },
+    });
+    const res = response();
+    handle(req('POST', COLL_URL), res, new URL('http://local' + COLL_URL));
+    await settle();
+    assert.equal(res.statusCode, 403);
+    assert.deepEqual(rateLimitCalls, [], 'Limiter must not be called for non-owner POST');
+  }
+
+  // 3. Hazard scene
+  {
+    const rateLimitCalls = [];
+    const { handle } = make({
+      rateLimit(...args) {
+        rateLimitCalls.push(args);
+        return false;
+      },
+      async managedScene(_res, _slug, sceneId) {
+        return { id: sceneId, createdBy: ACTOR, kind: 'hazard' };
+      },
+    });
+    const res = response();
+    handle(req('POST', COLL_URL), res, new URL('http://local' + COLL_URL));
+    await settle();
+    assert.equal(res.statusCode, 400);
+    assert.deepEqual(jsonBody(res), { error: 'INVALID_SCENE_KIND' });
+    assert.deepEqual(rateLimitCalls, [], 'Limiter must not be called for hazard scene POST');
+  }
+});
+
+test('normal allowed POST passes limiter and behaves unchanged', async () => {
+  const rateLimitCalls = [];
+  let readRawBodyCalled = false;
+  const compressed = Buffer.from('compressed-image-data');
+  const original = Buffer.from('original-image-data');
+  const header = {
+    compressedBytes: compressed.length,
+    contentType: 'image/jpeg',
+    originalName: 'normal.jpg',
+  };
+  const envelope = buildEnvelope(header, compressed, original);
+
+  const { handle, calls } = make({
+    rateLimit(r, res, bucket, max, windowMs) {
+      rateLimitCalls.push({ bucket, max, windowMs });
+      return false;
+    },
+    readRawBody(_req, _limit, cb) {
+      readRawBodyCalled = true;
+      cb(null, envelope);
+    },
+  });
+
+  const res = response();
+  handle(req('POST', COLL_URL), res, new URL('http://local' + COLL_URL));
+  await settle();
+
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(rateLimitCalls, [{
+    bucket: 'scene-point-photo',
+    max: 60,
+    windowMs: 3600000,
+  }]);
+  assert.equal(readRawBodyCalled, true);
+  assert.deepEqual(calls, [
+    ['editor'],
+    ['scene'],
+    ['add', SLUG, SCENE, POINT, {
+      compressed,
+      original,
+      contentType: 'image/jpeg',
+      originalName: 'normal.jpg',
+      width: null,
+      height: null,
+      keepIndefinitely: false,
+    }, ACTOR],
+  ]);
+});
+
+test('rate limiter is never called for GET, HEAD, PATCH, or DELETE methods', async () => {
+  const rateLimitCalls = [];
+  const { handle } = make({
+    rateLimit(...args) {
+      rateLimitCalls.push(args);
+      return false;
+    },
+  });
+
+  const requests = [
+    req('GET', COLL_URL),
+    req('GET', ITEM_URL),
+    req('HEAD', ITEM_URL),
+    req('PATCH', ITEM_URL),
+    req('DELETE', ITEM_URL),
+  ];
+
+  for (const r of requests) {
+    const res = response();
+    handle(r, res, new URL('http://local' + r.url));
+    await settle();
+    assert.equal(res.statusCode, 200, `Expected 200 for ${r.method} ${r.url}`);
+  }
+
+  assert.deepEqual(rateLimitCalls, [], 'Limiter must never be called for non-POST methods');
+});

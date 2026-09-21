@@ -21,6 +21,7 @@ function createScenePointPhotoHandler(options = {}) {
     managedScene,
     readRawBody,
     readJson,
+    rateLimit,
     json = sendJson,
     db = defaultDb,
     onError = () => {},
@@ -156,6 +157,11 @@ function createScenePointPhotoHandler(options = {}) {
 
             // Collection POST: upload binary envelope
             if (method === 'POST') {
+              if (typeof rateLimit === 'function') {
+                const limited = await rateLimit(req, res, 'scene-point-photo', 60, 3600000);
+                if (limited || res.writableEnded) return;
+              }
+
               const maxCompressed = db.MAX_COMPRESSED_BYTES || 400 * 1024;
               const maxOriginal = db.MAX_ORIGINAL_BYTES || 15 * 1024 * 1024;
               const maxLimit = maxOriginal + maxCompressed + 4096;
