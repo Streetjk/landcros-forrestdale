@@ -5,6 +5,11 @@ import {
   saveAccountPin,
   deleteAccountPin,
   buildLegacyImportPlan,
+  listAccountPinPhotos,
+  uploadAccountPinPhoto,
+  setAccountPinPhotoRetention,
+  deleteAccountPinPhoto,
+  getAccountPinPhotoUrl,
   MyPinsError
 } from './my-pins-client.js';
 
@@ -104,6 +109,11 @@ export function createMyPinsSession(slug, options = {}) {
     saveAccountPin,
     deleteAccountPin,
     buildLegacyImportPlan,
+    listAccountPinPhotos,
+    uploadAccountPinPhoto,
+    setAccountPinPhotoRetention,
+    deleteAccountPinPhoto,
+    getAccountPinPhotoUrl,
     ...injectedApi
   };
 
@@ -362,11 +372,112 @@ export function createMyPinsSession(slug, options = {}) {
     }
   }
 
+  function _findOwnedPin(pointId) {
+    if (!pointId || typeof pointId !== 'string') {
+      throw new MyPinsError(0, 'INVALID_INPUT');
+    }
+    const pin = state.pins.find(p => String(p?.id).toLowerCase() === String(pointId).toLowerCase());
+    if (!pin) {
+      throw new MyPinsError(0, 'INVALID_INPUT');
+    }
+    return pin;
+  }
+
+  function _getAuthoritativeScene() {
+    const scene = state.scene;
+    if (!scene || !scene.id) {
+      throw new MyPinsError(0, 'INVALID_INPUT');
+    }
+    return scene;
+  }
+
+  function getOwnedSceneId() {
+    return state.scene?.id || null;
+  }
+
+  async function listPhotos(pointId) {
+    await verifySessionIdentity(fetchFn, identity);
+    const pin = _findOwnedPin(pointId);
+    const scene = _getAuthoritativeScene();
+    return await api.listAccountPinPhotos(slug, scene.id, pin.id, { fetchFn });
+  }
+
+  async function uploadPhoto(pointId, body) {
+    if (!body) {
+      throw new MyPinsError(0, 'INVALID_INPUT');
+    }
+    if (state.busy) {
+      throw new MyPinsError(0, 'BUSY');
+    }
+    state.busy = true;
+    try {
+      await verifySessionIdentity(fetchFn, identity);
+      const pin = _findOwnedPin(pointId);
+      const scene = _getAuthoritativeScene();
+      const photo = await api.uploadAccountPinPhoto(slug, scene.id, pin.id, body, { fetchFn });
+      return deepClone(photo);
+    } finally {
+      state.busy = false;
+    }
+  }
+
+  async function setPhotoRetention(pointId, photoId, keepIndefinitely) {
+    if (!photoId || typeof photoId !== 'string') {
+      throw new MyPinsError(0, 'INVALID_INPUT');
+    }
+    if (state.busy) {
+      throw new MyPinsError(0, 'BUSY');
+    }
+    state.busy = true;
+    try {
+      await verifySessionIdentity(fetchFn, identity);
+      const pin = _findOwnedPin(pointId);
+      const scene = _getAuthoritativeScene();
+      const updated = await api.setAccountPinPhotoRetention(slug, scene.id, pin.id, photoId, keepIndefinitely, { fetchFn });
+      return deepClone(updated);
+    } finally {
+      state.busy = false;
+    }
+  }
+
+  async function deletePhoto(pointId, photoId) {
+    if (!photoId || typeof photoId !== 'string') {
+      throw new MyPinsError(0, 'INVALID_INPUT');
+    }
+    if (state.busy) {
+      throw new MyPinsError(0, 'BUSY');
+    }
+    state.busy = true;
+    try {
+      await verifySessionIdentity(fetchFn, identity);
+      const pin = _findOwnedPin(pointId);
+      const scene = _getAuthoritativeScene();
+      return await api.deleteAccountPinPhoto(slug, scene.id, pin.id, photoId, { fetchFn });
+    } finally {
+      state.busy = false;
+    }
+  }
+
+  function getPhotoUrl(pointId, photoId, { original = false } = {}) {
+    const pin = _findOwnedPin(pointId);
+    if (!photoId || typeof photoId !== 'string') {
+      throw new MyPinsError(0, 'INVALID_INPUT');
+    }
+    const scene = _getAuthoritativeScene();
+    return api.getAccountPinPhotoUrl(slug, scene.id, pin.id, photoId, { original });
+  }
+
   return {
     load,
     save,
     remove,
     importLegacy,
-    getState
+    getState,
+    listPhotos,
+    uploadPhoto,
+    setPhotoRetention,
+    deletePhoto,
+    getPhotoUrl,
+    getOwnedSceneId
   };
 }

@@ -39,6 +39,12 @@ async function performRequest(url, options, fetchFn) {
     if (status === 409) {
       const body = await res.json().catch(() => null);
       if (body?.error === 'POINT_HAS_PHOTOS') code = 'POINT_HAS_PHOTOS';
+      else if (body?.error === 'PHOTO_LIMIT') code = 'PHOTO_LIMIT';
+    } else if (status === 413) {
+      code = 'PHOTO_TOO_LARGE';
+    } else if (status === 400) {
+      const body = await res.json().catch(() => null);
+      if (body?.error === 'PHOTO_BAD_TYPE') code = 'PHOTO_BAD_TYPE';
     }
     throw new MyPinsError(status, code);
   }
@@ -199,6 +205,86 @@ export async function deleteAccountPin(slug, sceneId, pointId, { fetchFn = globa
     throw new MyPinsError(200, 'MALFORMED_RESPONSE');
   }
   return res;
+}
+
+export async function listAccountPinPhotos(slug, sceneId, pointId, { fetchFn = globalThis.fetch } = {}) {
+  if (!slug || !sceneId || !pointId) {
+    throw new MyPinsError(0, 'INVALID_INPUT');
+  }
+  const url = `/api/sites/${encodeURIComponent(slug)}/scenes/${encodeURIComponent(sceneId)}/points/${encodeURIComponent(pointId)}/photos`;
+  const data = await performRequest(url, {
+    method: 'GET',
+    credentials: 'same-origin'
+  }, fetchFn);
+
+  if (!Array.isArray(data)) {
+    throw new MyPinsError(200, 'MALFORMED_RESPONSE');
+  }
+  return data;
+}
+
+export async function uploadAccountPinPhoto(slug, sceneId, pointId, body, { fetchFn = globalThis.fetch } = {}) {
+  if (!slug || !sceneId || !pointId || !body) {
+    throw new MyPinsError(0, 'INVALID_INPUT');
+  }
+  const url = `/api/sites/${encodeURIComponent(slug)}/scenes/${encodeURIComponent(sceneId)}/points/${encodeURIComponent(pointId)}/photos`;
+  const data = await performRequest(url, {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: {
+      'Content-Type': 'application/octet-stream'
+    },
+    body
+  }, fetchFn);
+
+  if (!data || typeof data !== 'object' || Array.isArray(data) || !data.id) {
+    throw new MyPinsError(200, 'MALFORMED_RESPONSE');
+  }
+  return data;
+}
+
+export async function setAccountPinPhotoRetention(slug, sceneId, pointId, photoId, keepIndefinitely, { fetchFn = globalThis.fetch } = {}) {
+  if (!slug || !sceneId || !pointId || !photoId) {
+    throw new MyPinsError(0, 'INVALID_INPUT');
+  }
+  const url = `/api/sites/${encodeURIComponent(slug)}/scenes/${encodeURIComponent(sceneId)}/points/${encodeURIComponent(pointId)}/photos/${encodeURIComponent(photoId)}`;
+  const data = await performRequest(url, {
+    method: 'PATCH',
+    credentials: 'same-origin',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ keepIndefinitely: Boolean(keepIndefinitely) })
+  }, fetchFn);
+
+  if (!data || typeof data !== 'object' || Array.isArray(data) || !data.id) {
+    throw new MyPinsError(200, 'MALFORMED_RESPONSE');
+  }
+  return data;
+}
+
+export async function deleteAccountPinPhoto(slug, sceneId, pointId, photoId, { fetchFn = globalThis.fetch } = {}) {
+  if (!slug || !sceneId || !pointId || !photoId) {
+    throw new MyPinsError(0, 'INVALID_INPUT');
+  }
+  const url = `/api/sites/${encodeURIComponent(slug)}/scenes/${encodeURIComponent(sceneId)}/points/${encodeURIComponent(pointId)}/photos/${encodeURIComponent(photoId)}`;
+  const res = await performRequest(url, {
+    method: 'DELETE',
+    credentials: 'same-origin'
+  }, fetchFn);
+
+  if (!res || res.ok !== true) {
+    throw new MyPinsError(200, 'MALFORMED_RESPONSE');
+  }
+  return res;
+}
+
+export function getAccountPinPhotoUrl(slug, sceneId, pointId, photoId, { original = false } = {}) {
+  if (!slug || !sceneId || !pointId || !photoId) {
+    throw new MyPinsError(0, 'INVALID_INPUT');
+  }
+  const base = `/api/sites/${encodeURIComponent(slug)}/scenes/${encodeURIComponent(sceneId)}/points/${encodeURIComponent(pointId)}/photos/${encodeURIComponent(photoId)}`;
+  return original ? `${base}?original=1` : base;
 }
 
 const UUID_REGEX = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;

@@ -19,7 +19,12 @@ const {
   saveAccountPin,
   deleteAccountPin,
   readLegacyLocalPins,
-  buildLegacyImportPlan
+  buildLegacyImportPlan,
+  listAccountPinPhotos,
+  uploadAccountPinPhoto,
+  setAccountPinPhotoRetention,
+  deleteAccountPinPhoto,
+  getAccountPinPhotoUrl
 } = client;
 
 function createMockFetch(responses = []) {
@@ -266,4 +271,88 @@ test('create-only saves send If-None-Match without changing ordinary updates', a
   await saveAccountPin('alpha','scene',{id:'fixture'},{fetchFn:mock});
   assert.equal(mock.calls[0].options.headers['If-None-Match'],'*');
   assert.equal(mock.calls[1].options.headers['If-None-Match'],undefined);
+});
+
+test('Account pin photo operations encode slug/sceneId/pointId/photoId and set credentials same-origin', async () => {
+  const photoFixture = { id: 'ph-1', pointId: 'pt-1', bytes: 1234, contentType: 'image/jpeg' };
+  const mock = createMockFetch([
+    { status: 200, ok: true, data: [photoFixture] },
+    { status: 200, ok: true, data: photoFixture },
+    { status: 200, ok: true, data: { ...photoFixture, expiresAt: null } },
+    { status: 200, ok: true, data: { ok: true } }
+  ]);
+
+  // 1. List photos
+  const list = await listAccountPinPhotos('site/alpha', 'sc/1', 'pt/1', { fetchFn: mock });
+  assert.equal(mock.calls[0].url, '/api/sites/site%2Falpha/scenes/sc%2F1/points/pt%2F1/photos');
+  assert.equal(mock.calls[0].options.method, 'GET');
+  assert.equal(mock.calls[0].options.credentials, 'same-origin');
+  assert.deepEqual(list, [photoFixture]);
+
+  // 2. Upload photo
+  const fakeBinary = new Uint8Array([0, 0, 0, 10, 1, 2, 3, 4]);
+  const uploaded = await uploadAccountPinPhoto('site/alpha', 'sc/1', 'pt/1', fakeBinary, { fetchFn: mock });
+  assert.equal(mock.calls[1].url, '/api/sites/site%2Falpha/scenes/sc%2F1/points/pt%2F1/photos');
+  assert.equal(mock.calls[1].options.method, 'POST');
+  assert.equal(mock.calls[1].options.credentials, 'same-origin');
+  assert.equal(mock.calls[1].options.headers['Content-Type'], 'application/octet-stream');
+  assert.equal(mock.calls[1].options.body, fakeBinary);
+  assert.deepEqual(uploaded, photoFixture);
+
+  // 3. Set retention
+  const patched = await setAccountPinPhotoRetention('site/alpha', 'sc/1', 'pt/1', 'ph/1', true, { fetchFn: mock });
+  assert.equal(mock.calls[2].url, '/api/sites/site%2Falpha/scenes/sc%2F1/points/pt%2F1/photos/ph%2F1');
+  assert.equal(mock.calls[2].options.method, 'PATCH');
+  assert.equal(mock.calls[2].options.credentials, 'same-origin');
+  assert.equal(mock.calls[2].options.headers['Content-Type'], 'application/json');
+  assert.deepEqual(JSON.parse(mock.calls[2].options.body), { keepIndefinitely: true });
+  assert.equal(patched.expiresAt, null);
+
+  // 4. Delete photo
+  const deleted = await deleteAccountPinPhoto('site/alpha', 'sc/1', 'pt/1', 'ph/1', { fetchFn: mock });
+  assert.equal(mock.calls[3].url, '/api/sites/site%2Falpha/scenes/sc%2F1/points/pt%2F1/photos/ph%2F1');
+  assert.equal(mock.calls[3].options.method, 'DELETE');
+  assert.equal(mock.calls[3].options.credentials, 'same-origin');
+  assert.deepEqual(deleted, { ok: true });
+
+  // 5. URL helper (pure function)
+  const thumbUrl = getAccountPinPhotoUrl('site/alpha', 'sc/1', 'pt/1', 'ph/1');
+  assert.equal(thumbUrl, '/api/sites/site%2Falpha/scenes/sc%2F1/points/pt%2F1/photos/ph%2F1');
+  assert(!thumbUrl.includes('/api/point-photos/'));
+
+  const origUrl = getAccountPinPhotoUrl('site/alpha', 'sc/1', 'pt/1', 'ph/1', { original: true });
+  assert.equal(origUrl, '/api/sites/site%2Falpha/scenes/sc%2F1/points/pt%2F1/photos/ph%2F1?original=1');
+  assert(!origUrl.includes('/api/point-photos/'));
+});
+
+test('Account pin photo operations input validation and specialized photo error mapping', async () => {
+  // Input validation
+  await assert.rejects(() => listAccountPinPhotos('', 'sc', 'pt'), e => e.code === 'INVALID_INPUT');
+  await assert.rejects(() => listAccountPinPhotos('slug', '', 'pt'), e => e.code === 'INVALID_INPUT');
+  await assert.rejects(() => listAccountPinPhotos('slug', 'sc', ''), e => e.code === 'INVALID_INPUT');
+  await assert.rejects(() => uploadAccountPinPhoto('slug', 'sc', 'pt', null), e => e.code === 'INVALID_INPUT');
+  await assert.rejects(() => setAccountPinPhotoRetention('slug', 'sc', 'pt', ''), e => e.code === 'INVALID_INPUT');
+  await assert.rejects(() => deleteAccountPinPhoto('slug', 'sc', 'pt', ''), e => e.code === 'INVALID_INPUT');
+  assert.throws(() => getAccountPinPhotoUrl('', 'sc', 'pt', 'ph'), e => e.code === 'INVALID_INPUT');
+
+  // PHOTO_LIMIT (409)
+  const limitMock = createMockFetch([{ status: 409, ok: false, data: { error: 'PHOTO_LIMIT' } }]);
+  await assert.rejects(
+    () => uploadAccountPinPhoto('slug', 'sc', 'pt', new Uint8Array([1]), { fetchFn: limitMock }),
+    e => e instanceof MyPinsError && e.status === 409 && e.code === 'PHOTO_LIMIT'
+  );
+
+  // PHOTO_TOO_LARGE (413)
+  const largeMock = createMockFetch([{ status: 413, ok: false, data: { error: 'PHOTO_TOO_LARGE' } }]);
+  await assert.rejects(
+    () => uploadAccountPinPhoto('slug', 'sc', 'pt', new Uint8Array([1]), { fetchFn: largeMock }),
+    e => e instanceof MyPinsError && e.status === 413 && e.code === 'PHOTO_TOO_LARGE'
+  );
+
+  // PHOTO_BAD_TYPE (400)
+  const badTypeMock = createMockFetch([{ status: 400, ok: false, data: { error: 'PHOTO_BAD_TYPE' } }]);
+  await assert.rejects(
+    () => uploadAccountPinPhoto('slug', 'sc', 'pt', new Uint8Array([1]), { fetchFn: badTypeMock }),
+    e => e instanceof MyPinsError && e.status === 400 && e.code === 'PHOTO_BAD_TYPE'
+  );
 });

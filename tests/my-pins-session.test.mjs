@@ -361,3 +361,167 @@ test('create-only conflict remains failure when ID does not exist in this accoun
   await session.load();const result=await session.importLegacy(async()=>true);
   assert.equal(result.skipped,0);assert.equal(result.failed,1);
 });
+
+test('session photo operations derive scene ownership from session, reject unowned points, and require verified auth', async () => {
+  const scene = { id: 's-authoritative', isMine: true, camera: { purpose: 'my-pins-v1' } };
+  const ownedPin = { id: PIN_ID_1, sceneId: 's-authoritative', label: 'Owned Point', scope: 'personal' };
+  const photoFixture = { id: 'photo-1', pointId: PIN_ID_1, bytes: 500, contentType: 'image/jpeg' };
+
+  let listCalledWith = null;
+  let uploadCalledWith = null;
+  let retentionCalledWith = null;
+  let deleteCalledWith = null;
+  let urlCalledWith = null;
+
+  const session = createMyPinsSession('alpha', {
+    identity: TEST_EMAIL,
+    fetchFn: makeAuthFetch(),
+    api: {
+      listMyPinsScenes: async () => [scene],
+      listAccountPins: async () => [ownedPin],
+      listAccountPinPhotos: async (slug, sceneId, pointId) => {
+        listCalledWith = { slug, sceneId, pointId };
+        return [photoFixture];
+      },
+      uploadAccountPinPhoto: async (slug, sceneId, pointId, body) => {
+        uploadCalledWith = { slug, sceneId, pointId, body };
+        return photoFixture;
+      },
+      setAccountPinPhotoRetention: async (slug, sceneId, pointId, photoId, keep) => {
+        retentionCalledWith = { slug, sceneId, pointId, photoId, keep };
+        return { ...photoFixture, expiresAt: keep ? null : '2026-10-21T00:00:00Z' };
+      },
+      deleteAccountPinPhoto: async (slug, sceneId, pointId, photoId) => {
+        deleteCalledWith = { slug, sceneId, pointId, photoId };
+        return { ok: true };
+      },
+      getAccountPinPhotoUrl: (slug, sceneId, pointId, photoId, opts) => {
+        urlCalledWith = { slug, sceneId, pointId, photoId, opts };
+        return `/api/sites/${slug}/scenes/${sceneId}/points/${pointId}/photos/${photoId}${opts?.original ? '?original=1' : ''}`;
+      }
+    }
+  });
+
+  await session.load();
+  assert.equal(session.getOwnedSceneId(), 's-authoritative');
+
+  // 1. Successful operations with owned point derive scene from session
+  const photos = await session.listPhotos(PIN_ID_1);
+  assert.deepEqual(listCalledWith, { slug: 'alpha', sceneId: 's-authoritative', pointId: PIN_ID_1 });
+  assert.deepEqual(photos, [photoFixture]);
+
+  const fakeBody = new Uint8Array([1, 2, 3]);
+  const uploaded = await session.uploadPhoto(PIN_ID_1, fakeBody);
+  assert.deepEqual(uploadCalledWith, { slug: 'alpha', sceneId: 's-authoritative', pointId: PIN_ID_1, body: fakeBody });
+  assert.deepEqual(uploaded, photoFixture);
+
+  const updated = await session.setPhotoRetention(PIN_ID_1, 'photo-1', true);
+  assert.deepEqual(retentionCalledWith, { slug: 'alpha', sceneId: 's-authoritative', pointId: PIN_ID_1, photoId: 'photo-1', keep: true });
+  assert.equal(updated.expiresAt, null);
+
+  const del = await session.deletePhoto(PIN_ID_1, 'photo-1');
+  assert.deepEqual(deleteCalledWith, { slug: 'alpha', sceneId: 's-authoritative', pointId: PIN_ID_1, photoId: 'photo-1' });
+  assert.deepEqual(del, { ok: true });
+
+  const photoUrl = session.getPhotoUrl(PIN_ID_1, 'photo-1', { original: true });
+  assert.deepEqual(urlCalledWith, { slug: 'alpha', sceneId: 's-authoritative', pointId: PIN_ID_1, photoId: 'photo-1', opts: { original: true } });
+  assert.equal(photoUrl, `/api/sites/alpha/scenes/s-authoritative/points/${PIN_ID_1}/photos/photo-1?original=1`);
+
+  // 2. Unowned point (PIN_ID_2 is not in session state) rejected immediately
+  await assert.rejects(() => session.listPhotos(PIN_ID_2), e => e.code === 'INVALID_INPUT');
+  await assert.rejects(() => session.uploadPhoto(PIN_ID_2, fakeBody), e => e.code === 'INVALID_INPUT');
+  await assert.rejects(() => session.setPhotoRetention(PIN_ID_2, 'photo-1', true), e => e.code === 'INVALID_INPUT');
+  await assert.rejects(() => session.deletePhoto(PIN_ID_2, 'photo-1'), e => e.code === 'INVALID_INPUT');
+  assert.throws(() => session.getPhotoUrl(PIN_ID_2, 'photo-1'), e => e.code === 'INVALID_INPUT');
+
+  // 3. Missing or invalid parameters rejected
+  await assert.rejects(() => session.listPhotos(''), e => e.code === 'INVALID_INPUT');
+  await assert.rejects(() => session.uploadPhoto(PIN_ID_1, null), e => e.code === 'INVALID_INPUT');
+  await assert.rejects(() => session.setPhotoRetention(PIN_ID_1, '', true), e => e.code === 'INVALID_INPUT');
+  await assert.rejects(() => session.deletePhoto(PIN_ID_1, ''), e => e.code === 'INVALID_INPUT');
+  assert.throws(() => session.getPhotoUrl(PIN_ID_1, ''), e => e.code === 'INVALID_INPUT');
+});
+
+test('session photo operations enforce busy exclusion and stale identity protection', async () => {
+  const scene = { id: 's-authoritative', isMine: true, camera: { purpose: 'my-pins-v1' } };
+  const ownedPin = { id: PIN_ID_1, sceneId: 's-authoritative', label: 'Owned Point', scope: 'personal' };
+
+  let releaseUpload, enteredUpload;
+  const holdUpload = new Promise(r => releaseUpload = r);
+  const readyUpload = new Promise(r => enteredUpload = r);
+
+  const session = createMyPinsSession('alpha', {
+    identity: TEST_EMAIL,
+    fetchFn: makeAuthFetch(),
+    api: {
+      listMyPinsScenes: async () => [scene],
+      listAccountPins: async () => [ownedPin],
+      uploadAccountPinPhoto: async () => {
+        enteredUpload();
+        await holdUpload;
+        return { id: 'p-new', pointId: PIN_ID_1 };
+      },
+      deleteAccountPinPhoto: async () => ({ ok: true })
+    }
+  });
+
+  await session.load();
+
+  // In-flight upload sets state.busy and excludes concurrent mutations
+  const uploading = session.uploadPhoto(PIN_ID_1, new Uint8Array([1]));
+  await readyUpload;
+  assert.equal(session.getState().busy, true);
+
+  await assert.rejects(() => session.uploadPhoto(PIN_ID_1, new Uint8Array([2])), e => e.code === 'BUSY');
+  await assert.rejects(() => session.setPhotoRetention(PIN_ID_1, 'photo-1', true), e => e.code === 'BUSY');
+  await assert.rejects(() => session.deletePhoto(PIN_ID_1, 'photo-1'), e => e.code === 'BUSY');
+  await assert.rejects(() => session.remove(PIN_ID_1), e => e.code === 'BUSY');
+
+  releaseUpload();
+  await uploading;
+  assert.equal(session.getState().busy, false);
+
+  // Identity change aborts photo operations with SESSION_CHANGED
+  const stolenSession = createMyPinsSession('alpha', {
+    identity: TEST_EMAIL,
+    fetchFn: makeAuthFetch('intruder@example.test'),
+    api: {
+      listMyPinsScenes: async () => [scene],
+      listAccountPins: async () => [ownedPin]
+    }
+  });
+
+  await assert.rejects(() => stolenSession.listPhotos(PIN_ID_1), e => e.code === 'SESSION_CHANGED');
+  await assert.rejects(() => stolenSession.uploadPhoto(PIN_ID_1, new Uint8Array([1])), e => e.code === 'SESSION_CHANGED');
+  await assert.rejects(() => stolenSession.deletePhoto(PIN_ID_1, 'photo-1'), e => e.code === 'SESSION_CHANGED');
+});
+
+test('POINT_HAS_PHOTOS preserves pin in session state and clears busy flag on deletion refusal', async () => {
+  const scene = { id: 's-authoritative', isMine: true, camera: { purpose: 'my-pins-v1' } };
+  const ownedPin = { id: PIN_ID_1, sceneId: 's-authoritative', label: 'Has Photos Point', scope: 'personal' };
+
+  const session = createMyPinsSession('alpha', {
+    identity: TEST_EMAIL,
+    fetchFn: makeAuthFetch(),
+    api: {
+      listMyPinsScenes: async () => [scene],
+      listAccountPins: async () => [ownedPin],
+      deleteAccountPin: async () => {
+        throw new MyPinsError(409, 'POINT_HAS_PHOTOS');
+      }
+    }
+  });
+
+  await session.load();
+  assert.equal(session.getState().pins.length, 1);
+
+  await assert.rejects(
+    () => session.remove(PIN_ID_1),
+    e => e instanceof MyPinsError && e.status === 409 && e.code === 'POINT_HAS_PHOTOS'
+  );
+
+  // Pin is retained in state and busy flag is cleared
+  assert.equal(session.getState().pins.length, 1);
+  assert.equal(session.getState().pins[0].id, PIN_ID_1);
+  assert.equal(session.getState().busy, false);
+});

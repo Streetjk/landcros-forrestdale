@@ -49,6 +49,17 @@ function _safeStorage() { try { return window.localStorage; } catch { return nul
 function _copy(value) { return structuredClone(value); }
 function _accountState() { return _accountSession?.getState() || { pins: [], scene: null }; }
 function _syncAccountPins() { _personalPins = _accountState().pins; }
+function _isPhotoContextValid(pointId, epoch, email, sceneId, isAccount) {
+  if (epoch !== _initEpoch) return false;
+  if (!_editingPoint || _editingPoint.id !== pointId) return false;
+  if (_editingIsAccount !== isAccount) return false;
+  if (isAccount) {
+    if (!_accountReady || !_accountSession) return false;
+    if (_accountEmail !== email || window._snAdminIdentity?.email !== email) return false;
+    if (_accountSession.getState().scene?.id !== sceneId) return false;
+  }
+  return true;
+}
 async function _loadLegacyPins() {
   const plan = buildLegacyImportPlan(_safeStorage());
   return (await Promise.all(plan.pins.map(_preparePosition))).filter(Boolean);
@@ -72,6 +83,9 @@ function _accountError(error) {
     SESSION_CHANGED: 'The signed-in account changed. Reload before continuing.',
     FORBIDDEN: 'Your account does not have access to these pins.',
     POINT_HAS_PHOTOS: 'Remove attached photos before deleting this pin.',
+    PHOTO_LIMIT: 'At most 6 photos allowed per pin.',
+    PHOTO_TOO_LARGE: 'Photo is too large.',
+    PHOTO_BAD_TYPE: 'Unsupported photo format.',
     CONFLICT: 'The pin conflicts with another record. Nothing was overwritten.',
     SAVE_NOT_VERIFIED: 'Save could not be verified. Reload your account pins before retrying.',
     NETWORK_ERROR: 'Connection failed. Your changes have not been confirmed.',
@@ -199,6 +213,7 @@ window.addEventListener('sitenav:auth-cleared', () => {
   ++_initEpoch; _accountReady = false; _accountSession = null; _accountEmail = null;
   _personalPins = []; _legacyPins = []; _contacts = []; _contactsAll = []; _editingContactIds = [];
   _editingPoint = null; _editingIsLegacy = false; _isNewPoint = false;
+  _pinPhotos = []; _pinPhotosFor = null;
   _v3d?.renderPins(_points); renderPointList();
   document.getElementById('editor-view')?.classList.remove('panel-slide-in');
   document.getElementById('list-view')?.classList.remove('panel-slide-out');
@@ -467,11 +482,14 @@ function openEditor(pt, account = Boolean(pt?.sceneId), legacy = false) {
   document.getElementById('drawer-title').textContent = pt.label || 'New pin';
   document.getElementById('list-view').classList.add('panel-slide-out');
   document.getElementById('editor-view').classList.add('panel-slide-in');
-  // Photos only exist for shared pins that are already saved server-side.
+  // Photos exist for saved account pins and saved shared base pins.
   _pinPhotos = [];
   _pinPhotosFor = null;
   renderDrawerBody();
-  if (!_editingIsAccount && _editingScope === 'shared' && !_isNewPoint && _slug) _loadPinPhotos(pt.id);
+  if (!_isNewPoint && _slug) {
+    if (_editingIsAccount) _loadPinPhotos(pt.id);
+    else if (_editingScope === 'shared' && !_editingIsLegacy) _loadPinPhotos(pt.id);
+  }
   _v3d?.updatePinHighlight(pt.id);
 }
 
@@ -536,7 +554,7 @@ function renderDrawerBody() {
       <label class="form-label">Label <span style="color:var(--red)">*</span></label>
       <input class="form-input" id="field-label" value="${_esc(pt.label)}" maxlength="80" placeholder="e.g. Dock 1 – Receiving">
     </div>
-    ${_editingIsAccount ? `<div class="pin-scope-note"><span>${_isNewPoint ? 'New private pin — save to your account.' : 'Saved to your account. Publishing and account photos are not enabled in this step.'}</span></div>` : isPersonal ? `
+    ${_editingIsAccount ? `<div class="pin-scope-note"><span>${_isNewPoint ? 'New private pin — save to your account.' : 'Saved to your account. Publishing and account sharing are not enabled in this step.'}</span></div>` : isPersonal ? `
     <div class="pin-scope-note">
       <span>Saved on this device only</span>
       <button type="button" class="pin-scope-promote" onclick="window._adminPromoteToShared()">Share with everyone</button>
@@ -555,11 +573,11 @@ function renderDrawerBody() {
       <label class="form-label">Notes (optional)</label>
       <textarea class="form-input" id="field-notes">${_esc(pt.notes ?? '')}</textarea>
     </div>
-    ${(_editingIsAccount || isPersonal) ? `
+    ${(!_editingIsAccount && isPersonal) ? `
     <div class="form-group full">
       <label class="form-label">Photos</label>
       <div style="font-size:12px;color:var(--text-secondary)">
-        ${_editingIsAccount ? 'Account-photo attachments are not enabled yet. Saving this pin does not publish it.' : 'Photos require a saved base-site pin.'}
+        Photos require a saved base-site pin.
       </div>
     </div>` : `
     <div class="form-group full">
@@ -570,6 +588,7 @@ function renderDrawerBody() {
       </label>
       <div style="margin-top:6px">
         <button type="button" class="pin-action-btn action" id="pin-add-photo"
+          ${_isNewPoint ? 'disabled' : ''}
           onclick="document.getElementById('pin-photo-input').click()">Add photo</button>
         <input type="file" id="pin-photo-input" accept="image/*" multiple hidden
           onchange="window._adminPinFilesChosen(event)">
@@ -629,7 +648,7 @@ function renderDrawerBody() {
   // innerHTML above wiped the photo grid — repaint it from state. Photos are
   // fetched by openEditor/_adminSave, not here, so re-rendering on every
   // contact add/remove doesn't refetch.
-  if (!_editingIsAccount && !isPersonal) _renderPinPhotos(pt.id);
+  if ((_editingIsAccount || !isPersonal) && !_editingIsLegacy) _renderPinPhotos(pt.id);
   if (_saving) _setBusy(true);
 }
 
@@ -665,9 +684,15 @@ async function _compressImage(file) {
 }
 
 // One binary request: [u32 BE header length][JSON header][compressed][original].
-async function _uploadPinPhoto(pointId, file, keepIndefinitely) {
-  if (_editingIsAccount) throw new Error('Account photo workflow is not enabled');
+async function _uploadPinPhoto(pointId, file, keepIndefinitely, context) {
+  const { isAccount, accountSession, epoch, email, sceneId } = context;
   const { blob, width, height } = await _compressImage(file);
+  // Compression is asynchronous. Re-check the captured editor/account context
+  // before choosing a private-vs-base upload route so switching pins/accounts
+  // mid-compression can never redirect the old file to a different resource.
+  if (!_isPhotoContextValid(pointId, epoch, email, sceneId, isAccount)) {
+    throw new Error('Photo context changed');
+  }
   const header = new TextEncoder().encode(JSON.stringify({
     contentType: file.type || 'image/jpeg', originalName: file.name,
     width, height, compressedBytes: blob.size, keepIndefinitely,
@@ -675,6 +700,12 @@ async function _uploadPinPhoto(pointId, file, keepIndefinitely) {
   const len = new Uint8Array(4);
   new DataView(len.buffer).setUint32(0, header.length, false);
   const body = new Blob([len, header, blob, file]);
+
+  if (isAccount) {
+    if (!accountSession || accountSession !== _accountSession) throw new Error('Photo context changed');
+    return await accountSession.uploadPhoto(pointId, body);
+  }
+
   const r = await fetch(`/api/sites/${encodeURIComponent(_slug)}/points/${encodeURIComponent(pointId)}/photos`, {
     method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body,
   });
@@ -683,14 +714,37 @@ async function _uploadPinPhoto(pointId, file, keepIndefinitely) {
 }
 
 async function _loadPinPhotos(pointId) {
-  if (_editingIsAccount) return;
+  if (_editingIsLegacy) return;
+  const isAccount = _editingIsAccount;
+  const epoch = _initEpoch;
+  const email = _accountEmail;
+  const sceneId = isAccount ? _accountSession?.getState().scene?.id : null;
+
+  if (isAccount && (!sceneId || !_accountSession || !_accountReady)) return;
+
   _pinPhotos = [];
   _pinPhotosFor = pointId;
+
   try {
-    const r = await fetch(`/api/sites/${encodeURIComponent(_slug)}/points/${encodeURIComponent(pointId)}/photos`);
-    if (r.ok) _pinPhotos = await r.json();
-  } catch {}
-  if (_editingPoint?.id === pointId) _renderPinPhotos(pointId);
+    let photos = [];
+    if (isAccount) {
+      photos = await _accountSession.listPhotos(pointId);
+    } else {
+      const r = await fetch(`/api/sites/${encodeURIComponent(_slug)}/points/${encodeURIComponent(pointId)}/photos`);
+      if (r.ok) photos = await r.json();
+    }
+    if (!_isPhotoContextValid(pointId, epoch, email, sceneId, isAccount)) return;
+    _pinPhotos = Array.isArray(photos) ? photos : [];
+    _renderPinPhotos(pointId);
+  } catch (err) {
+    if (!_isPhotoContextValid(pointId, epoch, email, sceneId, isAccount)) return;
+    const status = document.getElementById('pin-photo-status');
+    if (status && _editingPoint?.id === pointId) {
+      if (isAccount) {
+        status.textContent = _handleAccountFailure(err);
+      }
+    }
+  }
 }
 
 function _retentionLabel(p) {
@@ -703,15 +757,28 @@ function _renderPinPhotos(pointId, pending = 0) {
   const grid = document.getElementById('pin-photos');
   if (!grid) return;
   grid.replaceChildren();
+
+  const isAccount = _editingIsAccount;
+  const epoch = _initEpoch;
+  const email = _accountEmail;
+  const sceneId = isAccount ? _accountSession?.getState().scene?.id : null;
+
   _pinPhotos.forEach(p => {
     const cell = document.createElement('div');
     cell.className = 'pin-photo';
 
     const img = document.createElement('img');
-    img.src = `/api/point-photos/${encodeURIComponent(p.id)}`;
+    const thumbUrl = isAccount && _accountSession
+      ? _accountSession.getPhotoUrl(pointId, p.id, { original: false })
+      : `/api/point-photos/${encodeURIComponent(p.id)}`;
+    img.src = thumbUrl;
     img.alt = p.originalName || 'Pin photo';
     img.title = `${p.originalName || ''} — click to open original`;
-    img.addEventListener('click', () => window.open(`/api/point-photos/${encodeURIComponent(p.id)}?original=1`, '_blank', 'noopener'));
+
+    const origUrl = isAccount && _accountSession
+      ? _accountSession.getPhotoUrl(pointId, p.id, { original: true })
+      : `/api/point-photos/${encodeURIComponent(p.id)}?original=1`;
+    img.addEventListener('click', () => window.open(origUrl, '_blank', 'noopener'));
 
     const keep = document.createElement('button');
     keep.type = 'button';
@@ -719,15 +786,27 @@ function _renderPinPhotos(pointId, pending = 0) {
     keep.textContent = _retentionLabel(p);
     keep.title = p.expiresAt ? 'Click to keep this photo indefinitely' : 'Click to expire this photo after 30 days';
     keep.addEventListener('click', async () => {
-      const r = await fetch(`/api/sites/${encodeURIComponent(_slug)}/points/photos/${encodeURIComponent(p.id)}`, {
-        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ keep: !!p.expiresAt }),   // flip
-      });
-      if (!r.ok) { showToast('Could not change retention'); return; }
-      const updated = await r.json();
-      const i = _pinPhotos.findIndex(x => x.id === p.id);
-      if (i >= 0) _pinPhotos[i] = updated;
-      _renderPinPhotos(pointId);
+      try {
+        let updated;
+        if (isAccount) {
+          if (!_accountSession) return;
+          updated = await _accountSession.setPhotoRetention(pointId, p.id, !!p.expiresAt);
+        } else {
+          const r = await fetch(`/api/sites/${encodeURIComponent(_slug)}/points/photos/${encodeURIComponent(p.id)}`, {
+            method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ keep: !!p.expiresAt }),
+          });
+          if (!r.ok) throw new Error('Could not change retention');
+          updated = await r.json();
+        }
+        if (!_isPhotoContextValid(pointId, epoch, email, sceneId, isAccount)) return;
+        const i = _pinPhotos.findIndex(x => x.id === p.id);
+        if (i >= 0 && updated) _pinPhotos[i] = updated;
+        _renderPinPhotos(pointId);
+      } catch (err) {
+        if (!_isPhotoContextValid(pointId, epoch, email, sceneId, isAccount)) return;
+        showToast(isAccount ? _handleAccountFailure(err) : 'Could not change retention');
+      }
     });
 
     const del = document.createElement('button');
@@ -735,10 +814,21 @@ function _renderPinPhotos(pointId, pending = 0) {
     del.textContent = '✕';
     del.title = 'Remove photo';
     del.addEventListener('click', async () => {
-      const r = await fetch(`/api/sites/${encodeURIComponent(_slug)}/points/photos/${encodeURIComponent(p.id)}`, { method: 'DELETE' });
-      if (!r.ok) { showToast('Delete failed'); return; }
-      _pinPhotos = _pinPhotos.filter(x => x.id !== p.id);
-      _renderPinPhotos(pointId);
+      try {
+        if (isAccount) {
+          if (!_accountSession) return;
+          await _accountSession.deletePhoto(pointId, p.id);
+        } else {
+          const r = await fetch(`/api/sites/${encodeURIComponent(_slug)}/points/photos/${encodeURIComponent(p.id)}`, { method: 'DELETE' });
+          if (!r.ok) throw new Error('Delete failed');
+        }
+        if (!_isPhotoContextValid(pointId, epoch, email, sceneId, isAccount)) return;
+        _pinPhotos = _pinPhotos.filter(x => x.id !== p.id);
+        _renderPinPhotos(pointId);
+      } catch (err) {
+        if (!_isPhotoContextValid(pointId, epoch, email, sceneId, isAccount)) return;
+        showToast(isAccount ? _handleAccountFailure(err) : 'Delete failed');
+      }
     });
 
     cell.append(img, keep, del);
@@ -756,14 +846,21 @@ function _renderPinPhotos(pointId, pending = 0) {
   const count = document.getElementById('pin-photo-count');
   if (count) count.textContent = `${_pinPhotos.length}/${MAX_PIN_PHOTOS}`;
   const add = document.getElementById('pin-add-photo');
-  if (add) add.disabled = _pinPhotos.length + pending >= MAX_PIN_PHOTOS;
+  if (add) add.disabled = _isNewPoint || (_pinPhotos.length + pending >= MAX_PIN_PHOTOS);
 }
 
 window._adminPinFilesChosen = async (e) => {
   const files = Array.from(e.target.files || []);
   e.target.value = '';
-  if (!_editingPoint || _editingIsAccount || _editingIsLegacy || _saving || !files.length) return;
+  if (!_editingPoint || _editingIsLegacy || _saving || !files.length) return;
   const pointId = _editingPoint.id;
+  const isAccount = _editingIsAccount;
+  const epoch = _initEpoch;
+  const email = _accountEmail;
+  const sceneId = isAccount ? _accountSession?.getState().scene?.id : null;
+
+  if (isAccount && (!sceneId || !_accountSession || !_accountReady)) return;
+
   const status = document.getElementById('pin-photo-status');
   if (_isNewPoint) { if (status) status.textContent = 'Save the pin before adding photos.'; return; }
   const room = MAX_PIN_PHOTOS - _pinPhotos.length;
@@ -775,17 +872,24 @@ window._adminPinFilesChosen = async (e) => {
   let pending = batch.length;
   _renderPinPhotos(pointId, pending);
   for (const file of batch) {
-    if (status) status.textContent = `Compressing ${file.name}…`;
+    if (status && _isPhotoContextValid(pointId, epoch, email, sceneId, isAccount)) {
+      status.textContent = `Compressing ${file.name}…`;
+    }
     try {
-      const saved = await _uploadPinPhoto(pointId, file, keep);
+      const saved = await _uploadPinPhoto(pointId, file, keep, {
+        isAccount, accountSession: _accountSession, epoch, email, sceneId
+      });
+      if (!_isPhotoContextValid(pointId, epoch, email, sceneId, isAccount)) return;
       if (saved) _pinPhotos.push(saved);
     } catch (err) {
-      if (status) status.textContent = `${file.name}: ${err.message}`;
+      if (!_isPhotoContextValid(pointId, epoch, email, sceneId, isAccount)) return;
+      if (status) status.textContent = `${file.name}: ${isAccount ? _handleAccountFailure(err) : err.message}`;
     }
     pending -= 1;
-    if (_editingPoint?.id === pointId) _renderPinPhotos(pointId, pending);
+    if (!_isPhotoContextValid(pointId, epoch, email, sceneId, isAccount)) return;
+    _renderPinPhotos(pointId, pending);
   }
-  if (_editingPoint?.id === pointId && status) {
+  if (_isPhotoContextValid(pointId, epoch, email, sceneId, isAccount) && status) {
     status.textContent = `${_pinPhotos.length} photo${_pinPhotos.length === 1 ? '' : 's'} attached.`;
   }
 };
@@ -840,7 +944,7 @@ window._adminSave = async () => {
     _v3d.upsertPin(saved); _v3d.updatePinHighlight(saved.id);
     renderPointList(); renderDrawerBody();
     document.getElementById('drawer-title').textContent = saved.label;
-    if (!account && _slug) _loadPinPhotos(saved.id);
+    if (_slug && (account || saved.scope === 'shared')) _loadPinPhotos(saved.id);
     showToast(account ? 'Saved and verified in your account' : 'Saved');
     if (account) _setAccountStatus(`My pins are saved to ${_accountEmail}.`);
   } catch (error) {
