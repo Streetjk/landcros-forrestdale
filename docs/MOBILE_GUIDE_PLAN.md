@@ -89,3 +89,7 @@ The continuation slice implements authenticated scene-scoped point CRUD, immutab
 ## Staff My Pins interface checkpoint
 
 The staff interface is connected to the scene-owned My Pins client: read-only account discovery, explicit save/read-back verification, account delete, confirmed legacy import with unchanged browser copies and database-atomic create-only import protection. Staff contacts are read through an editor-only site endpoint. Account media, phone overrides and scoped/revocable publication/QR remain the next slice; they do not use legacy public fallbacks. See `MY_PINS_UI_CHECKPOINT.md` for the exact implementation and test limits.
+
+## Rendering-performance lane
+
+Mobile/low-end rendering is now a first-class measured development lane. `?perf=1` provides zero-telemetry on-device measurements and `tests/render-performance.py` supplies constrained-browser regression profiles. The first measured optimization replaces LANDCROS's 3.29 MB satellite PNG transfer with a same-resolution 239 KB WebP while retaining the source PNG; this reduced synthetic low-end/Save-Data visual readiness from ~14.4 s to ~2.85 s. Full-3D startup is now dominated by the 8.74 MB lite splat and scene construction, not its ~24 ms bounds scan. A `dragDpr=0.75` perf-only A/B improved synthetic moving p95 materially, but it remains experimental until physical phones confirm both speed and visual quality. See `RENDERING_PERFORMANCE.md`; do not infer phone FPS from headless Chromium or rewrite the renderer without evidence.

@@ -8,7 +8,7 @@
     "speedLimitSign": "./assets/speedlimit6.png"
   },
   "assets": {
-    "satellite": "./assets/satellite.png",
+    "satellite": "./assets/satellite.webp",
     "splat": [
       "./assets/site-lite.splat",
       "./assets/site.splat",

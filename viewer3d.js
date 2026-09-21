@@ -76,6 +76,39 @@ renderer.toneMapping = _Q.toneMapping;
 renderer.toneMappingExposure = 0.6;
 renderer.setClearColor(0x0f1117, 1); // match app background so pre-sky frames aren't flash-black
 
+// Opt-in, local-only performance instrumentation. No telemetry, persistence or
+// external sends. Open the page with ?perf=1 to display/copy the measurements.
+const _perfParams = new URLSearchParams(location.search);
+const _perfEnabled = _perfParams.get('perf') === '1';
+const _perfDragDprRaw = _perfEnabled ? Number.parseFloat(_perfParams.get('dragDpr')) : NaN;
+const _perfDragDpr = Number.isFinite(_perfDragDprRaw) ? Math.max(0.5, _perfDragDprRaw) : null;
+const _PERF_NOOP = Object.freeze({
+  enabled: false,
+  mark() {}, begin() { return () => 0; }, frame() {}, resolutionSwitch() {},
+  asset() {}, visibility() {}, refreshHud() {}, snapshot() { return { enabled: false }; },
+  async sampleMemory() { return null; },
+});
+let _perf = _PERF_NOOP;
+const _perfReady = _perfEnabled
+  ? import('./viewer-perf.js').then(({ createPerfProbe }) => {
+      _perf = createPerfProbe({
+        enabled: true,
+        quality: {
+          tier: _Q.tier, skipSplat: _Q.skipSplat, antialias: _Q.antialias,
+          pixelRatio: _Q.pixelRatio, idleAfter: _Q.idleAfter, idleInterval: _Q.idleInterval,
+          dragDprExperiment: _perfDragDpr,
+        },
+        renderer,
+      });
+      if (_perfParams.get('perfHud') !== '0') _perf.installHud();
+      window.__sitenavPerf = Object.freeze({
+        snapshot: () => _perf.snapshot(),
+        refresh: () => _perf.refreshHud(),
+      });
+      _perf.mark('viewerInit');
+    }).catch(() => {})
+  : Promise.resolve();
+
 // On low-tier devices remove expensive backdrop-filter blurs (GPU compositing cost)
 if (_Q.tier === 'low') {
   const s = document.createElement('style');
@@ -320,7 +353,7 @@ function resize() {
 // twice inside a cooldown window. The cooldown can only ever delay a switch
 // — the restore is re-attempted every idle frame, so it cannot get stuck at
 // low resolution.
-const _DRAG_PIXEL_RATIO = Math.min(_Q.pixelRatio, 1.0);
+const _DRAG_PIXEL_RATIO = _perfDragDpr != null ? Math.min(_Q.pixelRatio, _perfDragDpr) : Math.min(_Q.pixelRatio, 1.0);
 const _RESTORE_AFTER_IDLE_FRAMES = 45;  // ~750ms, well past a wheel-tick gap
 const _MIN_SWITCH_INTERVAL_MS = 400;
 let _lowResActive = false;
@@ -334,6 +367,7 @@ function _setLowRes(on) {
   _lowResActive = on;
   renderer.setPixelRatio(on ? _DRAG_PIXEL_RATIO : _Q.pixelRatio);
   resize();
+  _perf.resolutionSwitch(renderer.getPixelRatio());
 }
 
 window.addEventListener('resize', resize);
@@ -439,11 +473,24 @@ let _pins = {}; // id → { group, pinGroup, sphere, icon, label, squareMat, squ
 // The square is ~0.9 units across, so this reads as clearly airborne without
 // detaching the marker from the spot it labels.
 const PIN_FLOAT_HEIGHT = 1.3;
+let _pageHidden = document.hidden === true;
+document.addEventListener('visibilitychange', () => {
+  _pageHidden = document.hidden === true;
+  _perf.visibility(_pageHidden);
+  if (!_pageHidden) {
+    _idleFrames = 0;
+    _lastRenderMs = 0;
+  }
+});
 let _selectedId = null;
 const _sceneWidgets = new Map(); // id → { obj, anchor, raycastMesh } — read-only 'button' scene_objects (Phase 2 SLICE 4)
 
 function animate() {
   requestAnimationFrame(animate);
+  if (_pageHidden) {
+    _perf.frame({ hidden: true });
+    return;
+  }
   if (!_camAnimating) {
     controls.update(); // drives autoRotate when _orbitActive
   }
@@ -464,7 +511,10 @@ function animate() {
   }
 
   const now = performance.now();
-  if (_idleFrames > IDLE_AFTER && now - _lastRenderMs < IDLE_INTERVAL && !comparisonNeedsRender()) return;
+  if (_idleFrames > IDLE_AFTER && now - _lastRenderMs < IDLE_INTERVAL && !comparisonNeedsRender()) {
+    _perf.frame({ rendered: false, moving: moved || _camAnimating });
+    return;
+  }
   _lastRenderMs = now;
 
   _updateCamHud();
@@ -499,11 +549,18 @@ function animate() {
   }
 
   const compActive = updateComparison();
+  let _splatUpdateMs = 0;
   if (!compActive) {
-    if (_splatViewer) _splatViewer.update();
+    if (_splatViewer) {
+      const _splatUpdateStart = performance.now();
+      _splatViewer.update();
+      _splatUpdateMs = performance.now() - _splatUpdateStart;
+    }
     renderer.render(scene, camera);
   }
   css2d.render(scene, camera);
+  _perf.frame({ rendered: true, moving: moved || _camAnimating, splatUpdateMs: _splatUpdateMs });
+  _perf.refreshHud();
 }
 animate();
 
@@ -3060,7 +3117,7 @@ async function loadSplatBackground(opts = {}) {
   for (const path of candidates) {
     try {
       const r = await fetch(path, { method: 'HEAD' });
-      if (r.ok) { splatPath = path; break; }
+      if (r.ok) { splatPath = path; _perf.asset({ path, phase: 'select', status: 'ok' }); break; }
     } catch {}
   }
   if (!splatPath) return;
@@ -3079,10 +3136,17 @@ async function loadSplatBackground(opts = {}) {
     // Pass 1: fetch raw bytes and scan positions for bounding box.
     // Only valid for .splat (32-byte records) — skip pre-scan for .ply to avoid NaN bounds.
     if (!onProgress && msg) msg.textContent = `Scanning ${ext}…`;
+    let _endSplatFetch = null;
+    if (ext === 'SPLAT') _endSplatFetch = _perf.begin('splatFetch', { asset: splatPath.split('/').pop() });
     rawBuf = ext === 'SPLAT' ? await fetch(splatPath).then(r => r.arrayBuffer()) : null;
+    if (_endSplatFetch) {
+      _endSplatFetch({ bytes: rawBuf?.byteLength ?? 0 });
+      _perf.asset({ path: splatPath, bytes: rawBuf?.byteLength ?? null, phase: 'fetched', status: 'ok' });
+    }
     const STRIDE = 32;
     let cx = 0, cy = 0, cz = 0, scale = 1;
     if (rawBuf) {
+      const _endBoundsScan = _perf.begin('splatBoundsScan', { bytes: rawBuf.byteLength });
       const count = Math.floor(rawBuf.byteLength / STRIDE);
       const dv = new DataView(rawBuf);
       let minX=Infinity, maxX=-Infinity, minY=Infinity, maxY=-Infinity, minZ=Infinity, maxZ=-Infinity;
@@ -3100,10 +3164,13 @@ async function loadSplatBackground(opts = {}) {
       cz = (minZ + maxZ) / 2;
       const span = Math.max(maxX - minX, maxY - minY, maxZ - minZ);
       scale = 40 / span;
+      _endBoundsScan({ splats: count });
     }
 
     if (!onProgress && msg) msg.textContent = `Loading ${ext}… 0%`;
+    const _endSplatImport = _perf.begin('splatModuleImport');
     const GS3D = await import('@mkkellogg/gaussian-splats-3d');
+    _endSplatImport();
     // gpuAcceleratedSort computes per-splat distances on the GPU via WebGL2
     // transform feedback + a fence-sync readback, every frame. Confirmed
     // live (2026-09-07) that this broke splat loading entirely on both Edge
@@ -3152,6 +3219,8 @@ async function loadSplatBackground(opts = {}) {
     // Re-use the already-downloaded buffer as a blob URL to avoid a second network fetch.
     const splatBlobUrl = rawBuf ? URL.createObjectURL(new Blob([rawBuf], { type: 'application/octet-stream' })) : null;
     try {
+      const _endAddSplat = _perf.begin('splatAddScene');
+      try {
       await Promise.race([
         sv.addSplatScene(splatBlobUrl || splatPath, {
           showLoadingUI: false,
@@ -3170,6 +3239,11 @@ async function loadSplatBackground(opts = {}) {
           setTimeout(() => reject(new Error('GS3D timeout')), 15000)
         ),
       ]);
+      _endAddSplat({ status: 'ok' });
+      } catch (error) {
+        _endAddSplat({ status: 'error' });
+        throw error;
+      }
     } finally {
       if (splatBlobUrl) URL.revokeObjectURL(splatBlobUrl);
     }
@@ -3187,6 +3261,8 @@ async function loadSplatBackground(opts = {}) {
     if (sv.splatMesh.material) sv.splatMesh.material.depthTest = true;
     scene.add(sv.splatMesh);
     _splatViewer = sv;
+    _perf.mark('splatReady');
+    _perf.sampleMemory('splat-ready');
 
     if (_cfg.comparison?.enabled) {
       sv.splatMesh.visible = false;
@@ -3231,6 +3307,8 @@ async function loadSplatBackground(opts = {}) {
 // ── Boot ───────────────────────────────────────────────────────────────────
 
 async function boot() {
+  // Perf instrumentation is dynamically loaded only in ?perf=1 sessions.
+  await _perfReady;
   document.getElementById('load-msg').textContent = 'Loading config…';
   _cfg = await fetch('./data/config.json').then(r => r.json()).catch((err) => {
     console.error('Config load failed:', err);
@@ -3278,6 +3356,7 @@ async function boot() {
 
   // Start splat download in parallel while scene loads.
   // onProgress only writes to the bar once scene has advanced it to ≥55%.
+  _perf.mark('coreSceneBuildStart');
   const splatPromise = (!_Q.skipSplat && !_compOnly) ? loadSplatBackground({
     onProgress: (pct) => {
       const current = parseFloat(document.getElementById('load-fill').style.width) || 0;
@@ -3336,17 +3415,23 @@ async function boot() {
   if (_siteSub) _siteSub.style.opacity = '0';
   await new Promise(r => setTimeout(r, 450));
 
+  _perf.mark('coreSceneBuilt');
+  _perf.sampleMemory('core-scene-built');
   document.getElementById('load-fill').style.width = '100%';
   await new Promise(r => setTimeout(r, 100));
   document.getElementById('loading').classList.add('done');
   setTimeout(() => {
     document.getElementById('app')?.classList.add('scene-ready');
+    _perf.mark('visualReady');
+    _perf.sampleMemory('visual-ready');
+    _perf.refreshHud();
     _doIntroAnimation();
     window._updateCamPresetsBottom?.();
   }, 700);
 
   // Expose API for admin3d.js and dispatch ready event
   window._v3d = { renderer, camera, controls, _raycaster, _pickGround, renderPins, removePin, upsertPin, updatePinHighlight, latlngToScene, pins: _pins };
+  _perf.mark('viewerApiReady');
   window.dispatchEvent(new CustomEvent('viewer3d:ready'));
 
   // Scene objects/pins are SCENE-SCOPED (Scenes feature): the default viewer
