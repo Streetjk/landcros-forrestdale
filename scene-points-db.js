@@ -216,7 +216,7 @@ async function getScenePoints(slug, sceneId) {
   return rows.map(pointToJsonWithScene);
 }
 
-async function saveScenePoint(slug, sceneId, rawPoint, changedBy) {
+async function saveScenePoint(slug, sceneId, rawPoint, changedBy, { createOnly = false } = {}) {
   if (!isCanonicalUuid(changedBy)) throw new PointError(400, 'INVALID_ACTOR_ID');
   const canonicalActorId = canonicalizeUuid(changedBy);
   const normalized = normalizeScenePoint(sceneId, rawPoint);
@@ -272,6 +272,7 @@ async function saveScenePoint(slug, sceneId, rawPoint, changedBy) {
         updated_at = now()
       where points.site_id = excluded.site_id
         and points.scene_id is not distinct from excluded.scene_id
+        and not $16::boolean
       returning *`;
 
     const upsertParams = [
@@ -290,6 +291,7 @@ async function saveScenePoint(slug, sceneId, rawPoint, changedBy) {
       supabaseDb.j(normalized.cameraPreset3d),
       normalized.buildingRef,
       canonicalActorId,
+      createOnly === true,
     ];
 
     const { rows } = await client.query(upsertSql, upsertParams);

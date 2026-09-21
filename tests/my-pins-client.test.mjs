@@ -259,3 +259,11 @@ test('buildLegacyImportPlan returns confirmation plan and never mutates/removes 
   assert.equal(plan.pins.length, 1);
   assert.equal(mutated, false);
 });
+
+test('create-only saves send If-None-Match without changing ordinary updates', async () => {
+  const mock=createMockFetch([{status:200,ok:true,data:{id:'fixture'}},{status:200,ok:true,data:{id:'fixture'}}]);
+  await saveAccountPin('alpha','scene',{id:'fixture'},{fetchFn:mock,createOnly:true});
+  await saveAccountPin('alpha','scene',{id:'fixture'},{fetchFn:mock});
+  assert.equal(mock.calls[0].options.headers['If-None-Match'],'*');
+  assert.equal(mock.calls[1].options.headers['If-None-Match'],undefined);
+});

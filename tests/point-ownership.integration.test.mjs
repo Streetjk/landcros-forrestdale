@@ -37,10 +37,11 @@ test('scene point ownership: actual PostgreSQL and HTTP server', { skip: !proces
       create table sites(id uuid primary key,slug text unique,published boolean default false);
       create table profiles(id uuid primary key,email text,status text default 'active');
       create table site_members(site_id uuid,user_id uuid,role text,primary key(site_id,user_id));
-      create table scenes(id uuid primary key,site_id uuid references sites(id),created_by uuid references profiles(id),
+      create table scenes(id uuid primary key default gen_random_uuid(),site_id uuid references sites(id),created_by uuid references profiles(id),
         kind text default 'admin',status text default 'open',share_code text unique,name text,
-        camera jsonb,status_changed_at timestamptz,status_changed_by uuid,
+        camera jsonb,status_changed_at timestamptz,status_changed_by uuid,created_at timestamptz default now(),updated_at timestamptz default now(),
         unique(site_id,id));
+      create table scene_subscriptions(scene_id uuid,profile_id uuid,primary key(scene_id,profile_id));
       create table scripts(id uuid primary key,site_id uuid,source text);
       create table scene_objects(id uuid primary key,site_id uuid,scene_id uuid,script_id uuid,
         z_index integer,created_at timestamptz default now());
@@ -84,8 +85,8 @@ test('scene point ownership: actual PostgreSQL and HTTP server', { skip: !proces
       return `${data}.${createHmac('sha256',secret).update(data).digest('base64url')}`;
     };
     const route = (scene=SCENE_A,point='',site='alpha') => `/api/sites/${site}/scenes/${scene}/points${point ? '/'+point : ''}`;
-    async function request(path, { method='GET', actor=OWNER, body, raw, binary } = {}) {
-      const headers={}; if(actor)headers.Cookie=`sn_session=${token(actor)}`;
+    async function request(path, { method='GET', actor=OWNER, body, raw, binary, createOnly = false } = {}) {
+      const headers={}; if(createOnly) headers['If-None-Match']='*'; if(actor)headers.Cookie=`sn_session=${token(actor)}`;
       if(body !== undefined || raw !== undefined) headers['Content-Type']='application/json';
       if(binary) headers['Content-Type']='application/octet-stream';
       const res=await fetch(origin+path,{method,headers,body:binary || raw || (body === undefined ? undefined : JSON.stringify(body)),signal:AbortSignal.timeout(4000)});
@@ -114,6 +115,45 @@ test('scene point ownership: actual PostgreSQL and HTTP server', { skip: !proces
       assert.equal((await request(route(SCENE_A,POINT_A),{method:'DELETE',actor:OTHER})).status,403);
       const after=await sql.query('select label,created_by,scene_id from points where id=$1',[POINT_A]);
       assert.deepEqual(after.rows,before.rows);
+    });
+    await t.test('staff contact dropdown requires editor access and remains site-scoped', async () => {
+      for (const actor of [null,VIEWER,OUTSIDER]) {
+        const result=await request('/api/sites/alpha/contacts',{actor});
+        assert.equal(result.status,actor?403:401);
+      }
+      const own=await request('/api/sites/alpha/contacts');
+      assert.equal(own.status,200);assert.equal(own.headers.get('cache-control'),'no-store');
+      assert.deepEqual(own.body.map(c=>c.id),[CONTACT_A]);
+      const otherSite=await request('/api/sites/beta/contacts',{actor:OTHER});
+      assert.deepEqual(otherSite.body.map(c=>c.id),[CONTACT_B]);
+      assert.equal((await request('/api/sites/beta/contacts')).status,403);
+    });
+    await t.test('actual scene create/list supports tagged My Pins workspace rediscovery', async () => {
+      const initial=await request('/api/sites/alpha/scenes?kind=admin');assert.equal(initial.status,200);
+      assert.equal(initial.body.filter(scene=>scene.camera?.purpose==='my-pins-v1').length,0);
+      const created=await request('/api/sites/alpha/scenes',{method:'POST',body:{name:'My pins',kind:'admin',camera:{purpose:'my-pins-v1'}}});
+      assert.equal(created.status,200);assert.equal(created.body.createdBy,OWNER);assert.ok(created.body.shareCode);
+      const listed=await request('/api/sites/alpha/scenes?kind=admin');
+      const myScenes=listed.body.filter(scene=>scene.isMine===true && scene.camera?.purpose==='my-pins-v1');
+      assert.equal(myScenes.length,1);assert.equal(myScenes[0].id,created.body.id);
+      assert.equal((await request(route(created.body.id),{method:'POST',body:payload(uid(78))})).status,200);
+      const readback=await request(route(created.body.id));assert.equal(readback.body[0].id,uid(78));
+      const otherList=await request('/api/sites/alpha/scenes?kind=admin',{actor:OTHER});
+      assert.equal(otherList.body.some(scene=>scene.id===created.body.id),false);
+    });
+    await t.test('create-only browser import cannot overwrite an existing or racing account pin', async () => {
+      const before=await sql.query('select label,notes,created_by from points where id=$1',[POINT_A]);
+      const conflict=await request(route(),{method:'POST',createOnly:true,body:payload(POINT_A,{label:'Must not overwrite'})});
+      assert.equal(conflict.status,409);
+      assert.deepEqual((await sql.query('select label,notes,created_by from points where id=$1',[POINT_A])).rows,before.rows);
+      const id=uid(79);
+      const results=await Promise.all(['Import A','Import B'].map(label=>request(route(),{method:'POST',createOnly:true,body:payload(id,{label})})));
+      assert.deepEqual(results.map(r=>r.status).sort(),[200,409]);
+      assert.equal((await sql.query('select id from points where id=$1',[id])).rowCount,1);
+      const winner=results.find(result=>result.status===200).body.label;
+      assert.equal((await sql.query('select label from points where id=$1',[id])).rows[0].label,winner);
+      // Clean up this fixture through the actual authorized route.
+      assert.equal((await request(route(SCENE_A,id),{method:'DELETE'})).status,200);
     });
     await t.test('upsert keeps creator immutable; platform override is server controlled', async () => {
       const res=await request(route(),{method:'POST',actor:ADMIN,body:payload(POINT_A,{label:'Updated fixture',createdBy:ADMIN})});

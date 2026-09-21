@@ -120,7 +120,7 @@ function createScenePointHandler(options = {}) {
               throw new PointError(400, 'INVALID_JSON_BODY');
             }
 
-            const saved = await db.saveScenePoint(slug, sceneId, body, actor);
+            const saved = await db.saveScenePoint(slug, sceneId, body, actor, { createOnly: req.headers?.['if-none-match'] === '*' });
             if (res.writableEnded) return;
             json(res, 200, saved);
             return;

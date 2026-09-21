@@ -34,7 +34,12 @@ async function performRequest(url, options, fetchFn) {
 
   if (!res || !res.ok) {
     const status = res ? res.status : 0;
-    const code = mapHttpErrorCode(status);
+    let code = mapHttpErrorCode(status);
+    // Narrow stable error allowlist; never surface arbitrary server text.
+    if (status === 409) {
+      const body = await res.json().catch(() => null);
+      if (body?.error === 'POINT_HAS_PHOTOS') code = 'POINT_HAS_PHOTOS';
+    }
     throw new MyPinsError(status, code);
   }
 
@@ -159,7 +164,7 @@ export async function listAccountPins(slug, sceneId, { fetchFn = globalThis.fetc
   return data;
 }
 
-export async function saveAccountPin(slug, sceneId, point, { fetchFn = globalThis.fetch } = {}) {
+export async function saveAccountPin(slug, sceneId, point, { fetchFn = globalThis.fetch, createOnly = false } = {}) {
   if (!slug || !sceneId || !point || typeof point !== 'object' || Array.isArray(point)) {
     throw new MyPinsError(0, 'INVALID_INPUT');
   }
@@ -168,7 +173,8 @@ export async function saveAccountPin(slug, sceneId, point, { fetchFn = globalThi
     method: 'POST',
     credentials: 'same-origin',
     headers: {
-      'Content-Type': 'application/json'
+      'Content-Type': 'application/json',
+      ...(createOnly ? { 'If-None-Match': '*' } : {})
     },
     body: JSON.stringify(point)
   }, fetchFn);

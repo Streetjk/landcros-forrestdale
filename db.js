@@ -34,6 +34,13 @@ export async function getContacts() {
   return _fetch('/api/contacts');
 }
 
+// The full dropdown is authenticated; public getContacts remains unchanged.
+export async function getStaffContacts(slug) {
+  const contacts = await _fetch(`/api/sites/${encodeURIComponent(slug)}/contacts`);
+  if (!Array.isArray(contacts)) throw new Error('Staff contacts unavailable');
+  return contacts;
+}
+
 export async function getContact(id) {
   const all = await getContacts();
   return all.find(c => c.id === id) ?? null;

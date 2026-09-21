@@ -1,4 +1,6 @@
-import { getContacts, getPoints, savePoint, deletePoint, saveContact } from './db.js';
+import { getContacts, getStaffContacts, getPoints, savePoint, deletePoint, saveContact } from './db.js';
+import { createMyPinsSession } from './my-pins-session.js';
+import { buildLegacyImportPlan } from './my-pins-client.js';
 import { generateQR, downloadQR } from './qr.js';
 
 // ── State ─────────────────────────────────────────────────────────────────────
@@ -15,7 +17,15 @@ let _editingContactIds = [];
 let _saving        = false;
 let _isNewPoint    = false;
 let _placing        = false;
-let _userId        = null;
+let _accountSession = null;
+let _accountReady = false;
+let _legacyPins = [];       // read-only browser backup until explicitly imported
+let _editingIsLegacy = false;
+let _accountEmail = null;
+let _editingIsAccount = false;
+let _initPromise = null;
+let _initEpoch = 0;
+let _viewerHooksInstalled = false;
 let _slug          = null;   // site slug, for the /api/sites/:slug/points/... photo routes
 let _pinPhotos     = [];     // photos of the pin currently open in the editor
 let _pinPhotosFor  = null;   // which pin id _pinPhotos belongs to
@@ -28,47 +38,197 @@ document.addEventListener('keydown', e => {
 });
 
 // ── Init (fires after viewer3d boot completes) ────────────────────────────────
-window.addEventListener('viewer3d:ready', async () => {
+function _setEditorPanel(active) {
+  const panel = document.getElementById('side-panel');
+  panel?.classList.toggle('staff-editing', active);
+  document.getElementById('app')?.classList.toggle('staff-editing', active);
+  if (active) panel?.classList.remove('panel-folded');
+  window._updateCamPresetsBottom?.();
+}
+function _safeStorage() { try { return window.localStorage; } catch { return null; } }
+function _copy(value) { return structuredClone(value); }
+function _accountState() { return _accountSession?.getState() || { pins: [], scene: null }; }
+function _syncAccountPins() { _personalPins = _accountState().pins; }
+async function _loadLegacyPins() {
+  const plan = buildLegacyImportPlan(_safeStorage());
+  return (await Promise.all(plan.pins.map(_preparePosition))).filter(Boolean);
+}
+function _visibleLegacyPins() {
+  const accountIds = new Set(_personalPins.map(p => p.id));
+  return _legacyPins.filter(p => !accountIds.has(p.id));
+}
+function _renderAllPins() {
+  if (!_v3d) return;
+  const occupied = new Set([..._points, ..._personalPins].map(p => p.id));
+  // A local backup with a colliding server ID remains visible in the list but
+  // does not replace the authoritative server marker in the renderer.
+  const renderableLegacy = _visibleLegacyPins().filter(p => !occupied.has(p.id));
+  _v3d.renderPins([..._points, ..._personalPins, ...renderableLegacy]);
+  renderPointList(document.getElementById('search-input')?.value || '');
+}
+function _accountError(error) {
+  const messages = {
+    UNAUTHORIZED: 'Session expired. Reload and sign in again.',
+    SESSION_CHANGED: 'The signed-in account changed. Reload before continuing.',
+    FORBIDDEN: 'Your account does not have access to these pins.',
+    POINT_HAS_PHOTOS: 'Remove attached photos before deleting this pin.',
+    CONFLICT: 'The pin conflicts with another record. Nothing was overwritten.',
+    SAVE_NOT_VERIFIED: 'Save could not be verified. Reload your account pins before retrying.',
+    NETWORK_ERROR: 'Connection failed. Your changes have not been confirmed.',
+    BUSY: 'Wait for the current operation to finish.',
+  };
+  return messages[error?.code] || 'Account operation failed. Your browser copies are unchanged; retry when connected.';
+}
+function _handleAccountFailure(error) {
+  if (error?.status === 401 || error?.code === 'SESSION_CHANGED') {
+    window._snAdminIdentity = null;
+    window.dispatchEvent(new CustomEvent('sitenav:auth-cleared'));
+    _setAccountStatus(_accountError(error));
+  }
+  return _accountError(error);
+}
+function _setAccountStatus(message, retry = false) {
+  const el = document.getElementById('my-pins-status');
+  if (!el) return;
+  el.replaceChildren();
+  const text = document.createElement('span'); text.textContent = message; el.appendChild(text);
+  if (retry) {
+    const button = document.createElement('button'); button.type = 'button'; button.id = 'my-pins-retry';
+    button.className = 'btn-secondary'; button.textContent = 'Retry loading';
+    button.addEventListener('click', () => _maybeInitAdmin()); el.appendChild(button);
+  }
+}
+function _setBusy(on) {
+  document.querySelectorAll('#admin-controls button, #admin-controls input, #drawer-body button, #drawer-body input, #drawer-body textarea, .back-btn, .ev-delete-btn, #legacy-import-button, #my-pins-retry').forEach(el => {
+    if (on) {
+      if (!el.hasAttribute('data-pin-busy-disabled')) el.dataset.pinBusyDisabled = el.disabled ? '1' : '0';
+      el.disabled = true;
+    } else if (el.hasAttribute('data-pin-busy-disabled')) {
+      el.disabled = el.dataset.pinBusyDisabled === '1'; delete el.dataset.pinBusyDisabled;
+    }
+  });
+  const place = document.getElementById('place-btn');
+  if (place) place.disabled = on || !_accountReady;
+}
+function _renderImportNotice() {
+  const el = document.getElementById('legacy-import-notice');
+  if (!el) return;
+  el.replaceChildren();
+  if (!_accountReady) return;
+  const plan = buildLegacyImportPlan(_safeStorage());
+  const accountIds = new Set(_personalPins.map(p => p.id));
+  const remaining = plan.pins.filter(p => !accountIds.has(p.id));
+  if (!remaining.length) return;
+  const text = document.createElement('p');
+  text.textContent = `${remaining.length} device-only pin${remaining.length === 1 ? '' : 's'} not yet in your account. Import only pins that belong to you; browser copies will be kept.`;
+  const button = document.createElement('button'); button.type = 'button'; button.id = 'legacy-import-button';
+  button.className = 'btn-secondary'; button.textContent = 'Import browser pins';
+  button.addEventListener('click', () => window._adminImportLegacyPins());
+  el.append(text, button);
+  if (_saving) _setBusy(true);
+}
+async function _preparePosition(pt) {
+  const pos = pt.position3d;
+  if (pos && ['x','y','z'].every(key => Number.isFinite(pos[key]))) return pt;
+  if (Array.isArray(pt.latlng) && pt.latlng.length === 2 && pt.latlng.every(Number.isFinite)) {
+    return { ...pt, position3d: await _v3d.latlngToScene(...pt.latlng) };
+  }
+  return null;
+}
+async function _maybeInitAdmin() {
+  if (_saving || _initPromise || !window._v3d || !window._snAdminIdentity?.email) return _initPromise;
   _v3d = window._v3d;
-
-  const canvas = _v3d.renderer.domElement;
-  const wrap   = canvas.parentElement;
-
-  wrap.addEventListener('pointerdown', _onWrapPointerDown, { capture: true });
-  wrap.addEventListener('pointerup', _onWrapPointerUp, { capture: true });
-  wrap.addEventListener('click', _onWrapClick, { capture: true });
-
-  _siteBounds = await fetch('./assets/site-map-bounds.json').then(r => r.json());
-  // Photo routes are per-slug (/api/sites/:slug/points/...), unlike the
-  // env-pinned /api/points this page otherwise uses.
-  _slug = await fetch('/api/site').then(r => r.ok ? r.json() : null).then(d => d?.slug ?? null).catch(() => null);
-  [_points, _contacts] = await Promise.all([getPoints(), getContacts()]);
-  _contactsAll = [..._contacts];
-
-  _userId = _getUserId();
-  _personalPins = _loadPersonalPins();
-
-  const allPins = [..._points, ..._personalPins];
-  await Promise.all(allPins.map(async pt => {
-    pt.position3d = await _v3d.latlngToScene(pt.latlng[0], pt.latlng[1]);
-  }));
-
-  _v3d.renderPins(allPins);
-  renderPointList();
-
-  document.getElementById('point-list').addEventListener('click', e => {
-    const item = e.target.closest('[data-pt-id]');
-    if (item) window._adminOpenEditor(item.dataset.ptId);
+  if (!_viewerHooksInstalled) {
+    const wrap = _v3d.renderer.domElement.parentElement;
+    wrap.addEventListener('pointerdown', _onWrapPointerDown, { capture: true });
+    wrap.addEventListener('pointerup', _onWrapPointerUp, { capture: true });
+    wrap.addEventListener('click', _onWrapClick, { capture: true });
+    document.getElementById('point-list').addEventListener('click', e => {
+      const item = e.target.closest('[data-pt-id]');
+      if (item && !_saving) window._adminOpenEditor(item.dataset.ptId, item.dataset.pinSource);
+    });
+    document.getElementById('drawer-body').addEventListener('click', e => {
+      const chip = e.target.closest('[data-remove-contact]');
+      if (chip && !_saving) window._adminRemoveContact(chip.dataset.removeContact);
+    });
+    _viewerHooksInstalled = true;
+  }
+  const epoch = ++_initEpoch;
+  const email = window._snAdminIdentity.email;
+  _accountReady = false; _setBusy(false); _setAccountStatus('Loading account pins…');
+  _initPromise = (async () => {
+    const [bounds, site] = await Promise.all([
+      fetch('./assets/site-map-bounds.json').then(r => { if (!r.ok) throw new Error('bounds'); return r.json(); }),
+      fetch('/api/site').then(r => { if (!r.ok) throw new Error('site'); return r.json(); }),
+    ]);
+    if (!site?.slug) throw new Error('site');
+    const session = createMyPinsSession(site.slug, { identity: email, storage: _safeStorage() });
+    const [state, contacts, baseResult] = await Promise.all([
+      session.load(), getStaffContacts(site.slug),
+      getPoints().then(data => ({ data, failed: !Array.isArray(data) })).catch(() => ({ data: [], failed: true })),
+    ]);
+    const preparedAccount = (await Promise.all(state.pins.map(_preparePosition))).filter(Boolean);
+    const ownIds = new Set(preparedAccount.map(pt => pt.id));
+    const preparedBase = (await Promise.all((Array.isArray(baseResult.data) ? baseResult.data : []).map(_preparePosition))).filter(pt => pt && !ownIds.has(pt.id));
+    // Legacy coordinate preparation is asynchronous too. Keep it local until
+    // the identity/epoch check after every await so a sign-out cannot revive
+    // stale private account state.
+    const preparedLegacy = await _loadLegacyPins();
+    if (epoch !== _initEpoch || window._snAdminIdentity?.email !== email) return;
+    _siteBounds = bounds; _slug = site.slug; _accountSession = session; _accountEmail = email;
+    _personalPins = preparedAccount; _points = preparedBase; _legacyPins = preparedLegacy;
+    _contacts = contacts; _contactsAll = [...contacts]; _accountReady = true;
+    _renderAllPins(); _renderImportNotice();
+    _setAccountStatus(`My pins are saved to ${email}.` + (state.duplicates ? ' Multiple workspaces found; showing the oldest.' : '') + (baseResult.failed ? ' Base-site pins are temporarily unavailable.' : ''));
+    _loadAnalytics(); window._updateCamPresetsBottom?.();
+  })().catch(error => {
+    if (epoch === _initEpoch) {
+      _accountReady = false; _setAccountStatus(_accountError(error), true);
+      document.getElementById('legacy-import-notice')?.replaceChildren();
+    }
+  }).finally(() => {
+    _initPromise = null; _setBusy(_saving);
+    if (window._snAdminIdentity?.email && window._snAdminIdentity.email !== email) queueMicrotask(_maybeInitAdmin);
   });
-
-  document.getElementById('drawer-body').addEventListener('click', e => {
-    const chip = e.target.closest('[data-remove-contact]');
-    if (chip) window._adminRemoveContact(chip.dataset.removeContact);
-  });
-
-  _loadAnalytics();
-  window._updateCamPresetsBottom();
+  return _initPromise;
+}
+window.addEventListener('viewer3d:ready', () => _maybeInitAdmin());
+window.addEventListener('sitenav:auth-ready', () => _maybeInitAdmin());
+window.addEventListener('sitenav:auth-cleared', () => {
+  _setEditorPanel(false);
+  ++_initEpoch; _accountReady = false; _accountSession = null; _accountEmail = null;
+  _personalPins = []; _legacyPins = []; _contacts = []; _contactsAll = []; _editingContactIds = [];
+  _editingPoint = null; _editingIsLegacy = false; _isNewPoint = false;
+  _v3d?.renderPins(_points); renderPointList();
+  document.getElementById('editor-view')?.classList.remove('panel-slide-in');
+  document.getElementById('list-view')?.classList.remove('panel-slide-out');
+  document.getElementById('drawer-body')?.replaceChildren();
+  document.getElementById('legacy-import-notice')?.replaceChildren();
+  document.getElementById('modal-backdrop')?.classList.remove('open');
+  document.getElementById('contact-tbody')?.replaceChildren();
+  _setAccountStatus('Sign in to load your account pins.'); _setBusy(false);
 });
+queueMicrotask(() => { _setBusy(false); _maybeInitAdmin(); });
+
+window._adminImportLegacyPins = async () => {
+  if (_saving || !_accountReady || !_accountSession) return;
+  _setPlacing(false); _saving = true; _setBusy(true);
+  const epoch = _initEpoch;
+  try {
+    const result = await _accountSession.importLegacy(({ email, count }) => window.confirm(
+      `Import ${count} browser-local pins into ${email}?\n\nThis browser may have been used by another employee. Confirm that these pins belong to you. Existing account pins will not be overwritten. Original browser copies will be kept.`));
+    if (epoch !== _initEpoch) return;
+    if (result.cancelled) { _setAccountStatus('Import cancelled. No browser pins were copied or removed.'); return; }
+    _syncAccountPins();
+    const importEmail = _accountEmail;
+    const refreshedLegacy = await _loadLegacyPins();
+    if (epoch !== _initEpoch || window._snAdminIdentity?.email !== importEmail) return;
+    _legacyPins = refreshedLegacy; _renderAllPins();
+    const unverified = result.imported - result.verified;
+    _setAccountStatus(`${result.verified} imported and verified; ${result.skipped} already present; ${result.failed} failed.` + (unverified ? ` ${unverified} saves remain unverified; reload before retrying.` : '') + ' Browser copies kept.');
+  } catch (error) { _setAccountStatus(_handleAccountFailure(error), true); }
+  finally { _saving = false; _renderImportNotice(); _setBusy(false); }
+};
 
 async function _loadAnalytics() {
   const panel = document.getElementById('analytics-panel');
@@ -113,32 +273,8 @@ async function _loadAnalytics() {
 }
 window._loadAnalytics = _loadAnalytics;
 
-// ── Personal pin storage ──────────────────────────────────────────────────────
-function _getUserId() {
-  if (_userId) return _userId;
-  let id = localStorage.getItem('sn_uid');
-  if (!id) { id = crypto.randomUUID(); localStorage.setItem('sn_uid', id); }
-  _userId = id;
-  return id;
-}
-
-function _loadPersonalPins() {
-  try { return JSON.parse(localStorage.getItem('sn_user_pins') || '[]'); }
-  catch { return []; }
-}
-
-function _savePersonalPins(pins) {
-  localStorage.setItem('sn_user_pins', JSON.stringify(pins));
-}
-
-function _addToHistory(pt) {
-  try {
-    const hist = JSON.parse(localStorage.getItem('sn_pin_history') || '[]');
-    hist.unshift({ id: pt.id, label: pt.label, latlng: pt.latlng, timestamp: new Date().toISOString() });
-    if (hist.length > 50) hist.length = 50;
-    localStorage.setItem('sn_pin_history', JSON.stringify(hist));
-  } catch {}
-}
+// Account pins never write the legacy browser pin/history keys. The import
+// planner is read-only, and explicit confirmation is required before copying.
 
 // ── Inverse coord: scene pos3d → [lat, lng] ───────────────────────────────────
 function _sceneToLatlng(x, z) {
@@ -150,18 +286,19 @@ function _sceneToLatlng(x, z) {
 
 // ── Pointerdown: only used to block OrbitControls starting a pan during placement ─
 function _onWrapPointerDown(e) {
-  if (e.button !== 0 || !_placing) return;
+  if (_saving || !_accountReady || e.button !== 0 || !_placing) return;
   if (!e.target.closest('#cam-presets')) e.stopPropagation();
 }
 
 function _onWrapPointerUp(e) {
-  if (e.button !== 0 || !_placing) return;
+  if (_saving || !_accountReady || e.button !== 0 || !_placing) return;
   if (e.target.closest('#cam-presets, #nav-progress, #splat-progress')) return;
   e.stopPropagation();
   _placeFromEvent(e);
 }
 
 function _onWrapClick(e) {
+  if (_saving || !_accountReady) return;
   if (e.target.closest('#cam-presets, #nav-progress, #splat-progress')) return;
   e.stopPropagation();
   if (_placing) { _placeFromEvent(e); return; }
@@ -205,6 +342,7 @@ function _setPlacing(on) {
 }
 
 window.togglePlacement = () => {
+  if (_saving || !_accountReady) return;
   if (_placing) { _setPlacing(false); return; }
   window.closeEditor();
   _setPlacing(true);
@@ -219,6 +357,7 @@ function _uuid() {
 }
 
 function _placePin(pos3d) {
+  if (_saving || !_accountReady) return;
   const latlng = _sceneToLatlng(pos3d.x, pos3d.z);
   const newPt = {
     id: _uuid(),
@@ -233,13 +372,12 @@ function _placePin(pos3d) {
     routeWaypoints3d: [],
     cameraPreset3d: { position: { x: 0, y: 5, z: -3 }, lookAt: { x: 0, y: 0, z: 0 } },
     buildingRef: '',
-    createdBy: _getUserId(),
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };
   _isNewPoint = true;
   _v3d.upsertPin(newPt);
-  openEditor(newPt);
+  openEditor(newPt, true);
 }
 
 // ── Point list (right panel) ──────────────────────────────────────────────────
@@ -253,55 +391,77 @@ function renderPointList(filter = '') {
   const visiblePersonal = _personalPins.filter(p =>
     !lf || p.label.toLowerCase().includes(lf) || p.type.includes(lf)
   );
+  const visibleLegacy = _visibleLegacyPins().filter(p =>
+    !lf || p.label.toLowerCase().includes(lf) || p.type.includes(lf)
+  );
 
   const dotColor = { 'drop-off': 'var(--primary)', 'collection': 'var(--accent)', 'both': 'var(--amber)', 'meet-point': '#f59e0b' };
 
   let html = '';
 
   if (visibleShared.length) {
-    html += `<div class="list-section">Shared pins</div>`;
+    html += `<div class="list-section">Base-site pins</div>`;
     visibleShared.forEach(p => {
       const isActive = _editingPoint?.id === p.id;
       const item = document.createElement('div');
       item.className = 'point-item' + (isActive ? ' selected' : '');
       item.dataset.ptId = p.id;
+      item.dataset.pinSource = 'base';
       item.innerHTML = `<div class="pt-dot" style="background:${dotColor[p.type] ?? dotColor['meet-point']}"></div><div class="pt-label">${_esc(p.label)}</div><span style="color:var(--text-tertiary);font-size:16px">›</span>`;
       html += item.outerHTML;
     });
   }
 
-  html += `<div class="list-section">My pins</div>`;
+  html += `<div class="list-section">My account pins</div>`;
   if (visiblePersonal.length) {
     visiblePersonal.forEach(p => {
       const isActive = _editingPoint?.id === p.id;
       const item = document.createElement('div');
       item.className = 'point-item' + (isActive ? ' selected' : '');
       item.dataset.ptId = p.id;
+      item.dataset.pinSource = 'account';
       item.innerHTML = `<div class="pt-dot" style="background:#4F6AF5"></div><div class="pt-label">${_esc(p.label)}</div><span style="color:var(--text-tertiary);font-size:16px">›</span>`;
       html += item.outerHTML;
     });
   } else {
-    html += `<div style="padding:12px 16px;font-size:12px;color:var(--text-secondary)">No personal pins yet — place a pin and choose 'My pin'</div>`;
+    html += `<div style="padding:12px 16px;font-size:12px;color:var(--text-secondary)">No account pins yet — place a pin and save it to your account</div>`;
   }
 
-  if (!visibleShared.length && !visiblePersonal.length) {
+  if (visibleLegacy.length) {
+    html += `<div class="list-section">Pins on this device</div>`;
+    visibleLegacy.forEach(p => {
+      const item = document.createElement('div');
+      item.className = 'point-item' + (_editingPoint?.id === p.id && _editingIsLegacy ? ' selected' : '');
+      item.dataset.ptId = p.id; item.dataset.pinSource = 'legacy';
+      item.innerHTML = `<div class="pt-dot" style="background:#8B5CF6"></div><div class="pt-label">${_esc(p.label)}</div><span style="color:var(--text-tertiary);font-size:16px">›</span>`;
+      html += item.outerHTML;
+    });
+  }
+  if (!visibleShared.length && !visiblePersonal.length && !visibleLegacy.length) {
     html = `<div style="padding:20px;text-align:center;color:var(--text-secondary);font-size:13px">No pins found</div>`;
   }
 
   el.innerHTML = html;
 }
 
-window._adminOpenEditor = id => {
-  const pt = _points.find(p => p.id === id) || _personalPins.find(p => p.id === id);
-  openEditor(pt);
+window._adminOpenEditor = (id, source) => {
+  if (_saving || !_accountReady) return;
+  if (source === 'legacy') return openEditor(_visibleLegacyPins().find(p => p.id === id), false, true);
+  const accountPin = _personalPins.find(p => p.id === id);
+  openEditor(accountPin || _points.find(p => p.id === id), Boolean(accountPin), false);
 };
 window.filterPins = val => renderPointList(val);
 
 // ── Editor drawer ─────────────────────────────────────────────────────────────
-function openEditor(pt) {
-  if (!pt) return;
-  _editingPoint = pt;
-  _editingContactIds = [...pt.contactIds];
+function openEditor(pt, account = Boolean(pt?.sceneId), legacy = false) {
+  if (!pt || _saving || !_accountReady) return;
+  if (_isNewPoint && _editingPoint && _editingPoint.id !== pt.id) _v3d?.removePin(_editingPoint.id);
+  _isNewPoint = !legacy && !_points.some(p => p.id === pt.id) && !_personalPins.some(p => p.id === pt.id);
+  _editingPoint = _copy(pt);
+  _editingIsAccount = account;
+  _editingIsLegacy = legacy;
+  _setEditorPanel(true);
+  _editingContactIds = [...(pt.contactIds || [])];
   _editingType = pt.type;
   _editingScope = pt.scope ?? 'shared';
   document.getElementById('drawer-title').textContent = pt.label || 'New pin';
@@ -311,16 +471,19 @@ function openEditor(pt) {
   _pinPhotos = [];
   _pinPhotosFor = null;
   renderDrawerBody();
-  if (_editingScope === 'shared' && !_isNewPoint && _slug) _loadPinPhotos(pt.id);
+  if (!_editingIsAccount && _editingScope === 'shared' && !_isNewPoint && _slug) _loadPinPhotos(pt.id);
   _v3d?.updatePinHighlight(pt.id);
 }
 
 window.closeEditor = function() {
+  if (_saving) return;
+  _setEditorPanel(false);
   if (_isNewPoint && _editingPoint) {
     _v3d?.removePin(_editingPoint.id);
     _isNewPoint = false;
   }
   _editingPoint = null;
+  _editingIsLegacy = false;
   _editingType  = null;
   _pinPhotos    = [];
   _pinPhotosFor = null;
@@ -333,6 +496,14 @@ window.closeEditor = function() {
 
 function renderDrawerBody() {
   const pt = _editingPoint;
+  if (_editingIsLegacy) {
+    document.getElementById('drawer-body').innerHTML = `
+      <div class="pin-scope-note"><span>Saved on this device only — not synced.</span></div>
+      <div class="form-group"><label class="form-label">Label</label><div class="form-input" style="min-height:auto">${_esc(pt.label || '')}</div></div>
+      ${pt.notes ? `<div class="form-group full"><label class="form-label">Notes</label><div style="font-size:12px;color:var(--text-secondary);white-space:pre-wrap">${_esc(pt.notes)}</div></div>` : ''}
+      <div class="form-group full"><div style="font-size:12px;color:var(--text-secondary)">Import this pin to your HCMA account before editing, sharing or adding photos. Your browser copy will remain as a backup.</div><button type="button" class="btn-secondary" style="margin-top:8px;width:auto" onclick="window._adminImportLegacyPins()">Import device pins</button></div>`;
+    return;
+  }
   const allContacts = _contacts.filter(c => c.active);
   const assigned   = _editingContactIds.map(id => allContacts.find(c => c.id === id)).filter(Boolean);
   const unassigned = allContacts.filter(c => !_editingContactIds.includes(c.id));
@@ -353,7 +524,9 @@ function renderDrawerBody() {
 
   // unassigned contacts used by the search autocomplete (attached after innerHTML)
 
-  const actionButtons = isPersonal
+  const actionButtons = _editingIsAccount
+    ? '<button class="pin-action-btn" type="button" disabled>Share link — not enabled</button><button class="pin-action-btn" type="button" disabled>QR — not enabled</button>'
+    : isPersonal
     ? `<button class="pin-action-btn action" onclick="window._adminShowShareLink()">Share link</button>`
     : `<button class="pin-action-btn action" onclick="window._adminToggleQR()">QR</button>
        <button class="pin-action-btn action" onclick="window._adminShowShareLink()">Share link</button>`;
@@ -363,7 +536,7 @@ function renderDrawerBody() {
       <label class="form-label">Label <span style="color:var(--red)">*</span></label>
       <input class="form-input" id="field-label" value="${_esc(pt.label)}" maxlength="80" placeholder="e.g. Dock 1 – Receiving">
     </div>
-    ${isPersonal ? `
+    ${_editingIsAccount ? `<div class="pin-scope-note"><span>${_isNewPoint ? 'New private pin — save to your account.' : 'Saved to your account. Publishing and account photos are not enabled in this step.'}</span></div>` : isPersonal ? `
     <div class="pin-scope-note">
       <span>Saved on this device only</span>
       <button type="button" class="pin-scope-promote" onclick="window._adminPromoteToShared()">Share with everyone</button>
@@ -382,11 +555,11 @@ function renderDrawerBody() {
       <label class="form-label">Notes (optional)</label>
       <textarea class="form-input" id="field-notes">${_esc(pt.notes ?? '')}</textarea>
     </div>
-    ${isPersonal ? `
+    ${(_editingIsAccount || isPersonal) ? `
     <div class="form-group full">
       <label class="form-label">Photos</label>
       <div style="font-size:12px;color:var(--text-secondary)">
-        Photos need the pin shared — use “Share with everyone” above.
+        ${_editingIsAccount ? 'Account-photo attachments are not enabled yet. Saving this pin does not publish it.' : 'Photos require a saved base-site pin.'}
       </div>
     </div>` : `
     <div class="form-group full">
@@ -404,7 +577,7 @@ function renderDrawerBody() {
       <div id="pin-photo-status" style="font-size:11px;color:var(--text-secondary);margin-top:4px;min-height:14px">${_isNewPoint ? 'Save the pin before adding photos.' : ''}</div>
     </div>`}
     <div class="full">
-      <button class="btn-primary" onclick="window._adminSave()">Save</button>
+      <button class="btn-primary" id="pin-save-button" onclick="window._adminSave()">${_editingIsAccount ? 'Save to my account' : 'Save base-site pin'}</button>
     </div>
     <div class="full pin-action-row">
       ${actionButtons}
@@ -456,7 +629,8 @@ function renderDrawerBody() {
   // innerHTML above wiped the photo grid — repaint it from state. Photos are
   // fetched by openEditor/_adminSave, not here, so re-rendering on every
   // contact add/remove doesn't refetch.
-  if (!isPersonal) _renderPinPhotos(pt.id);
+  if (!_editingIsAccount && !isPersonal) _renderPinPhotos(pt.id);
+  if (_saving) _setBusy(true);
 }
 
 // ── Pin photos (shared pins only) ─────────────────────────────────────────────
@@ -492,6 +666,7 @@ async function _compressImage(file) {
 
 // One binary request: [u32 BE header length][JSON header][compressed][original].
 async function _uploadPinPhoto(pointId, file, keepIndefinitely) {
+  if (_editingIsAccount) throw new Error('Account photo workflow is not enabled');
   const { blob, width, height } = await _compressImage(file);
   const header = new TextEncoder().encode(JSON.stringify({
     contentType: file.type || 'image/jpeg', originalName: file.name,
@@ -508,6 +683,7 @@ async function _uploadPinPhoto(pointId, file, keepIndefinitely) {
 }
 
 async function _loadPinPhotos(pointId) {
+  if (_editingIsAccount) return;
   _pinPhotos = [];
   _pinPhotosFor = pointId;
   try {
@@ -586,7 +762,7 @@ function _renderPinPhotos(pointId, pending = 0) {
 window._adminPinFilesChosen = async (e) => {
   const files = Array.from(e.target.files || []);
   e.target.value = '';
-  if (!_editingPoint || !files.length) return;
+  if (!_editingPoint || _editingIsAccount || _editingIsLegacy || _saving || !files.length) return;
   const pointId = _editingPoint.id;
   const status = document.getElementById('pin-photo-status');
   if (_isNewPoint) { if (status) status.textContent = 'Save the pin before adding photos.'; return; }
@@ -614,112 +790,101 @@ window._adminPinFilesChosen = async (e) => {
   }
 };
 
+function _captureDraft() {
+  if (!_editingPoint) return;
+  _editingPoint.label = document.getElementById('field-label')?.value ?? _editingPoint.label;
+  _editingPoint.notes = document.getElementById('field-notes')?.value ?? _editingPoint.notes;
+}
+
 window._adminAddContact = id => {
+  if (_saving) return;
+  _captureDraft();
   if (!id || _editingContactIds.includes(id)) return;
   _editingContactIds.push(id);
   renderDrawerBody();
 };
 
 window._adminRemoveContact = id => {
+  if (_saving) return;
+  _captureDraft();
   _editingContactIds = _editingContactIds.filter(c => c !== id);
   renderDrawerBody();
 };
 
 // ── Save / Delete ─────────────────────────────────────────────────────────────
 window._adminSave = async () => {
-  if (!_editingPoint || _saving) return;
-  const label = document.getElementById('field-label').value.trim();
-  if (label.length < 2) { showToast('Label must be at least 2 characters'); return; }
-
-  _saving = true;
+  if (!_editingPoint || _saving || !_accountReady) return;
+  if (_editingIsLegacy) return showToast('Import this device-only pin before editing it');
+  _captureDraft();
+  const snapshot = _copy(_editingPoint);
+  const account = _editingIsAccount;
+  const epoch = _initEpoch;
+  snapshot.label = String(snapshot.label || '').trim();
+  if (snapshot.label.length < 2) { showToast('Label must be at least 2 characters'); return; }
+  snapshot.notes = String(snapshot.notes || '').trim();
+  snapshot.type = _editingType;
+  snapshot.contactIds = [..._editingContactIds];
+  // This UI never newly publishes an account pin or promotes it to base data.
+  snapshot.scope = account ? (_personalPins.find(p => p.id === snapshot.id)?.scope || 'personal') : _editingScope;
+  _saving = true; _setBusy(true);
   try {
-    _editingPoint.label      = label;
-    _editingPoint.notes      = document.getElementById('field-notes').value.trim();
-    _editingPoint.type       = _editingType;
-    _editingPoint.scope      = _editingScope;
-    _editingPoint.contactIds = [..._editingContactIds];
-    _editingPoint.updatedAt  = new Date().toISOString();
-
-    if (_editingPoint.scope === 'personal') {
-      const idx = _personalPins.findIndex(p => p.id === _editingPoint.id);
-      if (idx >= 0) _personalPins[idx] = _editingPoint; else _personalPins.push(_editingPoint);
-      _savePersonalPins(_personalPins);
-      _addToHistory(_editingPoint);
-      _points = _points.filter(p => p.id !== _editingPoint.id);
-      _isNewPoint = false;
-      _v3d.upsertPin(_editingPoint);
-      _v3d.updatePinHighlight(_editingPoint.id);
-      renderPointList();
-      renderDrawerBody();
-      document.getElementById('drawer-title').textContent = _editingPoint.label;
-      showToast('Saved to your device');
-    } else {
-      await savePoint(_editingPoint);
-      const idx = _points.findIndex(p => p.id === _editingPoint.id);
-      if (idx >= 0) _points[idx] = _editingPoint; else _points.push(_editingPoint);
-      _personalPins = _personalPins.filter(p => p.id !== _editingPoint.id);
-      _savePersonalPins(_personalPins);
-      _addToHistory(_editingPoint);
-      _isNewPoint = false;
-      _v3d.upsertPin(_editingPoint);
-      _v3d.updatePinHighlight(_editingPoint.id);
-      renderPointList();
-      renderDrawerBody();
-      document.getElementById('drawer-title').textContent = _editingPoint.label;
-      // Now that the pin exists server-side (first save, or just promoted from
-      // personal), its photo list becomes available.
-      if (_slug && _pinPhotosFor !== _editingPoint.id) _loadPinPhotos(_editingPoint.id);
-      showToast('Saved');
+    const saved = account ? await _accountSession.save(snapshot) : await savePoint(snapshot);
+    if (epoch !== _initEpoch) return;
+    if (!saved?.id || saved.id !== snapshot.id) throw new Error('Save not verified');
+    if (account) _syncAccountPins();
+    else {
+      const index = _points.findIndex(p => p.id === saved.id);
+      if (index >= 0) _points[index] = saved; else _points.push(saved);
     }
-  } catch (e) {
-    showToast('Save failed — ' + (e.message || 'check connection'));
-  } finally {
-    _saving = false;
-  }
+    _editingPoint = _copy(saved); _isNewPoint = false;
+    _v3d.upsertPin(saved); _v3d.updatePinHighlight(saved.id);
+    renderPointList(); renderDrawerBody();
+    document.getElementById('drawer-title').textContent = saved.label;
+    if (!account && _slug) _loadPinPhotos(saved.id);
+    showToast(account ? 'Saved and verified in your account' : 'Saved');
+    if (account) _setAccountStatus(`My pins are saved to ${_accountEmail}.`);
+  } catch (error) {
+    showToast(account ? _handleAccountFailure(error) : 'Save failed. Your draft is still open.');
+  } finally { _saving = false; _setBusy(false); }
 };
 
 window._adminPromoteToShared = async () => {
-  if (!_editingPoint || _editingScope !== 'personal') return;
-  _editingScope = 'shared';
+  if (_saving || !_editingPoint || _editingIsAccount) return;
+  if (_editingScope !== 'personal') return;
+  const oldScope = _editingScope; _editingScope = 'shared';
   await window._adminSave();
+  if (_editingPoint?.scope !== 'shared') _editingScope = oldScope;
 };
 
 window._adminDelete = async () => {
-  if (!_editingPoint || _saving) return;
-  const id    = _editingPoint.id;
-  const label = _editingPoint.label;
-  _saving = true;
+  if (!_editingPoint || _saving || !_accountReady) return;
+  if (_editingIsLegacy) return showToast('Import this device-only pin before deleting it');
+  const snapshot = _copy(_editingPoint), account = _editingIsAccount;
+  const epoch = _initEpoch;
+  if (!window.confirm(`Delete "${snapshot.label}"${account ? ' from your account' : ''}? Browser-local copies, if any, will be kept.`)) return;
+  _saving = true; _setBusy(true);
   try {
     if (!_isNewPoint) {
-      if (_editingPoint.scope === 'personal') {
-        _personalPins = _personalPins.filter(p => p.id !== id);
-        _savePersonalPins(_personalPins);
-      } else {
-        await deletePoint(id);
-        _points = _points.filter(p => p.id !== id);
-      }
+      if (account) { await _accountSession.remove(snapshot.id); _syncAccountPins(); }
+      else { await deletePoint(snapshot.id); _points = _points.filter(p => p.id !== snapshot.id); }
     }
-    _v3d.removePin(id);
-    _isNewPoint   = false;
-    _editingPoint = null;
-    _editingType  = null;
-    _pinPhotos    = [];
-    _pinPhotosFor = null;
+    if (epoch !== _initEpoch) return;
+    _setEditorPanel(false);
+    _v3d.removePin(snapshot.id); _isNewPoint = false; _editingPoint = null; _editingType = null;
+    _pinPhotos = []; _pinPhotosFor = null;
     document.getElementById('list-view').classList.remove('panel-slide-out');
     document.getElementById('editor-view').classList.remove('panel-slide-in');
+    document.getElementById('drawer-body').replaceChildren();
     document.getElementById('qr-section').style.display = 'none';
-    renderPointList();
-    _v3d.updatePinHighlight(null);
-    showToast(`Deleted "${label}"`);
-  } catch (e) {
-    showToast('Delete failed — ' + e.message);
-  } finally {
-    _saving = false;
-  }
+    renderPointList(); _v3d.updatePinHighlight(null);
+    showToast('Pin deleted. Browser-local copies kept.');
+  } catch (error) { showToast(account ? _handleAccountFailure(error) : 'Delete failed. Remove any attached photos first, then retry.'); }
+  finally { _saving = false; _setBusy(false); }
 };
 
 // ── Share link helpers ────────────────────────────────────────────────────────
 async function _buildShareUrl(pt) {
+  if (pt?.sceneId || _editingIsAccount) throw new Error('Account sharing is not enabled');
   const allContacts = await getContacts();
   const contacts = allContacts.filter(c => (pt.contactIds ?? []).includes(c.id));
   const pinData = {
@@ -733,7 +898,7 @@ async function _buildShareUrl(pt) {
 
 // ── Share link (inline display) ───────────────────────────────────────────────
 window._adminShowShareLink = async () => {
-  if (!_editingPoint) return;
+  if (!_editingPoint || _editingIsAccount || _editingIsLegacy || _saving) return;
   const row = document.getElementById('share-link-row');
   if (!row) return;
   if (row.style.display !== 'none') { row.style.display = 'none'; return; }
@@ -766,7 +931,7 @@ window._toggleInfoBar = () => {
 
 // ── QR / link ─────────────────────────────────────────────────────────────────
 window._adminToggleQR = async () => {
-  if (!_editingPoint) return;
+  if (!_editingPoint || _editingIsAccount || _editingIsLegacy || _saving) return;
   const sec     = document.getElementById('qr-section');
   const visible = sec.style.display !== 'block';
   sec.style.display = visible ? 'block' : 'none';
@@ -779,7 +944,7 @@ window._adminToggleQR = async () => {
 };
 
 window._adminDownloadQR = async () => {
-  if (!_editingPoint) return;
+  if (!_editingPoint || _editingIsAccount || _editingIsLegacy || _saving) return;
   let url = `${location.origin}/viewer3d.html?id=${_editingPoint.id}`;
   try { url = await _buildShareUrl(_editingPoint); } catch {}
   downloadQR(url, `sitenav-${_editingPoint.id.slice(0, 8)}.png`);
@@ -789,7 +954,8 @@ window._adminDownloadQR = async () => {
 let _contactTbodyListenerAdded = false;
 
 window.openContactManager = async () => {
-  _contactsAll = await getContacts();
+  if (_saving || !_accountReady) return;
+  _contactsAll = await getStaffContacts(_slug);
   _contacts    = [..._contactsAll];
   window.renderContactTable('');
   document.getElementById('modal-backdrop').classList.add('open');

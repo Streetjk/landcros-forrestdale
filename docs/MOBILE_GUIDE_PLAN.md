@@ -85,3 +85,7 @@ The browser now has a tested `my-pins-client.js` foundation for discovering/crea
 ## Scene-owned point backend checkpoint
 
 The continuation slice implements authenticated scene-scoped point CRUD, immutable tenant/scene binding, session-derived authors, personal/shared capability filtering, and legacy point/photo bypass isolation. Points with attached photos now require explicit photo removal before deletion. The staff My Pins UI and scene-photo workflow remain to be connected. See `PIN_OWNERSHIP_CHECKPOINT.md` for exact scope, test limitations and the isolated-branch reconciliation requirement.
+
+## Staff My Pins interface checkpoint
+
+The staff interface is connected to the scene-owned My Pins client: read-only account discovery, explicit save/read-back verification, account delete, confirmed legacy import with unchanged browser copies and database-atomic create-only import protection. Staff contacts are read through an editor-only site endpoint. Account media, phone overrides and scoped/revocable publication/QR remain the next slice; they do not use legacy public fallbacks. See `MY_PINS_UI_CHECKPOINT.md` for the exact implementation and test limits.

@@ -377,6 +377,22 @@
     .panel-fold-btn:hover { background: var(--surface); }
     .panel-fold-btn.folded { transform: rotate(180deg); }
     #panel-header-row { display: flex; align-items: center; justify-content: space-between; }
+    /* Staff editing needs a real reading/editing surface, not the public
+       viewer's compact 16–19vh information strip. These rules are admin-only. */
+    #panel-body, .ev-body { min-height: 0; }
+    .ev-body .form-input { box-sizing: border-box; width: 100%; max-width: 100%; }
+    #list-view { overflow-y: auto; }
+    #my-pins-status, #legacy-import-notice { flex-shrink: 0; }
+    @media (max-width: 1024px) {
+      #side-panel:not(.panel-folded) { height: 52vh !important; height: 52dvh !important; }
+      #side-panel.staff-editing:not(.panel-folded) { height: 82vh !important; height: 82dvh !important; }
+      #list-view #point-list { flex: 0 0 auto; }
+      #app:not(.panel-is-folded) #cam-presets { bottom: calc(52vh + 8px) !important; bottom: calc(52dvh + 8px) !important; }
+      #app.staff-editing:not(.panel-is-folded) #cam-presets { visibility: hidden; pointer-events: none; }
+      .ev-body { overscroll-behavior: contain; padding-bottom: max(14px, env(safe-area-inset-bottom)); }
+      .back-btn, #pin-save-button { min-height: 44px; }
+      #sn-auth-email-row { flex-wrap: wrap; justify-content: center; padding: 0 12px; }
+    }
   </style>
 </head>
 <body>
@@ -437,10 +453,12 @@
       <!-- List view -->
       <div id="list-view" class="panel-page">
         <div id="admin-controls">
-          <button class="btn-primary" id="place-btn" onclick="window.togglePlacement()">+ Place new pin</button>
+          <button class="btn-primary" id="place-btn" disabled onclick="window.togglePlacement()">+ Place new pin</button>
           <button class="btn-secondary" onclick="window.openContactManager()">Contacts DB</button>
           <input class="form-input" id="search-input" type="search" placeholder="Search pins…" oninput="window.filterPins(this.value)">
         </div>
+        <div id="my-pins-status" role="status" style="padding:10px 16px;font-size:12px;line-height:1.5;overflow-wrap:anywhere;">Sign in to load account pins.</div>
+        <div id="legacy-import-notice" style="padding:0 16px 10px;font-size:12px;line-height:1.5;"></div>
         <div id="point-list"></div>
         <div class="admin-section" id="analytics-section">
           <h3>Analytics</h3>
@@ -563,20 +581,29 @@
     });
     const showLoginState = authGate.showLoginState;
 
-    async function afterLogin() {
-      gate.remove();
-      try {
-        const r = await fetch('/api/auth/me');
-        showAuthBar(r.ok ? await r.json() : null);
-      } catch { showAuthBar(null); }
+    function acceptIdentity(info) {
+      if (!info || typeof info.email !== 'string' || !info.email.trim()) return false;
+      if (!['editor', 'admin', 'owner'].includes(info.role)) {
+        showError('Staff editing access is required. Contact your site administrator.');
+        return false;
+      }
+      window._snAdminIdentity = Object.freeze({ email: info.email, role: info.role, hasPin: info.hasPin });
+      gate.remove(); showAuthBar(info);
+      window.dispatchEvent(new CustomEvent('sitenav:auth-ready', { detail: window._snAdminIdentity }));
+      return true;
     }
+    async function afterLogin() {
+      try {
+        const r = await fetch('/api/auth/me', { credentials: 'same-origin', cache: 'no-store' });
+        if (!r.ok || !acceptIdentity(await r.json())) showError('Could not confirm editing access. Retry sign-in.');
+      } catch { showError('Could not verify your session. Check the connection and retry.'); }
+    }
+    // Authentication can finish before or after renderer boot; the module
+    // requires both the verified identity and viewer-ready state.
+    fetch('/api/auth/me', { credentials: 'same-origin', cache: 'no-store' }).then(r => r.ok ? r.json() : null).then(info => {
+      if (!acceptIdentity(info)) { showLoginState('Sign in with your @hcma.com.au email to continue.'); emailInput.focus(); }
+    }).catch(() => { showLoginState('Unable to verify your session. Check the connection and retry.'); emailInput.focus(); });
 
-
-    // Skip the gate entirely if already logged in.
-    fetch('/api/auth/me').then(r => r.ok ? r.json() : null).then(d => {
-      if (d && d.email) { gate.remove(); showAuthBar(d); }
-      else { showLoginState('Sign in with your @hcma.com.au email to continue.'); emailInput.focus(); }
-    }).catch(() => { showLoginState('Sign in with your @hcma.com.au email to continue.'); emailInput.focus(); });
   })();
 
   function showAuthBar(info) {
@@ -585,8 +612,10 @@
     document.getElementById('sn-auth-email-label').textContent = (info && info.email) || '';
     SnAuthGate.decorateAuthBar();
     document.getElementById('sn-signout-btn').onclick = async () => {
-      await fetch('/api/auth/logout', { method: 'POST' });
-      location.reload();
+      window._snAdminIdentity = null;
+      window.dispatchEvent(new CustomEvent('sitenav:auth-cleared'));
+      try { await fetch('/api/auth/logout', { method: 'POST' }); }
+      finally { location.reload(); }
     };
     if (info && (info.role === 'admin' || info.role === 'owner')) loadPendingPanel();
   }

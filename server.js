@@ -725,6 +725,20 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  // Staff-only contact dropdown; do not widen the existing public projection.
+  const staffContactsMatch = /^\/api\/sites\/([^/]+)\/contacts$/.exec(pathname);
+  if (staffContactsMatch && req.method === 'GET') {
+    const slug = staffContactsMatch[1];
+    if (!SLUG_RE.test(slug)) return _json(res, 404, { error: 'not found' });
+    res.setHeader('Cache-Control', 'no-store');
+    _requireSiteEditor(req, res, slug, () => {
+      sdb.getContacts(slug, { baseOnly: false })
+        .then(contacts => _json(res, 200, contacts))
+        .catch(e => _json(res, 500, JSON.parse(_errBody(e))));
+    });
+    return;
+  }
+
   if (handleScenePoints(req, res, url)) return;
 
   const _objectsMatch = /^\/api\/sites\/([^/]+)\/objects$/.exec(pathname);
