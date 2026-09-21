@@ -187,7 +187,9 @@ async function updateScene(slug, id, { name, camera } = {}, changedBy = null) {
 //   * every subsequent query filters by BOTH scene_id AND that derived
 //     site_id — so no base data (scene_id IS NULL), no other scene, and no
 //     other site can ever be returned.
-//   * contacts are the union of THIS scene's pins' contact_ids only.
+//   * only scope='shared' scene pins are exposed by the capability; personal
+//     pins remain owner-only through authenticated management routes.
+//   * contacts are the union of THIS scene's SHARED pins' contact_ids only.
 //   * unknown/deleted code → null (server returns a uniform 404, no
 //     existence or timing distinction).
 async function getSceneBundleByCode(code, viewerProfileId = null) {
@@ -216,14 +218,14 @@ async function getSceneBundleByCode(code, viewerProfileId = null) {
   );
 
   const pinsRes = await pool.query(
-    'select * from points where scene_id = $1 and site_id = $2 order by created_at',
+    "select * from points where scene_id = $1 and site_id = $2 and scope = 'shared' order by created_at",
     [sceneId, siteId]
   );
 
   const contactsRes = await pool.query(
     `select * from contacts
      where site_id = $2
-     and id = any(select distinct unnest(contact_ids) from points where scene_id = $1 and site_id = $2)`,
+     and id = any(select distinct unnest(contact_ids) from points where scene_id = $1 and site_id = $2 and scope = 'shared')`,
     [sceneId, siteId]
   );
 
@@ -235,7 +237,8 @@ async function getSceneBundleByCode(code, viewerProfileId = null) {
     scene: {
       id: scene.id, name: scene.name, camera: scene.camera, kind: scene.kind || 'admin',
       status: scene.status || 'open', statusChangedAt: scene.status_changed_at,
-      statusChangedByEmail: scene.status_changed_by_email, createdByEmail: scene.created_by_email,
+      statusChangedByEmail: viewerProfileId ? scene.status_changed_by_email : null,
+      createdByEmail: viewerProfileId ? scene.created_by_email : null,
     },
     // Present only for signed-in viewers (server fills it in).
     viewer: viewerProfileId ? { signedIn: true, isMine: scene.created_by === viewerProfileId } : { signedIn: false, isMine: false },
