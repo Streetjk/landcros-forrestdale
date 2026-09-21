@@ -8,7 +8,8 @@
 // getSiteId, appendAudit, cross-tenant guard.
 
 const crypto = require('crypto');
-const { pool: sharedPool, getSiteId, j, appendAudit, pointToJson, contactToJson } = require('./supabase-db');
+const supabaseDb = require('./supabase-db');
+const { j, pointToJson, contactToJson } = supabaseDb;
 const { sceneObjectToJson } = require('./scene-db');
 const hazardDb = require('./hazard-db');
 
@@ -18,7 +19,13 @@ const KINDS = new Set(['admin', 'hazard']);
 const STATUSES = new Set(['open', 'escalated', 'resolved']);
 
 function _getPool() {
-  return sharedPool();
+  return supabaseDb.pool();
+}
+function getSiteId(slug) {
+  return supabaseDb.getSiteId(slug);
+}
+function appendAudit(...args) {
+  return supabaseDb.appendAudit(...args);
 }
 
 const MAX_NAME_LEN = 120;
@@ -249,14 +256,62 @@ async function getSceneBundleByCode(code, viewerProfileId = null) {
   };
 }
 
+async function sceneHasPointPhotos(slug, sceneId) {
+  const siteId = await getSiteId(slug);
+  const { rows } = await _getPool().query(
+    `select 1 from point_photos ph
+       join points p on p.id = ph.point_id and p.site_id = ph.site_id
+     where ph.site_id = $1 and p.scene_id = $2
+     limit 1`,
+    [siteId, sceneId]
+  );
+  return rows.length > 0;
+}
+
 async function deleteScene(slug, id, changedBy = null) {
   const siteId = await getSiteId(slug);
-  // ON DELETE CASCADE removes this scene's scene_objects and scene-pins.
-  const { rows } = await _getPool().query(
-    'delete from scenes where id = $1 and site_id = $2 returning name',
-    [id, siteId]
-  );
-  if (rows.length) await appendAudit(siteId, changedBy, 'delete', 'scene', id, rows[0].name);
+  const pool = _getPool();
+  const client = typeof pool.connect === 'function' ? await pool.connect() : pool;
+  try {
+    await client.query('BEGIN');
+    const sceneRes = await client.query(
+      'select id, name from scenes where id = $1 and site_id = $2 for update',
+      [id, siteId]
+    );
+    if (!sceneRes.rows.length) {
+      await client.query('COMMIT');
+      return;
+    }
+    const photoRes = await client.query(
+      `select 1 from point_photos ph
+         join points p on p.id = ph.point_id and p.site_id = ph.site_id
+       where ph.site_id = $1 and p.scene_id = $2
+       limit 1`,
+      [siteId, id]
+    );
+    if (photoRes.rows.length) {
+      const err = new Error('SCENE_HAS_POINT_PHOTOS');
+      err.status = 409;
+      err.code = 'SCENE_HAS_POINT_PHOTOS';
+      throw err;
+    }
+    const sceneName = sceneRes.rows[0].name;
+    await client.query(
+      'delete from scenes where id = $1 and site_id = $2',
+      [id, siteId]
+    );
+    await client.query(
+      `insert into audit_log (site_id, changed_by, action, entity_type, entity_id, entity_label)
+       values ($1::uuid, $2::uuid, $3, $4, $5, $6)`,
+      [siteId, changedBy, 'delete', 'scene', id, sceneName]
+    );
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw err;
+  } finally {
+    if (typeof client.release === 'function') client.release();
+  }
 }
 
 module.exports = {
@@ -271,5 +326,6 @@ module.exports = {
   createScene,
   updateScene,
   deleteScene,
+  sceneHasPointPhotos,
   getSceneBundleByCode,
 };

@@ -35,6 +35,7 @@ const hazardDb      = require('./hazard-db');
 const pointPhotosDb = require('./point-photos-db');
 const { canManageScene } = require('./resource-ownership');
 const { createScenePointHandler } = require('./scene-points-routes');
+const { createScenePointPhotoHandler } = require('./scene-point-photos-routes');
 
 // Generic client error body — logs the real error server-side, never leaks
 // DB/schema/config detail (e.message) to the client.
@@ -156,6 +157,17 @@ const handleScenePoints = createScenePointHandler({
   readJson: _readJsonBody,
   json: _json,
   onError: e => console.error('[scene-points]', e?.name || 'Error'),
+});
+
+// Dedicated account-owned pin photo routes. Legacy /api/point-photos remains base-only.
+const handleScenePointPhotos = createScenePointPhotoHandler({
+  requireEditor: _requireSiteEditor,
+  managedScene: _managedSceneOrRespond,
+  readRawBody: _readRawBody,
+  readJson: _readJsonBody,
+  json: _json,
+  db: pointPhotosDb,
+  onError: e => console.error('[scene-point-photos]', e?.name || 'Error'),
 });
 
 // Phase 3: admin+ role on :slug — gates webhook CRUD (webhooks.secret must
@@ -740,6 +752,7 @@ const server = http.createServer((req, res) => {
   }
 
   if (handleScenePoints(req, res, url)) return;
+  if (handleScenePointPhotos(req, res, url)) return;
 
   const _objectsMatch = /^\/api\/sites\/([^/]+)\/objects$/.exec(pathname);
   if (_objectsMatch && (req.method === 'GET' || req.method === 'POST')) {
@@ -1012,7 +1025,12 @@ const server = http.createServer((req, res) => {
             console.log(`[scenes] ${slug}/${id} removed from list of ${s.profileId}`);
             return _json(res, 200, { ok: true, removed: 'subscription' });
           }
-          await hazardDb.deletePhotosForScene(slug, id).catch(e => console.error('[hazard] photo cleanup on scene delete failed:', e.message));
+          if (await scenesDb.sceneHasPointPhotos(slug, id)) {
+            return _json(res, 409, { error: 'SCENE_HAS_POINT_PHOTOS' });
+          }
+          if (meta.kind === 'hazard') {
+            await hazardDb.deletePhotosForScene(slug, id).catch(e => console.error('[hazard] photo cleanup on scene delete failed:', e.message));
+          }
           return scenesDb.deleteScene(slug, id, s.profileId);
         })().then((r) => {
           if (res.writableEnded) return;
@@ -1021,6 +1039,9 @@ const server = http.createServer((req, res) => {
           res.end(JSON.stringify({ ok: true }));
         }).catch(e => {
           if (res.writableEnded) return;
+          if (e && (e.status === 409 || e.code === 'SCENE_HAS_POINT_PHOTOS')) {
+            return _json(res, 409, { error: 'SCENE_HAS_POINT_PHOTOS' });
+          }
           res.writeHead(500, { 'Content-Type': 'application/json' });
           res.end(_errBody(e));
         });

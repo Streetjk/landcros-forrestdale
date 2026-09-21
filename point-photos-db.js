@@ -13,7 +13,7 @@
 // request body.
 
 const { createClient } = require('@supabase/supabase-js');
-const { pool: sharedPool, getSiteId } = require('./supabase-db');
+const supabaseDb = require('./supabase-db');
 
 const BUCKET = 'point-photos';
 const RETENTION_DAYS = 30;
@@ -22,7 +22,8 @@ const MAX_ORIGINAL_BYTES = 15 * 1024 * 1024;    // phone photos are 3-8 MB
 const MAX_PHOTOS_PER_POINT = 6;
 const IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif']);
 
-function _getPool() { return sharedPool(); }
+function _getPool() { return supabaseDb.pool(); }
+function getSiteId(slug) { return supabaseDb.getSiteId(slug); }
 
 let _storage = null;
 let _bucketReady = null;
@@ -34,6 +35,11 @@ function _getStorage() {
     _storage = createClient(url, key, { auth: { persistSession: false } }).storage;
   }
   return _storage;
+}
+
+function _setStorageForTesting(storage, bucketReady = true) {
+  _storage = storage;
+  _bucketReady = bucketReady ? Promise.resolve() : null;
 }
 
 // Creates the private bucket on first use; "already exists" is fine.
@@ -221,6 +227,7 @@ module.exports = {
   MAX_ORIGINAL_BYTES,
   MAX_PHOTOS_PER_POINT,
   RETENTION_DAYS,
+  IMAGE_TYPES,
   listPhotos,
   addPhoto,
   setRetention,
@@ -228,4 +235,179 @@ module.exports = {
   deletePhoto,
   deletePhotosForPoint,
   sweepExpiredPhotos,
+  // Scene-qualified point photo operations
+  listScenePointPhotos,
+  addScenePointPhoto,
+  readScenePointPhoto,
+  setScenePointPhotoRetention,
+  deleteScenePointPhoto,
+  sceneHasPointPhotos,
+  _setStorageForTesting,
 };
+
+// ── Scene-qualified point photos (authenticated scene-owner only) ─────────
+
+async function _resolveScenePoint(siteId, sceneId, pointId) {
+  const { rows } = await _getPool().query(
+    'select id from points where id = $1 and site_id = $2 and scene_id = $3',
+    [pointId, siteId, sceneId]
+  );
+  if (!rows.length) throw new PointPhotoError('point-not-found', 'point not found in this scene');
+  return rows[0];
+}
+
+async function listScenePointPhotos(slug, sceneId, pointId) {
+  const siteId = await getSiteId(slug);
+  await _resolveScenePoint(siteId, sceneId, pointId);
+  const { rows } = await _getPool().query(
+    `select ph.* from point_photos ph
+       join points p on p.id = ph.point_id and p.site_id = ph.site_id
+     where ph.site_id = $1 and p.scene_id = $2 and ph.point_id = $3
+     order by ph.created_at`,
+    [siteId, sceneId, pointId]
+  );
+  return rows.map(photoToJson);
+}
+
+async function addScenePointPhoto(slug, sceneId, pointId, { compressed, original, contentType, originalName, width, height, keepIndefinitely }, changedBy) {
+  if (!Buffer.isBuffer(compressed) || !compressed.length) throw new PointPhotoError('bad-request', 'compressed image required');
+  if (!Buffer.isBuffer(original) || !original.length) throw new PointPhotoError('bad-request', 'original image required');
+  if (compressed.length > MAX_COMPRESSED_BYTES) throw new PointPhotoError('too-large', 'compressed image over 400 KB');
+  if (original.length > MAX_ORIGINAL_BYTES) throw new PointPhotoError('too-large', 'original image over 15 MB');
+  if (!IMAGE_TYPES.has(contentType)) throw new PointPhotoError('bad-type', 'unsupported image type');
+
+  const siteId = await getSiteId(slug);
+  await _resolveScenePoint(siteId, sceneId, pointId);
+
+  const { rows: cnt } = await _getPool().query(
+    `select count(*)::int as n
+       from point_photos ph
+       join points p on p.id = ph.point_id and p.site_id = ph.site_id
+     where ph.site_id = $1 and p.scene_id = $2 and ph.point_id = $3`,
+    [siteId, sceneId, pointId]
+  );
+  if (cnt[0].n >= MAX_PHOTOS_PER_POINT) throw new PointPhotoError('limit', `at most ${MAX_PHOTOS_PER_POINT} photos per pin`);
+
+  await _ensureBucket();
+  const id = require('crypto').randomUUID();
+  const ext = contentType === 'image/png' ? 'png' : contentType === 'image/webp' ? 'webp' : /heic|heif/.test(contentType) ? 'heic' : 'jpg';
+  const base = `${siteId}/${pointId}/${id}`;
+  const storagePath = `${base}.jpg`;
+  const originalPath = `${base}-original.${ext}`;
+
+  const st = _getStorage().from(BUCKET);
+  const up1 = await st.upload(storagePath, compressed, { contentType: 'image/jpeg', upsert: false });
+  if (up1.error) throw new Error(`storage upload failed: ${up1.error.message}`);
+  const up2 = await st.upload(originalPath, original, { contentType, upsert: false });
+  if (up2.error) { await st.remove([storagePath]); throw new Error(`storage upload failed: ${up2.error.message}`); }
+
+  const pool = _getPool();
+  const client = typeof pool.connect === 'function' ? await pool.connect() : pool;
+  try {
+    await client.query('BEGIN');
+
+    const sceneRes = await client.query(
+      'select id from scenes where id = $1 and site_id = $2 for update',
+      [sceneId, siteId]
+    );
+    if (!sceneRes.rows.length) {
+      throw new PointPhotoError('point-not-found', 'scene not found');
+    }
+
+    const pointRes = await client.query(
+      'select id from points where id = $1 and site_id = $2 and scene_id = $3',
+      [pointId, siteId, sceneId]
+    );
+    if (!pointRes.rows.length) {
+      throw new PointPhotoError('point-not-found', 'point not found in this scene');
+    }
+
+    const { rows: recheckCnt } = await client.query(
+      `select count(*)::int as n
+         from point_photos ph
+         join points p on p.id = ph.point_id and p.site_id = ph.site_id
+       where ph.site_id = $1 and p.scene_id = $2 and ph.point_id = $3`,
+      [siteId, sceneId, pointId]
+    );
+    if ((recheckCnt[0]?.n ?? 0) >= MAX_PHOTOS_PER_POINT) {
+      throw new PointPhotoError('limit', `at most ${MAX_PHOTOS_PER_POINT} photos per pin`);
+    }
+
+    const { rows } = await client.query(
+      `insert into point_photos (id, site_id, point_id, storage_path, original_path, original_name,
+         content_type, bytes, original_bytes, width, height, created_by, expires_at)
+       select $1, $2, p.id, $4, $5, $6, $7, $8, $9, $10, $11, $12,
+              case when $13::boolean then null else now() + ($14 || ' days')::interval end
+       from points p
+       where p.id = $3 and p.site_id = $2 and p.scene_id = $15
+       returning *`,
+      [id, siteId, pointId, storagePath, originalPath, originalName ?? null,
+       contentType, compressed.length, original.length, width ?? null, height ?? null, changedBy,
+       !!keepIndefinitely, String(RETENTION_DAYS), sceneId]
+    );
+    if (!rows.length) throw new PointPhotoError('point-not-found', 'pin not found in this scene');
+
+    await client.query('COMMIT');
+    return photoToJson(rows[0]);
+  } catch (e) {
+    await client.query('ROLLBACK').catch(() => {});
+    await st.remove([storagePath, originalPath]).catch(() => {});
+    throw e;
+  } finally {
+    if (typeof client.release === 'function') client.release();
+  }
+}
+
+async function readScenePointPhoto(slug, sceneId, pointId, photoId, { original = false } = {}) {
+  const siteId = await getSiteId(slug);
+  const { rows } = await _getPool().query(
+    `select ph.* from point_photos ph
+       join points p on p.id = ph.point_id and p.site_id = ph.site_id
+     where ph.id = $1 and ph.site_id = $2 and p.scene_id = $3 and ph.point_id = $4`,
+    [photoId, siteId, sceneId, pointId]
+  );
+  if (!rows.length) return null;
+  const r = rows[0];
+  const { data, error } = await _getStorage().from(BUCKET).download(original ? r.original_path : r.storage_path);
+  if (error) throw new Error(`storage download failed: ${error.message}`);
+  return { buffer: Buffer.from(await data.arrayBuffer()), contentType: original ? r.content_type : 'image/jpeg', row: r };
+}
+
+async function setScenePointPhotoRetention(slug, sceneId, pointId, photoId, keepIndefinitely) {
+  const siteId = await getSiteId(slug);
+  const { rows } = await _getPool().query(
+    `update point_photos
+        set expires_at = case when $5::boolean then null else now() + ($6 || ' days')::interval end
+      where id = $1 and site_id = $2 and point_id = $3
+        and exists (select 1 from points p where p.id = point_photos.point_id
+          and p.site_id = point_photos.site_id and p.scene_id = $4)
+      returning *`,
+    [photoId, siteId, pointId, sceneId, !!keepIndefinitely, String(RETENTION_DAYS)]
+  );
+  if (!rows.length) throw new PointPhotoError('not-found');
+  return photoToJson(rows[0]);
+}
+
+async function deleteScenePointPhoto(slug, sceneId, pointId, photoId) {
+  const siteId = await getSiteId(slug);
+  const { rows } = await _getPool().query(
+    `select ph.* from point_photos ph
+       join points p on p.id = ph.point_id and p.site_id = ph.site_id
+     where ph.id = $1 and ph.site_id = $2 and p.scene_id = $3 and ph.point_id = $4`,
+    [photoId, siteId, sceneId, pointId]
+  );
+  if (!rows.length) throw new PointPhotoError('not-found');
+  await _removeRows(rows);
+}
+
+async function sceneHasPointPhotos(slug, sceneId) {
+  const siteId = await getSiteId(slug);
+  const { rows } = await _getPool().query(
+    `select 1 from point_photos ph
+       join points p on p.id = ph.point_id and p.site_id = ph.site_id
+     where ph.site_id = $1 and p.scene_id = $2
+     limit 1`,
+    [siteId, sceneId]
+  );
+  return rows.length > 0;
+}

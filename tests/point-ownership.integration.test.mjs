@@ -228,6 +228,44 @@ test('scene point ownership: actual PostgreSQL and HTTP server', { skip: !proces
       // cleanup below touches only the isolated test schema and no Storage.
       await sql.query('delete from point_photos where id=$1',[PHOTO]);
     });
+    await t.test('scene photo routes enforce metadata authorization and scene delete 409 protection', async () => {
+      await sql.query("insert into point_photos(id,site_id,point_id,storage_path,original_path,expires_at) values($1,$2,$3,'synthetic/thumbnail','synthetic/original',now() + interval '30 days')",[PHOTO,SITE_A,POINT_A]);
+      const photoRoute = (scene = SCENE_A, point = POINT_A, photo = '') => `/api/sites/alpha/scenes/${scene}/points/${point}/photos${photo ? '/' + photo : ''}`;
+      for (const actor of [null, VIEWER, OTHER, OUTSIDER]) {
+        assert.equal((await request(photoRoute(), { actor })).status, actor ? 403 : 401);
+        assert.equal((await request(photoRoute(SCENE_A, POINT_A, PHOTO), { method: 'PATCH', actor, body: { keep: true } })).status, actor ? 403 : 401);
+      }
+      const listRes = await request(photoRoute());
+      assert.equal(listRes.status, 200);
+      assert.equal(listRes.headers.get('cache-control'), 'private, no-store');
+      assert.deepEqual(listRes.body.map(p => p.id), [PHOTO]);
+      assert.equal((await request(photoRoute(SCENE_A2, POINT_A))).status, 404);
+      const SCENE_HAZARD = uid(26);
+      await sql.query("insert into scenes(id,site_id,created_by,kind,name) values($1,$2,$3,'hazard','Hazard scene')",[SCENE_HAZARD,SITE_A,OWNER]);
+      const hazardListRes = await request(photoRoute(SCENE_HAZARD, POINT_A));
+      assert.equal(hazardListRes.status, 400);
+      assert.equal(hazardListRes.body.error, 'INVALID_SCENE_KIND');
+      const hazardPatchRes = await request(photoRoute(SCENE_HAZARD, POINT_A, PHOTO), { method: 'PATCH', body: { keep: true } });
+      assert.equal(hazardPatchRes.status, 400);
+      assert.equal(hazardPatchRes.body.error, 'INVALID_SCENE_KIND');
+      const hazardDeletePhotoRes = await request(photoRoute(SCENE_HAZARD, POINT_A, PHOTO), { method: 'DELETE' });
+      assert.equal(hazardDeletePhotoRes.status, 400);
+      assert.equal(hazardDeletePhotoRes.body.error, 'INVALID_SCENE_KIND');
+      await sql.query('delete from scenes where id=$1', [SCENE_HAZARD]);
+      const patchRes = await request(photoRoute(SCENE_A, POINT_A, PHOTO), { method: 'PATCH', body: { keep: true } });
+      assert.equal(patchRes.status, 200);
+      assert.equal(patchRes.body.expiresAt, null);
+      const sceneDeleteRes = await request(`/api/sites/alpha/scenes/${SCENE_A}`, { method: 'DELETE' });
+      assert.equal(sceneDeleteRes.status, 409);
+      assert.equal(sceneDeleteRes.body.error, 'SCENE_HAS_POINT_PHOTOS');
+      assert.equal((await sql.query('select id from scenes where id=$1', [SCENE_A])).rowCount, 1);
+      assert.equal((await sql.query('select id from point_photos where id=$1', [PHOTO])).rowCount, 1);
+      const nonOwnerSceneDelete = await request(`/api/sites/alpha/scenes/${SCENE_A}`, { method: 'DELETE', actor: OTHER });
+      assert.equal(nonOwnerSceneDelete.status, 200);
+      assert.equal(nonOwnerSceneDelete.body.removed, 'subscription');
+      assert.equal((await sql.query('select id from scenes where id=$1', [SCENE_A])).rowCount, 1);
+      await sql.query('delete from point_photos where id=$1', [PHOTO]);
+    });
     await t.test('audit failure rolls back the point mutation', async () => {
       const res=await request(route(),{method:'POST',body:payload(uid(64),{label:'TEST_FAIL_AUDIT'})});assert.equal(res.status,500);
       assert.equal((await sql.query('select id from points where id=$1',[uid(64)])).rowCount,0);
