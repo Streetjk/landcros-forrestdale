@@ -32,6 +32,32 @@ function isConfigured() {
   return !!process.env.SUPABASE_DB_URL;
 }
 
+// Point write errors carry only stable public codes (never SQL or user data).
+class PointWriteError extends Error {
+  constructor(status, code) { super(code); this.name = 'PointWriteError'; this.status = status; this.code = code; }
+}
+const POINT_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+function pointUuid(value) {
+  if (typeof value !== 'string' || !POINT_UUID_RE.test(value)) throw new PointWriteError(400, 'INVALID_POINT_ID');
+  return value.toLowerCase();
+}
+async function pointTransaction(work) {
+  const client = await _getPool().connect();
+  try {
+    await client.query('BEGIN');
+    const result = await work(client);
+    await client.query('COMMIT');
+    return result;
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw error;
+  } finally { client.release(); }
+}
+async function pointAudit(client, siteId, actor, action, id, label) {
+  await client.query(`insert into audit_log (site_id, changed_by, action, entity_type, entity_id, entity_label)
+    values ($1::uuid, $2::uuid, $3, 'point', $4::uuid, $5)`, [siteId, actor, action, id, label]);
+}
+
 // ── Site resolution ─────────────────────────────────────────────────────────
 const _siteIdCache = new Map();
 async function getSiteId(slug) {
@@ -51,6 +77,7 @@ function j(value) {
 function pointToJson(r) {
   return {
     id: r.id,
+    sceneId: r.scene_id ?? null,
     label: r.label,
     type: r.type,
     scope: r.scope,
@@ -95,45 +122,51 @@ async function getPoints(slug, { baseOnly = false } = {}) {
   return rows.map(pointToJson);
 }
 
+// Legacy endpoint: base rows only. Scene pins use scene-points-db.js.
 async function savePoint(slug, point, changedBy = null) {
+  if (!point || typeof point !== 'object' || Array.isArray(point)) throw new PointWriteError(400, 'INVALID_POINT_PAYLOAD');
+  if (point.sceneId != null || point.scene_id != null) throw new PointWriteError(400, 'SCENE_ROUTE_REQUIRED');
+  const id = pointUuid(point.id), actor = pointUuid(changedBy);
   const siteId = await getSiteId(slug);
-  if (!point || !point.id) throw new Error('point.id is required');
-  const { rows } = await _getPool().query(
-    `insert into points (id, site_id, label, type, scope, latlng, position3d, notes,
-       contact_ids, route_waypoints, route_waypoints3d, camera_preset3d, building_ref, created_by)
-     values ($1::uuid, $2::uuid, $3, $4, $5, $6::jsonb, $7::jsonb, $8,
-       $9::uuid[], $10::jsonb, $11::jsonb, $12::jsonb, $13, $14)
-     on conflict (id) do update set
-       label = excluded.label, type = excluded.type, scope = excluded.scope,
-       latlng = excluded.latlng, position3d = excluded.position3d, notes = excluded.notes,
-       contact_ids = excluded.contact_ids, route_waypoints = excluded.route_waypoints,
-       route_waypoints3d = excluded.route_waypoints3d, camera_preset3d = excluded.camera_preset3d,
-       building_ref = excluded.building_ref, updated_at = now()
-     where points.site_id = excluded.site_id
-     returning *`,
-    [
-      point.id, siteId, point.label, point.type || 'drop-off', point.scope || 'shared',
-      j(point.latlng), j(point.position3d), point.notes ?? null,
-      point.contactIds || [], j(point.routeWaypoints || []), j(point.routeWaypoints3d || []),
-      j(point.cameraPreset3d), point.buildingRef ?? null, point.createdBy ?? 'browser',
-    ]
-  );
-  // WHERE points.site_id = excluded.site_id blocks the update if `id` already
-  // belongs to a different site — surface that as an error instead of
-  // silently no-op'ing (see savePoint contract note below).
-  if (!rows.length) throw new Error(`Point ${point.id} belongs to a different site`);
-  const saved = pointToJson(rows[0]);
-  await _appendAudit(siteId, changedBy, 'save', 'point', saved.id, saved.label);
-  return saved;
+  return pointTransaction(async client => {
+    const { rows } = await client.query(
+      `insert into points (id, site_id, label, type, scope, latlng, position3d, notes,
+         contact_ids, route_waypoints, route_waypoints3d, camera_preset3d, building_ref, created_by)
+       values ($1::uuid, $2::uuid, $3, $4, $5, $6::jsonb, $7::jsonb, $8,
+         $9::uuid[], $10::jsonb, $11::jsonb, $12::jsonb, $13, $14)
+       on conflict (id) do update set
+         label = excluded.label, type = excluded.type, scope = excluded.scope,
+         latlng = excluded.latlng, position3d = excluded.position3d, notes = excluded.notes,
+         contact_ids = excluded.contact_ids, route_waypoints = excluded.route_waypoints,
+         route_waypoints3d = excluded.route_waypoints3d, camera_preset3d = excluded.camera_preset3d,
+         building_ref = excluded.building_ref, updated_at = now()
+       where points.site_id = excluded.site_id and points.scene_id is null
+       returning *`,
+      [id, siteId, point.label, point.type || 'drop-off', point.scope || 'shared',
+       j(point.latlng), j(point.position3d), point.notes ?? null,
+       point.contactIds || [], j(point.routeWaypoints || []), j(point.routeWaypoints3d || []),
+       j(point.cameraPreset3d), point.buildingRef ?? null, actor]
+    );
+    if (!rows.length) throw new PointWriteError(409, 'POINT_CONFLICT');
+    const saved = pointToJson(rows[0]);
+    await pointAudit(client, siteId, actor, 'save', id, saved.label);
+    return saved;
+  });
 }
 
 async function deletePoint(slug, id, changedBy = null) {
-  const siteId = await getSiteId(slug);
-  const { rows } = await _getPool().query(
-    'delete from points where id = $1::uuid and site_id = $2::uuid returning label',
-    [id, siteId]
-  );
-  if (rows.length) await _appendAudit(siteId, changedBy, 'delete', 'point', id, rows[0].label);
+  id = pointUuid(id);
+  const actor = pointUuid(changedBy), siteId = await getSiteId(slug);
+  return pointTransaction(async client => {
+    const { rows } = await client.query(
+      'select label from points where id = $1::uuid and site_id = $2::uuid and scene_id is null for update', [id, siteId]);
+    if (!rows.length) throw new PointWriteError(404, 'POINT_NOT_FOUND');
+    const photoRes = await client.query(
+      'select 1 from point_photos where site_id = $1::uuid and point_id = $2::uuid limit 1', [siteId, id]);
+    if (photoRes.rows.length) throw new PointWriteError(409, 'POINT_HAS_PHOTOS');
+    await client.query('delete from points where id = $1::uuid and site_id = $2::uuid and scene_id is null', [id, siteId]);
+    await pointAudit(client, siteId, actor, 'delete', id, rows[0].label);
+  });
 }
 
 // ── Contacts ──────────────────────────────────────────────────────────────
@@ -215,6 +248,7 @@ async function recordVisit(slug, pointId) {
 }
 
 module.exports = {
+  PointWriteError,
   isConfigured,
   pool: _getPool, // exported so auth-db.js can share this pool instead of opening a second one
   getSiteId,

@@ -10,7 +10,7 @@ Keep the current public front page, 3D assets, label positions, staff dropdown a
 | --- | --- | --- | --- |
 | A. Public-guide hardening | Optional building cards, safe photos/calls, stable scene/short links, visible degraded-data state | Unit and four-viewport fixture checks | Implemented and locally tested |
 | B. Reconcile deployment | Establish active host, diagnose live 500s from authorized logs, compare schema/runtime/assets and rollback plan | Public data routes healthy; expected build fingerprint; no privacy regression | Blocked on environment access, not guessed |
-| C. Own pins end to end | Connect staff authoring to existing owned scenes + scene-scoped points; server-enforced ownership; private drafts | User A cannot read/edit/delete user B's private draft; own pins survive browser/device change | Planned, not implemented in this checkpoint |
+| C. Own pins end to end | Connect staff authoring to existing owned scenes + scene-scoped points; server-enforced ownership; private drafts | User A cannot read/edit/delete user B's private draft; own pins survive browser/device change | Server scene-point CRUD/ownership foundation implemented; client migration pending |
 | D. Scoped sharing/media | Database-backed share capability, stable public URL/QR, exactly selected contacts/photos; disable/expire link | Anonymous recipient sees intended guide and media only; revoked link fails uniformly | Planned; existing routes need reconciliation |
 | E. Operational field qualification | Approved public content; upload/reader UX; iPhone/Android tests; runtime and memory checks | Core guide usable during model/data delays; actual camera/gallery photos and QR tested | Approved content + physical device checks pending |
 | F. Reporting adapter | Private report draft, category/description/photos/reference, reliable email queue/status; Assura adapter contract | Retry does not duplicate; failed delivery visible; evidence never public by default | Existing backend to reuse; integration not qualified |
@@ -77,3 +77,7 @@ node scripts/check-schema.cjs
 ```
 
 The schema command is read-only and checks presence only. It is not a migration tool. Current manifests permit Node 18 while locked Supabase dependencies require Node 22; qualify/pin the deployment runtime before releasing PR #1. CI tests on Node 22. No provider changes or migrations were applied in this review.
+
+## Scene-owned point backend checkpoint
+
+The continuation slice implements authenticated scene-scoped point CRUD, immutable tenant/scene binding, session-derived authors, personal/shared capability filtering, and legacy point/photo bypass isolation. Points with attached photos now require explicit photo removal before deletion. The staff My Pins UI and scene-photo workflow remain to be connected. See `PIN_OWNERSHIP_CHECKPOINT.md` for exact scope, test limitations and the isolated-branch reconciliation requirement.

@@ -69,11 +69,13 @@ class PointPhotoError extends Error {
   constructor(code, message) { super(message || code); this.code = code; }
 }
 
-// Confirms the pin exists and belongs to this site. Personal pins never reach
+// Legacy photo endpoints are BASE-only until scene-bound media capabilities
+// are implemented. A private scene pin must not inherit these public-byte routes.
+// Confirms the pin exists and belongs to this site. Personal browser pins never reach
 // here — they live only in the browser's localStorage, so there is no row.
 async function _resolvePoint(siteId, pointId) {
   const { rows } = await _getPool().query(
-    'select id from points where id = $1 and site_id = $2',
+    'select id from points where id = $1 and site_id = $2 and scene_id is null',
     [pointId, siteId]
   );
   if (!rows.length) throw new PointPhotoError('not-found', 'pin not found (only shared pins can hold photos)');
@@ -82,6 +84,7 @@ async function _resolvePoint(siteId, pointId) {
 
 async function listPhotos(slug, pointId) {
   const siteId = await getSiteId(slug);
+  await _resolvePoint(siteId, pointId);
   const { rows } = await _getPool().query(
     'select * from point_photos where point_id = $1 and site_id = $2 order by created_at',
     [pointId, siteId]
@@ -144,6 +147,8 @@ async function setRetention(slug, photoId, keepIndefinitely) {
     `update point_photos
         set expires_at = case when $3::boolean then null else now() + ($4 || ' days')::interval end
       where id = $1 and site_id = $2
+        and exists (select 1 from points p where p.id = point_photos.point_id
+          and p.site_id = point_photos.site_id and p.scene_id is null)
       returning *`,
     [photoId, siteId, !!keepIndefinitely, String(RETENTION_DAYS)]
   );
@@ -153,7 +158,8 @@ async function setRetention(slug, photoId, keepIndefinitely) {
 
 // Returns { buffer, contentType, row } for the compressed copy (panel proxy).
 async function readPhoto(photoId, { original = false } = {}) {
-  const { rows } = await _getPool().query('select * from point_photos where id = $1', [photoId]);
+  const { rows } = await _getPool().query(`select ph.* from point_photos ph join points p on p.id = ph.point_id and p.site_id = ph.site_id
+     where ph.id = $1 and p.scene_id is null`, [photoId]);
   if (!rows.length) return null;
   const r = rows[0];
   const { data, error } = await _getStorage().from(BUCKET).download(original ? r.original_path : r.storage_path);
@@ -173,7 +179,8 @@ async function _removeRows(rows) {
 
 async function deletePhoto(slug, photoId) {
   const siteId = await getSiteId(slug);
-  const { rows } = await _getPool().query('select * from point_photos where id = $1 and site_id = $2', [photoId, siteId]);
+  const { rows } = await _getPool().query(`select ph.* from point_photos ph join points p on p.id = ph.point_id and p.site_id = ph.site_id
+     where ph.id = $1 and ph.site_id = $2 and p.scene_id is null`, [photoId, siteId]);
   if (!rows.length) throw new PointPhotoError('not-found');
   await _removeRows(rows);
 }
@@ -182,6 +189,9 @@ async function deletePhoto(slug, photoId) {
 // but leave the files behind).
 async function deletePhotosForPoint(slug, pointId) {
   const siteId = await getSiteId(slug);
+  // Legacy helper is base-only like every other admin-pin photo operation.
+  // Scene media must use a scene-qualified authorization path.
+  await _resolvePoint(siteId, pointId);
   const { rows } = await _getPool().query('select * from point_photos where point_id = $1 and site_id = $2', [pointId, siteId]);
   return _removeRows(rows);
 }
