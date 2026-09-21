@@ -77,3 +77,7 @@ node scripts/check-schema.cjs
 ```
 
 The schema command is read-only and checks presence only. It is not a migration tool. Current manifests permit Node 18 while locked Supabase dependencies require Node 22; qualify/pin the deployment runtime before releasing PR #1. CI tests on Node 22. No provider changes or migrations were applied in this review.
+
+## Scene-owned point backend checkpoint
+
+The continuation slice implements authenticated scene-scoped point CRUD, immutable tenant/scene binding, session-derived authors, personal/shared capability filtering, and legacy point/photo bypass isolation. Points with attached photos now require explicit photo removal before deletion. The staff My Pins UI and scene-photo workflow remain to be connected. See `PIN_OWNERSHIP_CHECKPOINT.md` for exact scope, test limitations and the isolated-branch reconciliation requirement.

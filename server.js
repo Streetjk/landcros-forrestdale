@@ -34,6 +34,7 @@ const scenesDb      = require('./scenes-db');
 const hazardDb      = require('./hazard-db');
 const pointPhotosDb = require('./point-photos-db');
 const { canManageScene } = require('./resource-ownership');
+const { createScenePointHandler } = require('./scene-points-routes');
 
 // Generic client error body — logs the real error server-side, never leaks
 // DB/schema/config detail (e.message) to the client.
@@ -147,6 +148,15 @@ async function _managedSceneOrRespond(res, slug, sceneId, session) {
   }
   return meta;
 }
+
+// Dedicated account-owned pin routes. Legacy /api/points remains base-only.
+const handleScenePoints = createScenePointHandler({
+  requireEditor: _requireSiteEditor,
+  managedScene: _managedSceneOrRespond,
+  readJson: _readJsonBody,
+  json: _json,
+  onError: e => console.error('[scene-points]', e?.name || 'Error'),
+});
 
 // Phase 3: admin+ role on :slug — gates webhook CRUD (webhooks.secret must
 // never be readable/writable below admin).
@@ -715,6 +725,8 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  if (handleScenePoints(req, res, url)) return;
+
   const _objectsMatch = /^\/api\/sites\/([^/]+)\/objects$/.exec(pathname);
   if (_objectsMatch && (req.method === 'GET' || req.method === 'POST')) {
     const slug = _objectsMatch[1];
@@ -1110,7 +1122,8 @@ const server = http.createServer((req, res) => {
     if (req.method === 'GET') {
       _requireSiteRole(req, res, slug, 'viewer', () => {
         pointPhotosDb.listPhotos(slug, pointId).then(list => _json(res, 200, list))
-          .catch(e => _json(res, 500, JSON.parse(_errBody(e))));
+          .catch(e => e instanceof pointPhotosDb.PointPhotoError
+            ? _json(res, 404, { error: 'not found' }) : _json(res, 500, JSON.parse(_errBody(e))));
       });
       return;
     }
@@ -1361,22 +1374,15 @@ const server = http.createServer((req, res) => {
       return;
     }
     _requireRole(req, res, 'editor', (s) => {
-      let body = '';
-      let bodySize = 0;
-      req.on('data', c => { bodySize += c.length; if (bodySize > POST_BODY_LIMIT) { req.destroy(); return; } body += c; });
-      req.on('end', () => {
-        (async () => {
-          try {
-            const point = JSON.parse(body);
-            const saved = await sdb.savePoint(SITE, point, s.profileId);
-            console.log(`[points] ${SITE}/${saved.id} saved by ${s.profileId}`);
-            res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
-            res.end(JSON.stringify(saved));
-          } catch (e) {
-            res.writeHead(500, { 'Content-Type': 'application/json' });
-            res.end(_errBody(e));
-          }
-        })();
+      _readJsonBody(req, async (err, point) => {
+        if (err) return _json(res, 400, { error: 'INVALID_JSON_BODY' });
+        try {
+          const saved = await sdb.savePoint(SITE, point, s.profileId);
+          _json(res, 200, saved);
+        } catch (e) {
+          if (e instanceof sdb.PointWriteError) return _json(res, e.status, { error: e.code });
+          _json(res, 500, JSON.parse(_errBody(e)));
+        }
       });
     });
     return;
@@ -1389,18 +1395,13 @@ const server = http.createServer((req, res) => {
       return res.end(JSON.stringify({ error: 'Supabase not configured: set SUPABASE_DB_URL' }));
     }
     _requireRole(req, res, 'editor', (s) => {
-      // Photos first: the FK cascade drops point_photos rows but would leave
-      // the Storage objects orphaned. Same ordering as the hazard object route.
-      pointPhotosDb.deletePhotosForPoint(SITE, _pointDeleteMatch[1])
-        .catch(e => console.error('[point-photos] cleanup on point delete failed:', e.message))
-        .then(() => sdb.deletePoint(SITE, _pointDeleteMatch[1], s.profileId)).then(() => {
-        console.log(`[points] ${SITE}/${_pointDeleteMatch[1]} deleted by ${s.profileId}`);
-        res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
-        res.end(JSON.stringify({ ok: true }));
-      }).catch(e => {
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(_errBody(e));
-      });
+      // Base-row-only DAL rejects deletion while photos remain; photo removal is explicit.
+      sdb.deletePoint(SITE, _pointDeleteMatch[1], s.profileId)
+        .then(() => _json(res, 200, { ok: true }))
+        .catch(e => {
+          if (e instanceof sdb.PointWriteError) return _json(res, e.status, { error: e.code });
+          _json(res, 500, JSON.parse(_errBody(e)));
+        });
     });
     return;
   }
