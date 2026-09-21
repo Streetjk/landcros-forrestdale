@@ -574,6 +574,12 @@ function renderDrawerBody() {
         <div id="contact-suggestions" style="display:none;position:absolute;left:0;right:0;top:calc(100% + 2px);z-index:100;background:#1a1d27;border:1px solid rgba(255,255,255,0.15);border-radius:6px;overflow-y:auto;max-height:160px;box-shadow:0 4px 16px rgba(0,0,0,0.5)"></div>
       </div>
     </div>
+    ${_editingIsAccount ? `
+    <div class="form-group full">
+      <label class="form-label" for="field-phone-override">Phone override (optional)</label>
+      <input class="form-input" id="field-phone-override" value="${_esc(pt.phoneOverride || '')}" placeholder="e.g. 04xx xxx xxx or +61 4xx xxx xxx">
+      <div style="font-size:11px;color:var(--text-secondary);margin-top:4px">Overrides the contact phone number on the shared guide without modifying staff directory contacts. Leave blank to clear.</div>
+    </div>` : ''}
     <div class="form-group full">
       <label class="form-label">Notes (optional)</label>
       <textarea class="form-input" id="field-notes">${_esc(pt.notes ?? '')}</textarea>
@@ -903,6 +909,12 @@ function _captureDraft() {
   if (!_editingPoint) return;
   _editingPoint.label = document.getElementById('field-label')?.value ?? _editingPoint.label;
   _editingPoint.notes = document.getElementById('field-notes')?.value ?? _editingPoint.notes;
+  if (_editingIsAccount) {
+    const overrideInput = document.getElementById('field-phone-override');
+    if (overrideInput) {
+      _editingPoint.phoneOverride = overrideInput.value;
+    }
+  }
 }
 
 window._adminAddContact = id => {
@@ -933,6 +945,16 @@ window._adminSave = async (accountScope = null) => {
   snapshot.notes = String(snapshot.notes || '').trim();
   snapshot.type = _editingType;
   snapshot.contactIds = [..._editingContactIds];
+  if (account) {
+    if (snapshot.phoneOverride !== undefined) {
+      const rawOverride = snapshot.phoneOverride !== null
+        ? String(snapshot.phoneOverride).trim()
+        : '';
+      snapshot.phoneOverride = rawOverride || null;
+    }
+  } else {
+    delete snapshot.phoneOverride;
+  }
   // Ordinary Save never newly publishes an account pin. Only the explicit
   // Publish/Stop sharing controls may override account scope.
   const existingAccountScope = _personalPins.find(p => p.id === snapshot.id)?.scope || 'personal';

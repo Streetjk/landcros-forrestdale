@@ -313,10 +313,19 @@ async function getSharedMyPinByCode(code, pointId) {
   delete point.createdAt;
   delete point.updatedAt;
   delete point.sceneId;
+
+  const phoneOverride = pointRow.phone_override ? String(pointRow.phone_override).trim() : null;
+  if (phoneOverride) {
+    point.phoneOverride = phoneOverride;
+  }
+
   const contacts = contactsRes.rows.map(row => {
     const contact = contactToJson(row);
     delete contact.createdBy;
     delete contact.createdAt;
+    if (phoneOverride) {
+      contact.phone = phoneOverride;
+    }
     return contact;
   });
   point.contactIds = contacts.map(contact => contact.id);

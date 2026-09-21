@@ -183,6 +183,28 @@ function normalizeScenePoint(sceneId, rawPoint) {
     cameraPreset3d = coordinateJson(rawPoint.cameraPreset3d, 'INVALID_CAMERA_PRESET3D');
   }
 
+  let phoneOverride = null;
+  const rawPhone = rawPoint.phoneOverride !== undefined ? rawPoint.phoneOverride : rawPoint.phone_override;
+  if (rawPhone !== undefined && rawPhone !== null) {
+    if (typeof rawPhone !== 'string') {
+      throw new PointError(400, 'INVALID_PHONE_OVERRIDE');
+    }
+    const trimmedPhone = rawPhone.trim();
+    if (trimmedPhone) {
+      if (/[\x00-\x1F\x7F]/.test(trimmedPhone)) {
+        throw new PointError(400, 'INVALID_PHONE_OVERRIDE');
+      }
+      if (!/^\+?[\d\s().-]{3,32}$/.test(trimmedPhone)) {
+        throw new PointError(400, 'INVALID_PHONE_OVERRIDE');
+      }
+      const digits = trimmedPhone.replace(/\D/g, '');
+      if (digits.length < 3 || digits.length > 18) {
+        throw new PointError(400, 'INVALID_PHONE_OVERRIDE');
+      }
+      phoneOverride = trimmedPhone;
+    }
+  }
+
   return {
     id: canonicalPointId,
     sceneId: canonicalSceneId,
@@ -192,6 +214,7 @@ function normalizeScenePoint(sceneId, rawPoint) {
     latlng,
     position3d,
     notes,
+    phoneOverride,
     contactIds,
     routeWaypoints,
     routeWaypoints3d,
@@ -201,7 +224,9 @@ function normalizeScenePoint(sceneId, rawPoint) {
 }
 
 function pointToJsonWithScene(r) {
-  return supabaseDb.pointToJson(r);
+  const json = supabaseDb.pointToJson(r);
+  json.phoneOverride = r.phone_override ?? null;
+  return json;
 }
 
 async function getScenePoints(slug, sceneId) {
@@ -228,11 +253,41 @@ async function saveScenePoint(slug, sceneId, rawPoint, changedBy, { createOnly =
     await client.query('BEGIN');
 
     const sceneRes = await client.query(
-      'select id from scenes where site_id = $1::uuid and id = $2::uuid for key share',
+      'select id, kind, camera, created_by from scenes where site_id = $1::uuid and id = $2::uuid for key share',
       [siteId, normalized.sceneId]
     );
     if (!sceneRes.rows.length) {
       throw new PointError(404, 'SCENE_NOT_FOUND');
+    }
+    const sceneRow = sceneRes.rows[0];
+
+    const hasExplicitPhoneOverride = (
+      rawPoint.phoneOverride !== undefined ||
+      rawPoint.phone_override !== undefined
+    );
+    if (hasExplicitPhoneOverride) {
+      let cameraPurpose = null;
+      if (sceneRow.camera && typeof sceneRow.camera === 'object') {
+        cameraPurpose = sceneRow.camera.purpose;
+      } else if (typeof sceneRow.camera === 'string') {
+        try {
+          const parsed = JSON.parse(sceneRow.camera);
+          if (parsed && typeof parsed === 'object') {
+            cameraPurpose = parsed.purpose;
+          }
+        } catch (_) {}
+      }
+
+      const isKindAdmin = sceneRow.kind === 'admin';
+      const isMyPinsPurpose = cameraPurpose === 'my-pins-v1';
+      const sceneCreatedBy = typeof sceneRow.created_by === 'string'
+        ? sceneRow.created_by.toLowerCase()
+        : null;
+      const isOwner = sceneCreatedBy !== null && sceneCreatedBy === canonicalActorId;
+
+      if (!isKindAdmin || !isMyPinsPurpose || !isOwner) {
+        throw new PointError(400, 'INVALID_PHONE_OVERRIDE');
+      }
     }
 
     if (normalized.contactIds.length > 0) {
@@ -251,11 +306,12 @@ async function saveScenePoint(slug, sceneId, rawPoint, changedBy, { createOnly =
     const upsertSql = `
       insert into points (
         id, site_id, scene_id, label, type, scope, latlng, position3d, notes,
-        contact_ids, route_waypoints, route_waypoints3d, camera_preset3d, building_ref, created_by
+        contact_ids, route_waypoints, route_waypoints3d, camera_preset3d, building_ref, created_by,
+        phone_override
       )
       values (
         $1::uuid, $2::uuid, $3::uuid, $4, $5, $6, $7::jsonb, $8::jsonb, $9,
-        $10::uuid[], $11::jsonb, $12::jsonb, $13::jsonb, $14, $15
+        $10::uuid[], $11::jsonb, $12::jsonb, $13::jsonb, $14, $15, $17
       )
       on conflict (id) do update set
         label = excluded.label,
@@ -269,6 +325,7 @@ async function saveScenePoint(slug, sceneId, rawPoint, changedBy, { createOnly =
         route_waypoints3d = excluded.route_waypoints3d,
         camera_preset3d = excluded.camera_preset3d,
         building_ref = excluded.building_ref,
+        phone_override = case when $18::boolean then excluded.phone_override else points.phone_override end,
         updated_at = now()
       where points.site_id = excluded.site_id
         and points.scene_id is not distinct from excluded.scene_id
@@ -292,6 +349,8 @@ async function saveScenePoint(slug, sceneId, rawPoint, changedBy, { createOnly =
       normalized.buildingRef,
       canonicalActorId,
       createOnly === true,
+      normalized.phoneOverride,
+      hasExplicitPhoneOverride,
     ];
 
     const { rows } = await client.query(upsertSql, upsertParams);

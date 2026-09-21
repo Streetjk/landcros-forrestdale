@@ -8,7 +8,7 @@ import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer
 import { Sky } from 'three/addons/objects/Sky.js';
 import { initComparison, updateComparison, comparisonNeedsRender } from './splat-compare.js';
 import { buildPinUrl, clearPinUrl, buildMyPinShareUrl, buildMyPinPhotoUrl } from './guide-url.js';
-import { showBuildingDetail } from './location-details.js';
+import { showBuildingDetail, sanitizePhone } from './location-details.js';
 import { loadPublicArray, renderPublicDataNotice } from './public-data.js';
 
 // ── Site config (loaded from data/config.json in boot()) ──────────────────
@@ -1559,10 +1559,27 @@ async function selectPoint(pt) {
   const contactsEl = document.getElementById('detail-contacts');
   contactsEl.innerHTML = '';
   if (contacts.length === 0) {
-    const p = document.createElement('p');
-    p.style.cssText = 'font-size:13px;color:var(--text-secondary)';
-    p.textContent = 'No contacts assigned.';
-    contactsEl.appendChild(p);
+    const overridePhone = (_publicMyPinCode && pt.id === _publicMyPinPointId && pt.phoneOverride)
+      ? sanitizePhone(pt.phoneOverride)
+      : null;
+    if (overridePhone) {
+      const card = document.createElement('div');
+      card.className = 'contact-card-3d';
+      const info = document.createElement('div');
+      const phone = document.createElement('a');
+      phone.className = 'contact-phone-3d';
+      phone.href = overridePhone.href;
+      phone.innerHTML = `<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M5.5 2.5c.5 1 1 2.5.5 3.5L4.5 7c1 2 2.5 3.5 4.5 4.5l1-1.5c1-.5 2.5 0 3.5.5v2.5C13.5 13.5 12 14 11 14 6 14 2 5c0-1 .5-2.5 1.5-2.5h2z"/></svg>`;
+      phone.appendChild(document.createTextNode(overridePhone.display));
+      info.appendChild(phone);
+      card.appendChild(info);
+      contactsEl.appendChild(card);
+    } else {
+      const p = document.createElement('p');
+      p.style.cssText = 'font-size:13px;color:var(--text-secondary)';
+      p.textContent = 'No contacts assigned.';
+      contactsEl.appendChild(p);
+    }
   } else {
     contacts.forEach(c => {
       const card = document.createElement('div');
@@ -1577,15 +1594,18 @@ async function selectPoint(pt) {
       const role = document.createElement('div');
       role.className = 'contact-role-3d';
       role.textContent = c.role;
-      const phone = document.createElement('a');
-      phone.className = 'contact-phone-3d';
-      const safePhone = c.phone.replace(/[^\d+\s().-]/g, '');
-      phone.href = `tel:${safePhone.replace(/\s/g, '')}`;
-      phone.innerHTML = `<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M5.5 2.5c.5 1 1 2.5.5 3.5L4.5 7c1 2 2.5 3.5 4.5 4.5l1-1.5c1-.5 2.5 0 3.5.5v2.5C13.5 13.5 12 14 11 14 6 14 2 10 2 5c0-1 .5-2.5 1.5-2.5h2z"/></svg>`;
-      phone.appendChild(document.createTextNode(c.phone));
       info.appendChild(name);
       info.appendChild(role);
-      info.appendChild(phone);
+      const displayPhone = (_publicMyPinCode && pt.id === _publicMyPinPointId && pt.phoneOverride) ? pt.phoneOverride : c.phone;
+      const sanitized = sanitizePhone(displayPhone);
+      if (sanitized) {
+        const phone = document.createElement('a');
+        phone.className = 'contact-phone-3d';
+        phone.href = sanitized.href;
+        phone.innerHTML = `<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M5.5 2.5c.5 1 1 2.5.5 3.5L4.5 7c1 2 2.5 3.5 4.5 4.5l1-1.5c1-.5 2.5 0 3.5.5v2.5C13.5 13.5 12 14 11 14 6 14 2 10 2 5c0-1 .5-2.5 1.5-2.5h2z"/></svg>`;
+        phone.appendChild(document.createTextNode(sanitized.display));
+        info.appendChild(phone);
+      }
       card.appendChild(avatar);
       card.appendChild(info);
       contactsEl.appendChild(card);
@@ -3370,7 +3390,7 @@ async function boot() {
   if (_sceneBundle?.pins?.length) {
     points.push(..._sceneBundle.pins.filter(p => p.position3d));
   }
-  _allContacts = _sceneBundle?.contacts ? [...contacts, ..._sceneBundle.contacts] : contacts;
+  _allContacts = _sceneBundle?.contacts ? [..._sceneBundle.contacts, ...contacts] : contacts;
 
   // Consume #share=<base64> hash — add the shared pin ephemerally, then select it
   const hashMatch = window.location.hash.match(/^#share=(.+)$/);

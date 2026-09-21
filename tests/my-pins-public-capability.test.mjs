@@ -75,6 +75,84 @@ test('point-qualified capability returns one shared pin and only its contact/pho
   });
 });
 
+test('public My Pins bundle projects phone override without leaking original staff contact phone', async () => {
+  const STAFF_ORIGINAL_PHONE = '0411 222 333';
+  const OVERRIDE_PHONE = '+61 499 888 777';
+
+  const pool = { async query(sql, params) {
+    if (sql.includes("s.camera->>'purpose'")) {
+      return { rows: [{ id: SCENE, site_id: SITE, name: 'My pins', camera: { purpose: 'my-pins-v1' }, kind: 'admin' }] };
+    }
+    if (sql.includes('select * from points')) {
+      return { rows: [{
+        id: POINT, site_id: SITE, scene_id: SCENE, label: 'Dock B', type: 'collection',
+        scope: 'shared', position3d: { x: 1, y: 2, z: 3 }, contact_ids: [CONTACT],
+        phone_override: OVERRIDE_PHONE,
+        route_waypoints: [], route_waypoints3d: [], created_by: 'owner'
+      }] };
+    }
+    if (sql.includes('select * from contacts')) {
+      return { rows: [{
+        id: CONTACT, name: 'Warehouse Supervisor', role: 'Logistics',
+        phone: STAFF_ORIGINAL_PHONE, email: 'supervisor@example.invalid',
+        active: true, created_by: 'internal', created_at: '2026-01-01T00:00:00Z'
+      }] };
+    }
+    if (sql.includes('select ph.id')) {
+      return { rows: [] };
+    }
+    throw new Error(`unexpected query: ${sql}`);
+  } };
+
+  await withPool(pool, async () => {
+    const bundle = await scenesDb.getSharedMyPinByCode(CODE, POINT);
+    assert.ok(bundle);
+    assert.equal(bundle.pins[0].phoneOverride, OVERRIDE_PHONE);
+    assert.equal(bundle.contacts.length, 1);
+    const contact = bundle.contacts[0];
+    // Phone override replaces the contact phone
+    assert.equal(contact.phone, OVERRIDE_PHONE);
+    // Contact name and role are preserved
+    assert.equal(contact.name, 'Warehouse Supervisor');
+    assert.equal(contact.role, 'Logistics');
+    // Ensure the original staff phone is NOT leaked anywhere in the serialized bundle
+    const serialized = JSON.stringify(bundle);
+    assert.equal(serialized.includes(STAFF_ORIGINAL_PHONE), false);
+    assert.equal(serialized.includes(OVERRIDE_PHONE), true);
+  });
+});
+
+test('public My Pins bundle with phone override and no contacts preserves empty contacts without inventing data', async () => {
+  const OVERRIDE_PHONE = '0400 555 666';
+
+  const pool = { async query(sql) {
+    if (sql.includes("s.camera->>'purpose'")) {
+      return { rows: [{ id: SCENE, site_id: SITE, name: 'My pins', camera: { purpose: 'my-pins-v1' }, kind: 'admin' }] };
+    }
+    if (sql.includes('select * from points')) {
+      return { rows: [{
+        id: POINT, site_id: SITE, scene_id: SCENE, label: 'Unstaffed Point', type: 'meet-point',
+        scope: 'shared', position3d: { x: 1, y: 2, z: 3 }, contact_ids: [],
+        phone_override: OVERRIDE_PHONE,
+        route_waypoints: [], route_waypoints3d: [], created_by: 'owner'
+      }] };
+    }
+    if (sql.includes('select ph.id')) {
+      return { rows: [] };
+    }
+    throw new Error(`unexpected query: ${sql}`);
+  } };
+
+  await withPool(pool, async () => {
+    const bundle = await scenesDb.getSharedMyPinByCode(CODE, POINT);
+    assert.ok(bundle);
+    assert.equal(bundle.pins[0].phoneOverride, OVERRIDE_PHONE);
+    // Contacts list must remain empty; do not invent contacts or data
+    assert.deepEqual(bundle.contacts, []);
+    assert.deepEqual(bundle.pins[0].contactIds, []);
+  });
+});
+
 test('personal/revoked or wrong-purpose point capability returns not found', async () => {
   let calls = 0;
   await withPool({ async query(sql) {

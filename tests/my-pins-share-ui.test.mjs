@@ -28,3 +28,23 @@ test('public My Pins viewer consumes only the point-qualified capability and com
   assert.match(viewer, /\(_sceneCode \|\| _publicMyPinCode\) \? null : _params\.get\('d'\)/);
   assert.match(viewer, /u\.searchParams\.delete\('myPin'\);[\s\S]*u\.searchParams\.delete\('d'\);/);
 });
+
+test('account-pin editor provides phone override input and viewer displays callable override', () => {
+  // Clear label and field
+  assert.match(admin, /Phone override \(optional\)/);
+  assert.match(admin, /id="field-phone-override"/);
+  assert.match(admin, /_editingPoint\.phoneOverride = overrideInput\.value/);
+  assert.match(admin, /snapshot\.phoneOverride = rawOverride \|\| null/);
+  // Contacts directory is not mutated
+  assert.doesNotMatch(admin, /_contacts\[.*\]\.phone\s*=/);
+
+  // Viewer displays callable phone link using the override
+  assert.match(viewer, /pt\.phoneOverride/);
+  assert.match(viewer, /displayPhone = \(_publicMyPinCode && pt\.id === _publicMyPinPointId && pt\.phoneOverride\) \? pt\.phoneOverride : c\.phone/);
+  assert.match(viewer, /_allContacts = _sceneBundle\?\.contacts \? \[\.\.\._sceneBundle\.contacts, \.\.\.contacts\] : contacts/);
+
+  // Viewer safely sanitizes phone numbers and does not show an empty phone
+  assert.match(viewer, /sanitizePhone/);
+  assert.match(viewer, /overridePhone = \(_publicMyPinCode && pt\.id === _publicMyPinPointId && pt\.phoneOverride\)\s*\?\s*sanitizePhone\(pt\.phoneOverride\)\s*:\s*null/);
+  assert.match(viewer, /const sanitized = sanitizePhone\(displayPhone\);/);
+});

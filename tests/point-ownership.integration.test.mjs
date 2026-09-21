@@ -51,7 +51,7 @@ test('scene point ownership: actual PostgreSQL and HTTP server', { skip: !proces
         label text not null,type text not null default 'drop-off',scope text not null default 'shared',
         latlng jsonb,position3d jsonb,notes text,contact_ids uuid[] not null default '{}',
         route_waypoints jsonb not null default '[]',route_waypoints3d jsonb not null default '[]',camera_preset3d jsonb,
-        building_ref text,created_by text,created_at timestamptz default now(),updated_at timestamptz default now(),
+        building_ref text,phone_override text,created_by text,created_at timestamptz default now(),updated_at timestamptz default now(),
         foreign key(site_id,scene_id) references scenes(site_id,id) on delete cascade);
       create table audit_log(id bigserial primary key,site_id uuid,changed_by uuid,action text,entity_type text,entity_id uuid,entity_label text,
         constraint fixture_audit check(entity_label <> 'TEST_FAIL_AUDIT'));
@@ -164,6 +164,33 @@ test('scene point ownership: actual PostgreSQL and HTTP server', { skip: !proces
       assert.equal((await request(`/api/scenes/by-code/${myPinsShareCode}/points/${myPinsPointId}/photos/${PHOTO}`,{actor:null})).status,404);
       const revoked=await request(route(myPinsSceneId),{method:'POST',body:payload(myPinsPointId,{scope:'personal',contactIds:[CONTACT_A]})});
       assert.equal(revoked.status,200);assert.equal(revoked.body.scope,'personal');
+      assert.equal((await request(`/api/scenes/by-code/${myPinsShareCode}/points/${myPinsPointId}`,{actor:null})).status,404);
+    });
+    await t.test('My Pins phone override survives omitted admin edits, rejects admin override, and masks staff phone publicly', async () => {
+      assert.ok(myPinsSceneId);assert.ok(myPinsShareCode);
+      const staffPhone='0411 222 333', overridePhone='+61 499 888 777';
+      await sql.query('update contacts set phone=$1 where id=$2',[staffPhone,CONTACT_A]);
+
+      const ownerSet=await request(route(myPinsSceneId),{method:'POST',body:payload(myPinsPointId,{scope:'shared',contactIds:[CONTACT_A],phoneOverride:overridePhone})});
+      assert.equal(ownerSet.status,200);assert.equal(ownerSet.body.phoneOverride,overridePhone);
+      assert.equal((await sql.query('select phone_override from points where id=$1',[myPinsPointId])).rows[0].phone_override,overridePhone);
+
+      const adminOmit=await request(route(myPinsSceneId),{method:'POST',actor:ADMIN,body:payload(myPinsPointId,{scope:'shared',contactIds:[CONTACT_A],label:'Platform admin label only'})});
+      assert.equal(adminOmit.status,200);assert.equal(adminOmit.body.phoneOverride,overridePhone);
+      assert.equal((await sql.query('select phone_override from points where id=$1',[myPinsPointId])).rows[0].phone_override,overridePhone);
+
+      const adminOverride=await request(route(myPinsSceneId),{method:'POST',actor:ADMIN,body:payload(myPinsPointId,{scope:'shared',contactIds:[CONTACT_A],phoneOverride:'0400 000 999'})});
+      assert.equal(adminOverride.status,400);assert.equal(adminOverride.body.error,'INVALID_PHONE_OVERRIDE');
+      assert.equal((await sql.query('select phone_override from points where id=$1',[myPinsPointId])).rows[0].phone_override,overridePhone);
+
+      const publicBundle=await request(`/api/scenes/by-code/${myPinsShareCode}/points/${myPinsPointId}`,{actor:null});
+      assert.equal(publicBundle.status,200);assert.equal(publicBundle.body.pins[0].phoneOverride,overridePhone);
+      assert.equal(publicBundle.body.contacts[0].phone,overridePhone);
+      assert.equal(JSON.stringify(publicBundle.body).includes(staffPhone),false);
+
+      const cleared=await request(route(myPinsSceneId),{method:'POST',body:payload(myPinsPointId,{scope:'personal',contactIds:[CONTACT_A],phoneOverride:null})});
+      assert.equal(cleared.status,200);assert.equal(cleared.body.phoneOverride,null);
+      assert.equal((await sql.query('select phone_override from points where id=$1',[myPinsPointId])).rows[0].phone_override,null);
       assert.equal((await request(`/api/scenes/by-code/${myPinsShareCode}/points/${myPinsPointId}`,{actor:null})).status,404);
     });
     await t.test('create-only browser import cannot overwrite an existing or racing account pin', async () => {

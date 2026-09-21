@@ -21,6 +21,7 @@ const ALLOWED_PIN_KEYS = [
   'latlng',
   'position3d',
   'notes',
+  'phoneOverride',
   'contactIds',
   'routeWaypoints',
   'routeWaypoints3d',
@@ -43,7 +44,7 @@ function verifySavedPoint(saved, requested, sceneId) {
 function verifyReadback(saved, pins) {
   if (!Array.isArray(pins)) throw new MyPinsError(200, 'MALFORMED_RESPONSE');
   const readback = pins.find(pin => pin?.id === saved.id && pin.sceneId === saved.sceneId);
-  const keys = ['label', 'scope', 'position3d', 'contactIds', 'notes'];
+  const keys = ['label', 'scope', 'position3d', 'contactIds', 'notes', 'phoneOverride'];
   if (!readback || keys.some(key => JSON.stringify(readback[key] ?? null) !== JSON.stringify(saved[key] ?? null))) {
     throw new MyPinsError(200, 'SAVE_NOT_VERIFIED');
   }

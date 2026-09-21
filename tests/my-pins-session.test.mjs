@@ -525,3 +525,69 @@ test('POINT_HAS_PHOTOS preserves pin in session state and clears busy flag on de
   assert.equal(session.getState().pins[0].id, PIN_ID_1);
   assert.equal(session.getState().busy, false);
 });
+
+test('save account pin captures phoneOverride, verifies readback, and stores in session state', async () => {
+  const scene = { id: 's-phone', isMine: true, camera: { purpose: 'my-pins-v1' } };
+  let capturedPayload = null;
+  let serverPins = [];
+  let saveFn = async (_slug, sceneId, payload) => {
+    capturedPayload = payload;
+    const saved = { ...payload, id: payload.id, sceneId, phoneOverride: payload.phoneOverride };
+    serverPins = [saved];
+    return saved;
+  };
+
+  const api = {
+    listMyPinsScenes: async () => [scene],
+    listAccountPins: async () => serverPins,
+    saveAccountPin: async (slug, sceneId, payload) => saveFn(slug, sceneId, payload),
+  };
+
+  const session = createMyPinsSession('test-slug', {
+    identity: TEST_EMAIL,
+    fetchFn: makeAuthFetch(),
+    api,
+  });
+
+  await session.load();
+
+  // 1. Save with valid phone override
+  const savedPin = await session.save({
+    id: PIN_ID_1,
+    label: 'Main Gate',
+    scope: 'personal',
+    phoneOverride: '0412 345 678',
+  });
+
+  assert.equal(capturedPayload.phoneOverride, '0412 345 678');
+  assert.equal(savedPin.phoneOverride, '0412 345 678');
+  assert.equal(session.getState().pins[0].phoneOverride, '0412 345 678');
+
+  // 2. Readback verification fails if readback phoneOverride does not match
+  saveFn = async (_slug, sceneId, payload) => {
+    return { ...payload, id: payload.id, sceneId, phoneOverride: '0499 999 999' };
+  };
+  serverPins = [{ id: PIN_ID_1, sceneId: scene.id, label: 'Main Gate', scope: 'personal', phoneOverride: '0400 000 000' }];
+
+  await assert.rejects(
+    () => session.save({ id: PIN_ID_1, label: 'Main Gate', scope: 'personal', phoneOverride: '0499 999 999' }),
+    e => e instanceof MyPinsError && e.code === 'SAVE_NOT_VERIFIED'
+  );
+
+  // 3. Clear phone override with null
+  saveFn = async (_slug, sceneId, payload) => {
+    const saved = { ...payload, id: payload.id, sceneId, phoneOverride: null };
+    serverPins = [saved];
+    return saved;
+  };
+
+  const cleared = await session.save({
+    id: PIN_ID_1,
+    label: 'Main Gate',
+    scope: 'personal',
+    phoneOverride: null,
+  });
+
+  assert.equal(cleared.phoneOverride, null);
+  assert.equal(session.getState().pins[0].phoneOverride, null);
+});
