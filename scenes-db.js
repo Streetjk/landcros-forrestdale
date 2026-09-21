@@ -319,6 +319,7 @@ async function getSharedMyPinByCode(code, pointId) {
     delete contact.createdAt;
     return contact;
   });
+  point.contactIds = contacts.map(contact => contact.id);
   const photos = photosRes.rows.map(row => ({
     id: row.id,
     pointId: row.point_id,

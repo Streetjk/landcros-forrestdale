@@ -12,6 +12,7 @@ const SITE = '00000000-0000-4000-8000-000000000001';
 const SCENE = '00000000-0000-4000-8000-000000000002';
 const POINT = '00000000-0000-4000-8000-000000000003';
 const CONTACT = '00000000-0000-4000-8000-000000000004';
+const INACTIVE_CONTACT = '00000000-0000-4000-8000-000000000006';
 const PHOTO = '00000000-0000-4000-8000-000000000005';
 const CODE = 'abcde23456';
 
@@ -43,10 +44,10 @@ test('point-qualified capability returns one shared pin and only its contact/pho
     }
     if (sql.includes('select * from points')) {
       assert.deepEqual(params, [POINT, SITE, SCENE]);
-      return { rows: [{ id: POINT, site_id: SITE, scene_id: SCENE, label: 'Gate A', type: 'meet-point', scope: 'shared', position3d: { x: 1, y: 2, z: 3 }, contact_ids: [CONTACT], route_waypoints: [], route_waypoints3d: [], created_by: 'owner-internal' }] };
+      return { rows: [{ id: POINT, site_id: SITE, scene_id: SCENE, label: 'Gate A', type: 'meet-point', scope: 'shared', position3d: { x: 1, y: 2, z: 3 }, contact_ids: [CONTACT, INACTIVE_CONTACT], route_waypoints: [], route_waypoints3d: [], created_by: 'owner-internal' }] };
     }
     if (sql.includes('select * from contacts')) {
-      assert.deepEqual(params, [SITE, [CONTACT]]);
+      assert.deepEqual(params, [SITE, [CONTACT, INACTIVE_CONTACT]]);
       return { rows: [{ id: CONTACT, name: 'Public contact', role: 'Gate', phone: '000', email: 'public@example.invalid', active: true, created_by: 'internal', created_at: '2026-01-01T00:00:00Z' }] };
     }
     if (sql.includes('select ph.id')) {

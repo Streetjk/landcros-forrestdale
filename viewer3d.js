@@ -7,7 +7,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
 import { Sky } from 'three/addons/objects/Sky.js';
 import { initComparison, updateComparison, comparisonNeedsRender } from './splat-compare.js';
-import { buildPinUrl, clearPinUrl } from './guide-url.js';
+import { buildPinUrl, clearPinUrl, buildMyPinShareUrl, buildMyPinPhotoUrl } from './guide-url.js';
 import { showBuildingDetail } from './location-details.js';
 import { loadPublicArray, renderPublicDataNotice } from './public-data.js';
 
@@ -121,6 +121,10 @@ controls.update();
 
 const _params = new URLSearchParams(location.search);
 const _debugMode = _params.get('debug') === '1';
+// Point-qualified account guide capability. The code alone is never fetched;
+// a point UUID is required before the server returns any account-owned data.
+const _publicMyPinCode = _params.get('myPin');
+const _publicMyPinPointId = _publicMyPinCode ? _params.get('id') : null;
 
 function _parseRoute() {
   const model = _params.get('model');
@@ -1468,23 +1472,36 @@ async function _renderPointPhotos(pt) {
   // can never carry photos — skip the request entirely.
   if (pt.scope === 'personal') return;
   try {
-    if (_pointPhotoSlug === null) {
-      _pointPhotoSlug = await fetch('/api/site').then(r => r.ok ? r.json() : null).then(d => d?.slug ?? '').catch(() => '');
+    let list = [];
+    let publicMyPin = false;
+    if (_publicMyPinCode && pt.id === _publicMyPinPointId) {
+      // Point-qualified My Pins metadata was already authorized when the bundle
+      // loaded. Media URLs repeat the same code+point+photo boundary and serve
+      // only the compressed copy; there is intentionally no public original.
+      list = _scenePhotos.filter(ph => ph.pointId === pt.id);
+      publicMyPin = true;
+    } else {
+      if (_pointPhotoSlug === null) {
+        _pointPhotoSlug = await fetch('/api/site').then(r => r.ok ? r.json() : null).then(d => d?.slug ?? '').catch(() => '');
+      }
+      if (!_pointPhotoSlug) return;
+      list = await fetch(`/api/sites/${encodeURIComponent(_pointPhotoSlug)}/points/${encodeURIComponent(pt.id)}/photos`)
+        .then(r => r.ok ? r.json() : []).catch(() => []);
     }
-    if (!_pointPhotoSlug) return;
-    const list = await fetch(`/api/sites/${encodeURIComponent(_pointPhotoSlug)}/points/${encodeURIComponent(pt.id)}/photos`)
-      .then(r => r.ok ? r.json() : []).catch(() => []);
     if (!Array.isArray(list) || !list.length) return;
     // The panel may have moved on to another pin while this was in flight;
     // _photoReqPt is set by the caller on every selectPoint().
     if (_photoReqPt !== pt.id) return;
     list.forEach(ph => {
       const a = document.createElement('a');
-      a.href = `/api/point-photos/${encodeURIComponent(ph.id)}?original=1`;
+      const compressedUrl = publicMyPin
+        ? buildMyPinPhotoUrl(_publicMyPinCode, pt.id, ph.id)
+        : `/api/point-photos/${encodeURIComponent(ph.id)}`;
+      a.href = publicMyPin ? compressedUrl : `${compressedUrl}?original=1`;
       a.target = '_blank';
       a.rel = 'noopener';
       const img = document.createElement('img');
-      img.src = `/api/point-photos/${encodeURIComponent(ph.id)}`;
+      img.src = compressedUrl;
       img.alt = ph.originalName || 'Pin photo';
       img.loading = 'lazy';
       img.style.cssText = 'width:100%;height:80px;object-fit:cover;border-radius:6px;display:block;';
@@ -1504,7 +1521,22 @@ async function selectPoint(pt) {
   _leavePinDetail();
   window._selectedPt = pt;
   updatePinHighlight(pt.id);
-  history.pushState(null, '', buildPinUrl(window.location.href, pt.id));
+  let nextUrl = buildPinUrl(window.location.href, pt.id);
+  if (_publicMyPinCode) {
+    if (pt.id === _publicMyPinPointId) {
+      nextUrl = buildMyPinShareUrl(location.origin, _publicMyPinCode, _publicMyPinPointId);
+    } else {
+      // Selecting a normal base-site pin leaves the private-guide capability
+      // context instead of carrying that bearer code into an unrelated link.
+      const u = new URL(nextUrl, location.origin);
+      u.searchParams.delete('myPin');
+      // `d` is deliberately ignored while a My Pins capability is active. Do
+      // not let a suppressed legacy payload regain authority after leaving it.
+      u.searchParams.delete('d');
+      nextUrl = u.toString();
+    }
+  }
+  history.pushState(null, '', nextUrl);
 
   const chipClass = { 'drop-off': 'chip-dropoff', 'collection': 'chip-collection', 'both': 'chip-both' };
   const chipLabel = { 'drop-off': 'Drop-off', 'collection': 'Collection', 'both': 'Drop-off & Collection' };
@@ -1683,7 +1715,9 @@ window.showPointList = function() {
   if (panel) panel.classList.remove('sheet-mid', 'sheet-full');
   if (window.innerWidth > 1024) document.getElementById('app')?.classList.remove('panel-open');
   window._updateCamPresetsBottom?.();
-  history.pushState(null, '', clearPinUrl(window.location.href));
+  history.pushState(null, '', _publicMyPinCode && _publicMyPinPointId
+    ? buildMyPinShareUrl(location.origin, _publicMyPinCode, _publicMyPinPointId)
+    : clearPinUrl(window.location.href));
 };
 
 window.startNav = function(pt) {
@@ -3296,13 +3330,17 @@ async function boot() {
   window.dispatchEvent(new CustomEvent('viewer3d:ready'));
 
   // Scene objects/pins are SCENE-SCOPED (Scenes feature): the default viewer
-  // is vanilla and loads NONE. A scene loads ONLY when opened via
-  // ?scene=<code>, and OVERLAYS the base site (base buildings/labels/pins
-  // still render underneath). The editor (scene-editor.js, #add-label-btn)
-  // renders its own objects with edit affordances, so skip there.
+  // is vanilla and loads NONE. General scenes open with ?scene=<code>. Account
+  // My Pins use ?myPin=<code>&id=<point UUID> so the workspace code can never
+  // be used by this viewer to enumerate the owner's other pins.
   let _sceneBundle = null;
   const _sceneCode = _params.get('scene');
-  if (_sceneCode && !document.getElementById('add-label-btn')) {
+  const _deepId = _params.get('id');
+  if (_publicMyPinCode && _deepId && !document.getElementById('add-label-btn')) {
+    _sceneBundle = await fetch(`/api/scenes/by-code/${encodeURIComponent(_publicMyPinCode)}/points/${encodeURIComponent(_deepId)}`)
+      .then(r => r.ok ? r.json() : null)
+      .catch(() => null);
+  } else if (_sceneCode && !document.getElementById('add-label-btn')) {
     _sceneBundle = await fetch(`/api/scenes/by-code/${encodeURIComponent(_sceneCode)}`)
       .then(async r => {
         if (r.ok) return r.json();
@@ -3311,10 +3349,11 @@ async function boot() {
         if (r.status === 401) { const d = await r.json().catch(() => ({})); window._snHazardLoginRequired?.(d); }
         return null;
       }).catch(() => null);
-    _scenePhotos = _sceneBundle?.photos ?? [];
-    if (_sceneBundle?.objects) renderSceneWidgets(_sceneBundle.objects);
-    if (_sceneBundle?.scene) renderSceneStatusBar(_sceneCode, _sceneBundle);
   }
+  _scenePhotos = _sceneBundle?.photos ?? [];
+  if (_sceneBundle?.objects) renderSceneWidgets(_sceneBundle.objects);
+  // My Pins is a one-guide public capability, not a mutable scene workflow.
+  if (_sceneBundle?.scene && _sceneCode && !_publicMyPinCode) renderSceneStatusBar(_sceneCode, _sceneBundle);
 
   // viewer3d.html: load pins/contacts
   if (!document.getElementById('admin-controls') && _showOverlays) {
@@ -3390,12 +3429,15 @@ async function boot() {
       } catch {}
     }
 
-    // QR / legacy deep-link fly-to: ?id=<pinId>[&d=<base64>]
-    const _deepId = _params.get('id');
+    // QR / scoped / legacy deep-link fly-to: ?id=<pinId>[&d=<base64>]
     // Short-code selection already owns this flow; do not select twice.
     if (_deepId && !_shortCode) {
-      let _deepPt = points.find(p => p.id === _deepId);
-      const _deepData = _sceneCode ? null : _params.get('d');
+      // A failed My Pins capability must fail closed rather than falling back to
+      // a coincidentally matching base pin ID.
+      let _deepPt = _publicMyPinCode
+        ? _sceneBundle?.pins?.find(p => p.id === _deepId) ?? null
+        : points.find(p => p.id === _deepId);
+      const _deepData = (_sceneCode || _publicMyPinCode) ? null : _params.get('d');
       if (_deepData) {
         try {
           const parsed = JSON.parse(atob(_deepData));
@@ -3413,7 +3455,7 @@ async function boot() {
             renderPointList([...points, _deepPt]);
           }
         } catch {}
-      } else if (_deepPt && !_sceneCode) {
+      } else if (_deepPt && !_sceneCode && !_publicMyPinCode) {
         // Never bake a scene's scoped contact data into a legacy public URL.
         // Pin found on server but URL has no ?d= — bake data in so future refreshes
         // survive a server restart (Render ephemeral filesystem)

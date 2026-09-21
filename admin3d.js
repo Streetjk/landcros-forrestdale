@@ -2,6 +2,7 @@ import { getContacts, getStaffContacts, getPoints, savePoint, deletePoint, saveC
 import { createMyPinsSession } from './my-pins-session.js';
 import { buildLegacyImportPlan } from './my-pins-client.js';
 import { generateQR, downloadQR } from './qr.js';
+import { buildMyPinShareUrl } from './guide-url.js';
 
 // ── State ─────────────────────────────────────────────────────────────────────
 let _v3d           = null;
@@ -543,7 +544,11 @@ function renderDrawerBody() {
   // unassigned contacts used by the search autocomplete (attached after innerHTML)
 
   const actionButtons = _editingIsAccount
-    ? '<button class="pin-action-btn" type="button" disabled>Share link — not enabled</button><button class="pin-action-btn" type="button" disabled>QR — not enabled</button>'
+    ? isPersonal
+      ? `<button class="pin-action-btn action" type="button" ${_isNewPoint ? 'disabled' : ''} onclick="window._adminSetAccountPublished(true)">Publish guide</button>`
+      : `<button class="pin-action-btn action" type="button" onclick="window._adminToggleQR()">QR</button>
+         <button class="pin-action-btn action" type="button" onclick="window._adminShowShareLink()">Share link</button>
+         <button class="pin-action-btn" type="button" onclick="window._adminSetAccountPublished(false)">Stop sharing</button>`
     : isPersonal
     ? `<button class="pin-action-btn action" onclick="window._adminShowShareLink()">Share link</button>`
     : `<button class="pin-action-btn action" onclick="window._adminToggleQR()">QR</button>
@@ -554,7 +559,7 @@ function renderDrawerBody() {
       <label class="form-label">Label <span style="color:var(--red)">*</span></label>
       <input class="form-input" id="field-label" value="${_esc(pt.label)}" maxlength="80" placeholder="e.g. Dock 1 – Receiving">
     </div>
-    ${_editingIsAccount ? `<div class="pin-scope-note"><span>${_isNewPoint ? 'New private pin — save to your account.' : 'Saved to your account. Publishing and account sharing are not enabled in this step.'}</span></div>` : isPersonal ? `
+    ${_editingIsAccount ? `<div class="pin-scope-note"><span>${_isNewPoint ? 'New private pin — save to your account first.' : isPersonal ? 'Private to your account. Publish only when you are ready to share this guide.' : 'Published by scoped link. Only this pin, its selected active contacts and compressed photos are public.'}</span></div>` : isPersonal ? `
     <div class="pin-scope-note">
       <span>Saved on this device only</span>
       <button type="button" class="pin-scope-promote" onclick="window._adminPromoteToShared()">Share with everyone</button>
@@ -916,7 +921,7 @@ window._adminRemoveContact = id => {
 };
 
 // ── Save / Delete ─────────────────────────────────────────────────────────────
-window._adminSave = async () => {
+window._adminSave = async (accountScope = null) => {
   if (!_editingPoint || _saving || !_accountReady) return;
   if (_editingIsLegacy) return showToast('Import this device-only pin before editing it');
   _captureDraft();
@@ -928,8 +933,11 @@ window._adminSave = async () => {
   snapshot.notes = String(snapshot.notes || '').trim();
   snapshot.type = _editingType;
   snapshot.contactIds = [..._editingContactIds];
-  // This UI never newly publishes an account pin or promotes it to base data.
-  snapshot.scope = account ? (_personalPins.find(p => p.id === snapshot.id)?.scope || 'personal') : _editingScope;
+  // Ordinary Save never newly publishes an account pin. Only the explicit
+  // Publish/Stop sharing controls may override account scope.
+  const existingAccountScope = _personalPins.find(p => p.id === snapshot.id)?.scope || 'personal';
+  const requestedAccountScope = accountScope === 'shared' || accountScope === 'personal' ? accountScope : null;
+  snapshot.scope = account ? (requestedAccountScope || existingAccountScope) : _editingScope;
   _saving = true; _setBusy(true);
   try {
     const saved = account ? await _accountSession.save(snapshot) : await savePoint(snapshot);
@@ -940,12 +948,17 @@ window._adminSave = async () => {
       const index = _points.findIndex(p => p.id === saved.id);
       if (index >= 0) _points[index] = saved; else _points.push(saved);
     }
-    _editingPoint = _copy(saved); _isNewPoint = false;
+    _editingPoint = _copy(saved); _editingScope = saved.scope || _editingScope; _isNewPoint = false;
     _v3d.upsertPin(saved); _v3d.updatePinHighlight(saved.id);
     renderPointList(); renderDrawerBody();
     document.getElementById('drawer-title').textContent = saved.label;
     if (_slug && (account || saved.scope === 'shared')) _loadPinPhotos(saved.id);
-    showToast(account ? 'Saved and verified in your account' : 'Saved');
+    if (account && requestedAccountScope === 'shared') showToast('Guide published. Anyone with this scoped link can open it.');
+    else if (account && requestedAccountScope === 'personal') showToast('Sharing stopped. The public link is revoked.');
+    else showToast(account ? 'Saved and verified in your account' : 'Saved');
+    if (account && requestedAccountScope === 'personal') {
+      document.getElementById('qr-section').style.display = 'none';
+    }
     if (account) _setAccountStatus(`My pins are saved to ${_accountEmail}.`);
   } catch (error) {
     showToast(account ? _handleAccountFailure(error) : 'Save failed. Your draft is still open.');
@@ -958,6 +971,14 @@ window._adminPromoteToShared = async () => {
   const oldScope = _editingScope; _editingScope = 'shared';
   await window._adminSave();
   if (_editingPoint?.scope !== 'shared') _editingScope = oldScope;
+};
+
+window._adminSetAccountPublished = async (publish) => {
+  if (_saving || !_editingPoint || !_editingIsAccount || _editingIsLegacy || !_accountReady) return;
+  if (_isNewPoint) return showToast('Save this pin to your account before publishing it.');
+  const target = publish ? 'shared' : 'personal';
+  if ((_editingPoint.scope || _editingScope) === target) return;
+  await window._adminSave(target);
 };
 
 window._adminDelete = async () => {
@@ -988,7 +1009,12 @@ window._adminDelete = async () => {
 
 // ── Share link helpers ────────────────────────────────────────────────────────
 async function _buildShareUrl(pt) {
-  if (pt?.sceneId || _editingIsAccount) throw new Error('Account sharing is not enabled');
+  if (pt?.sceneId || _editingIsAccount) {
+    if (!_editingIsAccount || pt?.scope !== 'shared') throw new Error('Publish this account pin before sharing');
+    const scene = _accountSession?.getState().scene;
+    if (!scene?.shareCode) throw new Error('Account share code is unavailable');
+    return buildMyPinShareUrl(location.origin, scene.shareCode, pt.id);
+  }
   const allContacts = await getContacts();
   const contacts = allContacts.filter(c => (pt.contactIds ?? []).includes(c.id));
   const pinData = {
@@ -1002,13 +1028,17 @@ async function _buildShareUrl(pt) {
 
 // ── Share link (inline display) ───────────────────────────────────────────────
 window._adminShowShareLink = async () => {
-  if (!_editingPoint || _editingIsAccount || _editingIsLegacy || _saving) return;
+  if (!_editingPoint || _editingIsLegacy || _saving) return;
+  if (_editingIsAccount && _editingPoint.scope !== 'shared') return showToast('Publish this guide before creating a share link.');
   const row = document.getElementById('share-link-row');
   if (!row) return;
   if (row.style.display !== 'none') { row.style.display = 'none'; return; }
 
   let url = `${location.origin}/viewer3d.html?id=${_editingPoint.id}`;
-  try { url = await _buildShareUrl(_editingPoint); } catch {}
+  try { url = await _buildShareUrl(_editingPoint); }
+  catch {
+    if (_editingIsAccount) return showToast('Scoped share link is unavailable. Reload My Pins and try again.');
+  }
 
   const input = document.getElementById('share-url-input');
   if (input) input.value = url;
@@ -1035,22 +1065,30 @@ window._toggleInfoBar = () => {
 
 // ── QR / link ─────────────────────────────────────────────────────────────────
 window._adminToggleQR = async () => {
-  if (!_editingPoint || _editingIsAccount || _editingIsLegacy || _saving) return;
+  if (!_editingPoint || _editingIsLegacy || _saving) return;
+  if (_editingIsAccount && _editingPoint.scope !== 'shared') return showToast('Publish this guide before creating a QR code.');
   const sec     = document.getElementById('qr-section');
   const visible = sec.style.display !== 'block';
   sec.style.display = visible ? 'block' : 'none';
   if (visible) {
     let url = `${location.origin}/viewer3d.html?id=${_editingPoint.id}`;
-    try { url = await _buildShareUrl(_editingPoint); } catch {}
+    try { url = await _buildShareUrl(_editingPoint); }
+    catch {
+      if (_editingIsAccount) { sec.style.display = 'none'; return showToast('Scoped QR is unavailable. Reload My Pins and try again.'); }
+    }
     document.getElementById('qr-canvas-wrap').innerHTML = '';
     generateQR(url, 'qr-canvas-wrap');
   }
 };
 
 window._adminDownloadQR = async () => {
-  if (!_editingPoint || _editingIsAccount || _editingIsLegacy || _saving) return;
+  if (!_editingPoint || _editingIsLegacy || _saving) return;
+  if (_editingIsAccount && _editingPoint.scope !== 'shared') return showToast('Publish this guide before downloading a QR code.');
   let url = `${location.origin}/viewer3d.html?id=${_editingPoint.id}`;
-  try { url = await _buildShareUrl(_editingPoint); } catch {}
+  try { url = await _buildShareUrl(_editingPoint); }
+  catch {
+    if (_editingIsAccount) return showToast('Scoped QR is unavailable. Reload My Pins and try again.');
+  }
   downloadQR(url, `sitenav-${_editingPoint.id.slice(0, 8)}.png`);
 };
 
