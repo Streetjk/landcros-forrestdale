@@ -120,13 +120,13 @@ async function unsubscribe(sceneId, profileId) {
 async function getSceneByCode(code) {
   if (typeof code !== 'string' || !code) return null;
   const { rows } = await _getPool().query(
-    `select s.id, s.site_id, s.kind, s.status, s.share_code, s.name, s.created_by, si.slug
+    `select s.id, s.site_id, s.kind, s.status, s.share_code, s.name, s.camera, s.created_by, si.slug
      from scenes s join sites si on si.id = s.site_id where s.share_code = $1`,
     [code]
   );
   if (!rows.length) return null;
   const r = rows[0];
-  return { id: r.id, siteId: r.site_id, slug: r.slug, kind: r.kind, status: r.status, shareCode: r.share_code, name: r.name, createdBy: r.created_by };
+  return { id: r.id, siteId: r.site_id, slug: r.slug, kind: r.kind, status: r.status, shareCode: r.share_code, name: r.name, camera: r.camera, createdBy: r.created_by };
 }
 
 const UUID_RE = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
@@ -136,9 +136,9 @@ async function getSceneMeta(slug, id) {
   if (typeof id !== 'string' || !UUID_RE.test(id)) return null;
   const siteId = await getSiteId(slug);
   const { rows } = await _getPool().query(
-    'select id, kind, status, created_by, share_code, name from scenes where id = $1 and site_id = $2', [id, siteId]
+    'select id, kind, status, created_by, share_code, name, camera from scenes where id = $1 and site_id = $2', [id, siteId]
   );
-  return rows.length ? { id: rows[0].id, kind: rows[0].kind, status: rows[0].status, createdBy: rows[0].created_by, shareCode: rows[0].share_code, name: rows[0].name } : null;
+  return rows.length ? { id: rows[0].id, kind: rows[0].kind, status: rows[0].status, createdBy: rows[0].created_by, shareCode: rows[0].share_code, name: rows[0].name, camera: rows[0].camera } : null;
 }
 
 async function createScene(slug, { name, camera, kind = 'admin' } = {}, changedBy = null) {
@@ -215,6 +215,14 @@ async function getSceneBundleByCode(code, viewerProfileId = null) {
   const sceneId = scene.id;
   const siteId = scene.site_id; // authoritative — from the scene row, not the request
 
+  // My Pins is an account-owned workspace, not a scene-wide public guide.
+  // Anonymous recipients must use the point-qualified capability below so a
+  // scene code can never reveal every published pin in the workspace.
+  const isMyPins = (scene.kind || 'admin') === 'admin'
+    && scene.camera && typeof scene.camera === 'object'
+    && scene.camera.purpose === 'my-pins-v1';
+  if (isMyPins && !viewerProfileId) return null;
+
   const objectsRes = await pool.query(
     `select o.*, s.source as script_source
      from scene_objects o
@@ -252,6 +260,81 @@ async function getSceneBundleByCode(code, viewerProfileId = null) {
     objects: objectsRes.rows.map(sceneObjectToJson),
     pins: pinsRes.rows.map(pointToJson),
     contacts: contactsRes.rows.map(contactToJson),
+    photos,
+  };
+}
+
+// Public point-qualified capability for account-owned My Pins. The scene code
+// identifies the workspace, while the point UUID narrows authorization to one
+// explicitly shared guide. Nothing from other pins in the workspace is joined.
+async function getSharedMyPinByCode(code, pointId) {
+  if (typeof code !== 'string' || !code || typeof pointId !== 'string' || !UUID_RE.test(pointId)) return null;
+  const pool = _getPool();
+  const sceneRes = await pool.query(
+    `select s.id, s.site_id, s.name, s.camera, s.kind
+       from scenes s
+      where s.share_code = $1
+        and s.kind = 'admin'
+        and s.camera->>'purpose' = 'my-pins-v1'`,
+    [code]
+  );
+  if (!sceneRes.rows.length) return null;
+  const scene = sceneRes.rows[0];
+
+  const pointRes = await pool.query(
+    `select * from points
+      where id = $1 and site_id = $2 and scene_id = $3 and scope = 'shared'`,
+    [pointId, scene.site_id, scene.id]
+  );
+  if (!pointRes.rows.length) return null;
+  const pointRow = pointRes.rows[0];
+
+  const contactIds = Array.isArray(pointRow.contact_ids) ? pointRow.contact_ids : [];
+  const contactsRes = contactIds.length
+    ? await pool.query(
+        `select * from contacts where site_id = $1 and id = any($2::uuid[]) and active = true`,
+        [scene.site_id, contactIds]
+      )
+    : { rows: [] };
+
+  const photosRes = await pool.query(
+    `select ph.id, ph.point_id, ph.bytes, ph.width, ph.height, ph.expires_at
+       from point_photos ph
+       join points p on p.id = ph.point_id and p.site_id = ph.site_id
+      where ph.site_id = $1 and p.scene_id = $2 and ph.point_id = $3
+        and p.scope = 'shared'
+        and (ph.expires_at is null or ph.expires_at > now())
+      order by ph.created_at`,
+    [scene.site_id, scene.id, pointId]
+  );
+
+  const point = pointToJson(pointRow);
+  delete point.createdBy;
+  delete point.createdAt;
+  delete point.updatedAt;
+  delete point.sceneId;
+  const contacts = contactsRes.rows.map(row => {
+    const contact = contactToJson(row);
+    delete contact.createdBy;
+    delete contact.createdAt;
+    return contact;
+  });
+  const photos = photosRes.rows.map(row => ({
+    id: row.id,
+    pointId: row.point_id,
+    contentType: 'image/jpeg',
+    bytes: row.bytes,
+    width: row.width,
+    height: row.height,
+    expiresAt: row.expires_at,
+  }));
+
+  return {
+    scene: { name: scene.name, kind: 'admin' },
+    viewer: { signedIn: false, isMine: false },
+    objects: [],
+    pins: [point],
+    contacts,
     photos,
   };
 }
@@ -328,4 +411,5 @@ module.exports = {
   deleteScene,
   sceneHasPointPhotos,
   getSceneBundleByCode,
+  getSharedMyPinByCode,
 };

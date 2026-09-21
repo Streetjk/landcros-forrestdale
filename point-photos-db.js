@@ -239,6 +239,7 @@ module.exports = {
   listScenePointPhotos,
   addScenePointPhoto,
   readScenePointPhoto,
+  readSharedScenePointPhotoByCode,
   setScenePointPhotoRetention,
   deleteScenePointPhoto,
   sceneHasPointPhotos,
@@ -371,6 +372,30 @@ async function readScenePointPhoto(slug, sceneId, pointId, photoId, { original =
   const { data, error } = await _getStorage().from(BUCKET).download(original ? r.original_path : r.storage_path);
   if (error) throw new Error(`storage download failed: ${error.message}`);
   return { buffer: Buffer.from(await data.arrayBuffer()), contentType: original ? r.content_type : 'image/jpeg', row: r };
+}
+
+// Anonymous My Pins photo read. The scene code is resolved inside the same
+// query and the point must still be explicitly shared; revocation therefore
+// takes effect before any storage bytes are fetched.
+async function readSharedScenePointPhotoByCode(sceneCode, pointId, photoId) {
+  const { rows } = await _getPool().query(
+    `select ph.* from scenes s
+       join points p on p.scene_id = s.id and p.site_id = s.site_id
+       join point_photos ph on ph.point_id = p.id and ph.site_id = p.site_id
+      where s.share_code = $1
+        and s.kind = 'admin'
+        and s.camera->>'purpose' = 'my-pins-v1'
+        and p.id = $2
+        and p.scope = 'shared'
+        and ph.id = $3
+        and (ph.expires_at is null or ph.expires_at > now())`,
+    [sceneCode, pointId, photoId]
+  );
+  if (!rows.length) return null;
+  const r = rows[0];
+  const { data, error } = await _getStorage().from(BUCKET).download(r.storage_path);
+  if (error) throw new Error(`storage download failed: ${error.message}`);
+  return { buffer: Buffer.from(await data.arrayBuffer()), contentType: 'image/jpeg', row: r };
 }
 
 async function setScenePointPhotoRetention(slug, sceneId, pointId, photoId, keepIndefinitely) {

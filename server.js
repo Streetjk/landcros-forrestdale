@@ -653,6 +653,48 @@ const server = http.createServer((req, res) => {
   // slice). The editor still reads/writes via /api/sites/:slug/objects below.
   const SLUG_RE = /^[a-z0-9][a-z0-9-]{1,62}$/;
 
+  // ── My Pins point-qualified public capability ───────────────────────────
+  // A My Pins scene is an account workspace containing multiple private or
+  // published guides. Its scene code alone is never a public workspace link;
+  // the point UUID narrows the capability to exactly one shared guide.
+  const _myPinPhotoMatch = /^\/api\/scenes\/by-code\/([a-z0-9]{10})\/points\/([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})\/photos\/([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/.exec(pathname);
+  if (_myPinPhotoMatch && (req.method === 'GET' || req.method === 'HEAD')) {
+    if (_rateLimited(req, res, 'my-pin-public-photo', 240, 3600000)) return;
+    pointPhotosDb.readSharedScenePointPhotoByCode(_myPinPhotoMatch[1], _myPinPhotoMatch[2], _myPinPhotoMatch[3]).then(photo => {
+      if (!photo) return _json(res, 404, { error: 'not found' });
+      res.writeHead(200, {
+        'Content-Type': photo.contentType,
+        'Content-Length': photo.buffer.length,
+        'Cache-Control': 'private, no-store',
+        'X-Content-Type-Options': 'nosniff',
+        'Content-Disposition': 'inline; filename="photo.jpg"',
+      });
+      res.end(req.method === 'HEAD' ? undefined : photo.buffer);
+    }).catch(e => {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(_errBody(e));
+    });
+    return;
+  }
+
+  const _myPinPointMatch = /^\/api\/scenes\/by-code\/([a-z0-9]{10})\/points\/([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/.exec(pathname);
+  if (_myPinPointMatch && req.method === 'GET') {
+    if (_rateLimited(req, res, 'my-pin-public-point', 120, 3600000)) return;
+    scenesDb.getSharedMyPinByCode(_myPinPointMatch[1], _myPinPointMatch[2]).then(bundle => {
+      if (!bundle) return _json(res, 404, { error: 'not found' });
+      res.writeHead(200, {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*',
+        'Cache-Control': 'private, no-store',
+      });
+      res.end(JSON.stringify(bundle));
+    }).catch(e => {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(_errBody(e));
+    });
+    return;
+  }
+
   // ── Public scene read-by-code (Scenes feature, Slice 3) ─────────────────
   // Anonymous: a share code grants read of exactly one scene's bundle
   // (objects + scene-pins + those pins' contacts), regardless of the site's
@@ -665,6 +707,14 @@ const server = http.createServer((req, res) => {
     const viewer = _session(req);
     scenesDb.getSceneBundleByCode(_sceneCodeMatch[1], viewer?.profileId ?? null).then(async bundle => {
       if (!bundle) { res.writeHead(404, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ error: 'not found' })); }
+      const isMyPinsWorkspace = bundle.scene?.kind === 'admin'
+        && bundle.scene?.camera && typeof bundle.scene.camera === 'object'
+        && bundle.scene.camera.purpose === 'my-pins-v1';
+      // A signed-in recipient who learns a point-qualified link must not be
+      // able to strip the point UUID and enumerate the owner's workspace.
+      if (isMyPinsWorkspace && (!viewer || (!bundle.viewer?.isMine && !auth.isPlatformAdmin(viewer.email)))) {
+        return _json(res, 404, { error: 'not found' });
+      }
       // Hazard report links are for @hcma.com.au staff only: the code alone
       // is not enough, the viewer must also hold a session (any active
       // profile — the domain gate is enforced at login).
@@ -713,6 +763,11 @@ const server = http.createServer((req, res) => {
       try {
         const scene = await scenesDb.getSceneByCode(_sceneCodeStatusMatch[1]);
         if (!scene) return _json(res, 404, { error: 'not found' });
+        const isMyPins = scene.kind === 'admin' && scene.camera && typeof scene.camera === 'object'
+          && scene.camera.purpose === 'my-pins-v1';
+        if (isMyPins && !canManageScene(scene, s, auth.isPlatformAdmin(s.email))) {
+          return _json(res, 403, { error: 'forbidden' });
+        }
         await scenesDb.subscribe(scene.id, s.profileId);
         await _changeStatus(scene, body, s);
       } catch (e) { _statusError(e); }
@@ -731,6 +786,11 @@ const server = http.createServer((req, res) => {
         try {
           const meta = await scenesDb.getSceneMeta(slug, _sceneStatusMatch[2]);
           if (!meta) return _json(res, 404, { error: 'not found' });
+          const isMyPins = meta.kind === 'admin' && meta.camera && typeof meta.camera === 'object'
+            && meta.camera.purpose === 'my-pins-v1';
+          if (isMyPins && !canManageScene(meta, s, auth.isPlatformAdmin(s.email))) {
+            return _json(res, 403, { error: 'forbidden' });
+          }
           await _changeStatus({ ...meta, slug }, body, s);
         } catch (e) { _statusError(e); }
       });

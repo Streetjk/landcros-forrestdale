@@ -93,6 +93,8 @@ test('scene point ownership: actual PostgreSQL and HTTP server', { skip: !proces
       return {status:res.status,headers:res.headers,body:await res.json()};
     }
     const count = async (table) => Number((await sql.query(`select count(*) as n from ${table}`)).rows[0].n);
+    let myPinsSceneId = null, myPinsShareCode = null;
+    const myPinsPointId = uid(78);
     await t.test('anonymous, wrong owner, viewer and non-member are denied before any write', async () => {
       for(const actor of [null,OTHER,VIEWER,OUTSIDER]) {
         for(const method of ['GET','POST','DELETE']) {
@@ -133,6 +135,7 @@ test('scene point ownership: actual PostgreSQL and HTTP server', { skip: !proces
       assert.equal(initial.body.filter(scene=>scene.camera?.purpose==='my-pins-v1').length,0);
       const created=await request('/api/sites/alpha/scenes',{method:'POST',body:{name:'My pins',kind:'admin',camera:{purpose:'my-pins-v1'}}});
       assert.equal(created.status,200);assert.equal(created.body.createdBy,OWNER);assert.ok(created.body.shareCode);
+      myPinsSceneId=created.body.id;myPinsShareCode=created.body.shareCode;
       const listed=await request('/api/sites/alpha/scenes?kind=admin');
       const myScenes=listed.body.filter(scene=>scene.isMine===true && scene.camera?.purpose==='my-pins-v1');
       assert.equal(myScenes.length,1);assert.equal(myScenes[0].id,created.body.id);
@@ -140,6 +143,28 @@ test('scene point ownership: actual PostgreSQL and HTTP server', { skip: !proces
       const readback=await request(route(created.body.id));assert.equal(readback.body[0].id,uid(78));
       const otherList=await request('/api/sites/alpha/scenes?kind=admin',{actor:OTHER});
       assert.equal(otherList.body.some(scene=>scene.id===created.body.id),false);
+    });
+    await t.test('My Pins public capability is one-point scoped and immediately revocable', async () => {
+      assert.ok(myPinsSceneId);assert.ok(myPinsShareCode);
+      const published=await request(route(myPinsSceneId),{method:'POST',body:payload(myPinsPointId,{scope:'shared',contactIds:[CONTACT_A]})});
+      assert.equal(published.status,200);assert.equal(published.body.scope,'shared');
+      const rootAnon=await request(`/api/scenes/by-code/${myPinsShareCode}`,{actor:null});
+      assert.equal(rootAnon.status,404);
+      const rootOther=await request(`/api/scenes/by-code/${myPinsShareCode}`,{actor:OTHER});
+      assert.equal(rootOther.status,404);
+      const rootOwner=await request(`/api/scenes/by-code/${myPinsShareCode}`);
+      assert.equal(rootOwner.status,200);
+      assert.equal((await request(`/api/scenes/by-code/${myPinsShareCode}/status`,{method:'POST',actor:OTHER,body:{status:'resolved'}})).status,403);
+      assert.equal((await request(`/api/sites/alpha/scenes/${myPinsSceneId}/status`,{method:'POST',actor:OTHER,body:{status:'resolved'}})).status,403);
+      const scoped=await request(`/api/scenes/by-code/${myPinsShareCode}/points/${myPinsPointId}`,{actor:null});
+      assert.equal(scoped.status,200);assert.deepEqual(scoped.body.pins.map(p=>p.id),[myPinsPointId]);
+      assert.deepEqual(scoped.body.contacts.map(c=>c.id),[CONTACT_A]);assert.deepEqual(scoped.body.photos,[]);
+      assert.equal(Object.hasOwn(scoped.body.pins[0],'createdBy'),false);
+      assert.equal((await request(`/api/scenes/by-code/${myPinsShareCode}/points/${uid(90)}`,{actor:null})).status,404);
+      assert.equal((await request(`/api/scenes/by-code/${myPinsShareCode}/points/${myPinsPointId}/photos/${PHOTO}`,{actor:null})).status,404);
+      const revoked=await request(route(myPinsSceneId),{method:'POST',body:payload(myPinsPointId,{scope:'personal',contactIds:[CONTACT_A]})});
+      assert.equal(revoked.status,200);assert.equal(revoked.body.scope,'personal');
+      assert.equal((await request(`/api/scenes/by-code/${myPinsShareCode}/points/${myPinsPointId}`,{actor:null})).status,404);
     });
     await t.test('create-only browser import cannot overwrite an existing or racing account pin', async () => {
       const before=await sql.query('select label,notes,created_by from points where id=$1',[POINT_A]);
