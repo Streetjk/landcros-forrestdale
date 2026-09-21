@@ -1,0 +1,23 @@
+name: SiteNav tests
+on:
+  pull_request:
+  push:
+    branches: [main, 'review/**']
+permissions:
+  contents: read
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: npm test
+      - name: Check browser module syntax
+        run: |
+          for f in viewer3d.js guide-url.js location-details.js public-data.js; do
+            node --input-type=module --check < "$f"
+          done

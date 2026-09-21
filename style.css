@@ -252,3 +252,24 @@ textarea.form-input      { resize: vertical; min-height: 68px; }
   #nav-progress { bottom: calc(19vh + 20px); }
   #analytics-section { display: none !important; }
 }
+
+/* Rich public-location cards: preserve the map's normal appearance. */
+.public-location-detail .detail-notes {
+  display: block !important;
+  -webkit-line-clamp: unset;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+.public-data-notice {
+  padding: 12px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+@media (max-width: 1024px) {
+  /* Camera controls are not useful over an expanded reading card. */
+  #app:has(#point-detail.public-location-detail.visible) #cam-presets {
+    opacity: 0 !important;
+    pointer-events: none !important;
+  }
+}

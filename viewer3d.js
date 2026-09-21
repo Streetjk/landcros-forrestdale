@@ -7,6 +7,9 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
 import { Sky } from 'three/addons/objects/Sky.js';
 import { initComparison, updateComparison, comparisonNeedsRender } from './splat-compare.js';
+import { buildPinUrl, clearPinUrl } from './guide-url.js';
+import { showBuildingDetail } from './location-details.js';
+import { loadPublicArray, renderPublicDataNotice } from './public-data.js';
 
 // ── Site config (loaded from data/config.json in boot()) ──────────────────
 let _cfg = {};
@@ -1229,7 +1232,18 @@ function _openDetailPanel() {
   if (window.innerWidth > 1024) document.getElementById('app')?.classList.add('panel-open');
 }
 
+// Invalidate in-flight pin photos before another panel takes ownership.
+// Also clears the selected pin used by the optional tour button.
+function _leavePinDetail() {
+  document.getElementById('point-detail')?.classList.remove('public-location-detail');
+  _photoReqPt = null;
+  window._selectedPt = null;
+  const grid = document.getElementById('detail-photos');
+  if (grid) { grid.replaceChildren(); grid.style.display = 'none'; }
+}
+
 function showWidgetDetail(title, body) {
+  _leavePinDetail();
   if (!document.getElementById('point-detail')) return;
   updatePinHighlight(null);
   document.getElementById('detail-chip').className = 'chip';
@@ -1237,11 +1251,11 @@ function showWidgetDetail(title, body) {
   document.getElementById('detail-label').textContent = title;
   document.getElementById('detail-notes').textContent = body;
   const photoGrid = document.getElementById('detail-photos');
-  if (photoGrid) photoGrid.style.display = 'none';
+  if (photoGrid) { photoGrid.style.display = 'none'; photoGrid.replaceChildren(); }
   const navSection = document.getElementById('detail-nav-section');
   if (navSection) navSection.style.display = 'none';
   const contactsSection = document.getElementById('detail-contacts')?.closest('.detail-section');
-  if (contactsSection) contactsSection.style.display = 'none';
+  if (contactsSection) { contactsSection.style.display = 'none'; document.getElementById('detail-contacts')?.replaceChildren(); }
   else { const el = document.getElementById('detail-contacts'); if (el) el.innerHTML = ''; }
 
   _openDetailPanel();
@@ -1253,6 +1267,7 @@ function showWidgetDetail(title, body) {
 // goes through the fetch body, never innerHTML — same XSS-safe convention
 // the rest of this codebase uses.
 function showSubmitReportForm(title, position3d) {
+  _leavePinDetail();
   if (!document.getElementById('point-detail')) return;
   updatePinHighlight(null);
   document.getElementById('detail-chip').className = 'chip';
@@ -1486,9 +1501,10 @@ async function selectPoint(pt) {
     showPointList();
     return;
   }
+  _leavePinDetail();
   window._selectedPt = pt;
   updatePinHighlight(pt.id);
-  history.pushState(null, '', `?id=${pt.id}`);
+  history.pushState(null, '', buildPinUrl(window.location.href, pt.id));
 
   const chipClass = { 'drop-off': 'chip-dropoff', 'collection': 'chip-collection', 'both': 'chip-both' };
   const chipLabel = { 'drop-off': 'Drop-off', 'collection': 'Collection', 'both': 'Drop-off & Collection' };
@@ -1650,11 +1666,16 @@ async function selectPoint(pt) {
 }
 
 window.showPointList = function() {
+  _leavePinDetail();
   if (_camTween) { _camTween.kill(); _camTween = null; }
   stopAutoOrbit();
   controls.enabled = true;
   _camAnimating = false;
   updatePinHighlight(null);
+  const photoGrid = document.getElementById('detail-photos');
+  if (photoGrid) { photoGrid.style.display = 'none'; photoGrid.replaceChildren(); }
+  const contactsEl = document.getElementById('detail-contacts');
+  if (contactsEl) contactsEl.replaceChildren();
   document.getElementById('point-list').style.display = '';
   document.getElementById('point-detail').classList.remove('visible');
   // Collapse panel on mobile and desktop
@@ -1662,7 +1683,7 @@ window.showPointList = function() {
   if (panel) panel.classList.remove('sheet-mid', 'sheet-full');
   if (window.innerWidth > 1024) document.getElementById('app')?.classList.remove('panel-open');
   window._updateCamPresetsBottom?.();
-  history.pushState(null, '', location.pathname);
+  history.pushState(null, '', clearPinUrl(window.location.href));
 };
 
 window.startNav = function(pt) {
@@ -1845,7 +1866,47 @@ async function renderBuildings(geoData) {
     label.position.set(lx, ly, lz);
     scene.add(label);
     _bldRefs[p.id] = { css2d: label, name: p.name, x: lx, y: ly, z: lz };
-    if (label._scaleEl) _allScaleEls.push(label._scaleEl); _invalidateLabelScale();
+    if (label._scaleEl) _allScaleEls.push(label._scaleEl);
+    _invalidateLabelScale();
+
+    const isPublicGuide = !_debugMode && !!document.getElementById('point-detail');
+    if (isPublicGuide && label.element && label._scaleEl) {
+      label.element.style.pointerEvents = 'auto';
+      label._scaleEl.style.pointerEvents = 'auto';
+      label._scaleEl.style.cursor = 'pointer';
+      label._scaleEl.setAttribute('role', 'button');
+      label._scaleEl.setAttribute('tabindex', '0');
+      label._scaleEl.setAttribute('aria-label', p.name || labelText);
+      const onOpenBuilding = (e) => {
+        e?.stopPropagation?.();
+        _leavePinDetail();
+        if (_camTween) { _camTween.kill(); _camTween = null; }
+        if (window._interruptFlyTo) {
+          controls.removeEventListener('start', window._interruptFlyTo);
+          window._interruptFlyTo = null;
+        }
+        stopAutoOrbit();
+        controls.enabled = true;
+        _camAnimating = false;
+        updatePinHighlight(null);
+        history.pushState(null, '', clearPinUrl(window.location.href));
+        showBuildingDetail(f, _openDetailPanel);
+        // Rich cards need readable space, not the compact pin-list peek.
+        if (window.innerWidth <= 1024 && p.details) {
+          const panel = document.getElementById('side-panel');
+          panel?.classList.remove('sheet-mid');
+          panel?.classList.add('sheet-full');
+          window._updateCamPresetsBottom?.();
+        }
+      };
+      label._scaleEl.addEventListener('click', onOpenBuilding);
+      label._scaleEl.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onOpenBuilding(e);
+        }
+      });
+    }
 
     // Loading zone floor patch
     const zone = p.loadingZone;
@@ -3257,10 +3318,14 @@ async function boot() {
 
   // viewer3d.html: load pins/contacts
   if (!document.getElementById('admin-controls') && _showOverlays) {
-  const [points, contacts] = await Promise.all([
-    fetch('./data/points.json').then(r => r.json()).catch(() => []),
-    fetch('./data/contacts.json').then(r => r.json()).catch(() => []),
+  const [pointResult, contactResult] = await Promise.all([
+    loadPublicArray('./data/points.json'),
+    loadPublicArray('./data/contacts.json'),
   ]);
+  const points = pointResult.data;
+  const contacts = contactResult.data;
+  renderPublicDataNotice(document.getElementById('point-list'),
+    pointResult.unavailable || contactResult.unavailable);
   // Overlay the open scene's pins + contacts on the vanilla base. Scene pins
   // carry a valid position3d (editor-created); guard defensively anyway.
   if (_sceneBundle?.pins?.length) {
@@ -3327,9 +3392,10 @@ async function boot() {
 
     // QR / legacy deep-link fly-to: ?id=<pinId>[&d=<base64>]
     const _deepId = _params.get('id');
-    if (_deepId) {
+    // Short-code selection already owns this flow; do not select twice.
+    if (_deepId && !_shortCode) {
       let _deepPt = points.find(p => p.id === _deepId);
-      const _deepData = _params.get('d');
+      const _deepData = _sceneCode ? null : _params.get('d');
       if (_deepData) {
         try {
           const parsed = JSON.parse(atob(_deepData));
@@ -3347,13 +3413,15 @@ async function boot() {
             renderPointList([...points, _deepPt]);
           }
         } catch {}
-      } else if (_deepPt) {
+      } else if (_deepPt && !_sceneCode) {
+        // Never bake a scene's scoped contact data into a legacy public URL.
         // Pin found on server but URL has no ?d= — bake data in so future refreshes
         // survive a server restart (Render ephemeral filesystem)
         const _pinContacts = _allContacts.filter(c => (_deepPt.contactIds ?? []).includes(c.id));
         const _payload = { label: _deepPt.label, type: _deepPt.type, notes: _deepPt.notes ?? '', latlng: _deepPt.latlng, contactIds: _deepPt.contactIds ?? [], contacts: _pinContacts, position3d: _deepPt.position3d, cameraPreset3d: _deepPt.cameraPreset3d };
-        const _baked = `?id=${_deepId}&d=${encodeURIComponent(btoa(JSON.stringify(_payload)))}`;
-        history.replaceState(null, '', _baked);
+        const _baked = new URL(buildPinUrl(window.location.href, _deepId));
+        _baked.searchParams.set('d', btoa(JSON.stringify(_payload)));
+        history.replaceState(null, '', _baked.toString());
       }
       if (_deepPt) setTimeout(() => selectPoint(_deepPt), 800);
     }
