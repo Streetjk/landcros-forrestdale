@@ -78,6 +78,10 @@ node scripts/check-schema.cjs
 
 The schema command is read-only and checks presence only. It is not a migration tool. Current manifests permit Node 18 while locked Supabase dependencies require Node 22; qualify/pin the deployment runtime before releasing PR #1. CI tests on Node 22. No provider changes or migrations were applied in this review.
 
+## My Pins client foundation checkpoint
+
+The browser now has a tested `my-pins-client.js` foundation for discovering/creating the signed-in user's tagged My Pins workspace scene, reading/writing scene-owned pins, and preparing legacy `sn_user_pins` for an explicit confirmation-only import. It does not mutate legacy storage, auto-publish content, enable scene photos, or replace the existing `admin3d.js` UI yet. The next slice is wiring this client into My Pins with a visible migration confirmation and preserving the local copy until server persistence is verified.
+
 ## Scene-owned point backend checkpoint
 
 The continuation slice implements authenticated scene-scoped point CRUD, immutable tenant/scene binding, session-derived authors, personal/shared capability filtering, and legacy point/photo bypass isolation. Points with attached photos now require explicit photo removal before deletion. The staff My Pins UI and scene-photo workflow remain to be connected. See `PIN_OWNERSHIP_CHECKPOINT.md` for exact scope, test limitations and the isolated-branch reconciliation requirement.
