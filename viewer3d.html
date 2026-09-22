@@ -427,6 +427,16 @@
       background: rgba(255, 255, 255, 0.03) !important;
       transition: background 0.12s, transform 0.12s !important;
       position: relative;
+      width: 100%;
+      border: 0;
+      appearance: none;
+      color: inherit;
+      font: inherit;
+      text-align: left;
+    }
+    .point-item:focus-visible {
+      outline: 2px solid #60a5fa;
+      outline-offset: 2px;
     }
     .point-item:hover {
       background: rgba(255, 255, 255, 0.07) !important;
@@ -496,6 +506,13 @@
       cursor: pointer;
       border: none !important;
       background: none !important;
+      appearance: none;
+      font-family: inherit;
+      text-align: left;
+    }
+    .back-link:focus-visible {
+      outline: 2px solid #60a5fa;
+      outline-offset: 2px;
     }
     .back-link:hover { opacity: 0.75; }
 
@@ -813,7 +830,7 @@
     </div>
 
     <div id="point-detail">
-      <div class="back-link" onclick="showPointList()">&#8249; Back</div>
+      <button type="button" class="back-link" onclick="showPointList()">&#8249; Back</button>
       <div class="detail-hero">
         <div class="chip" id="detail-chip"></div>
         <div class="detail-label" id="detail-label"></div>

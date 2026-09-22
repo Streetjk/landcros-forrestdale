@@ -88,6 +88,24 @@ with sync_playwright() as p:
             page.wait_for_selector('#app.scene-ready', timeout=10000)
             assert not photos, 'Building photos downloaded before label activation'
             row['checks'].append('no eager building photo fetch')
+            pin_button = page.locator(f'.point-item[data-pt-id="{PIN["id"]}"]')
+            assert pin_button.evaluate('(el) => el.tagName') == 'BUTTON'
+            assert pin_button.get_attribute('type') == 'button'
+            assert pin_button.get_attribute('aria-label') == PIN['label']
+            pin_button.focus()
+            assert pin_button.evaluate('(el) => getComputedStyle(el).outlineStyle') != 'none'
+            pin_button.press('Enter')
+            assert page.locator('#detail-label').inner_text() == PIN['label']
+            assert pin_button.get_attribute('aria-current') == 'true'
+            back = page.locator('.back-link')
+            assert back.evaluate('(el) => el.tagName') == 'BUTTON'
+            back.focus()
+            back.press('Enter')
+            assert page.locator('#point-list').is_visible()
+            pin_button.press('Space')
+            assert page.locator('#detail-label').inner_text() == PIN['label']
+            page.locator('.back-link').click()
+            row['checks'].append('native keyboard point/back controls with selected-state semantics')
             workshop = page.get_by_role('button', name='Fixture Workshop', exact=True)
             workshop.click(timeout=10000)
             page.wait_for_function('document.querySelector("#detail-photos img")?.complete === true', timeout=6000)

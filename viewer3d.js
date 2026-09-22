@@ -912,7 +912,10 @@ function updatePinHighlight(selectedId) {
     pin.squareMat.color.setHex(selected ? 0xffcc00 : baseColor);
   });
   document.querySelectorAll('.point-item[data-pt-id]').forEach(el => {
-    el.classList.toggle('selected', el.dataset.ptId === selectedId);
+    const selected = el.dataset.ptId === selectedId;
+    el.classList.toggle('selected', selected);
+    if (selected) el.setAttribute('aria-current', 'true');
+    else el.removeAttribute('aria-current');
   });
 }
 
@@ -1910,9 +1913,11 @@ function renderPointList(points) {
 
   points.forEach(pt => {
     const dot = { 'drop-off': '#185FA5', 'collection': '#1D9E75', 'both': '#854F0B' }[pt.type] ?? '#6b7280';
-    const el = document.createElement('div');
+    const el = document.createElement('button');
+    el.type = 'button';
     el.className = 'point-item';
     el.dataset.ptId = pt.id;
+    el.setAttribute('aria-label', pt.label);
     const dotEl = document.createElement('div');
     dotEl.className = 'pt-dot';
     dotEl.style.background = dot;
