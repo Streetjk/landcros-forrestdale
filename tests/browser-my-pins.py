@@ -22,6 +22,7 @@ OUT=pathlib.Path(args.output).resolve();OUT.mkdir(parents=True,exist_ok=True)
 def uid(n):return f'00000000-0000-4000-8000-{n:012d}'
 SCENE=uid(10);P1=uid(21);P2=uid(22);BASEPIN=uid(23);LOCAL1=uid(31);LOCAL2=uid(32);CONTACT=uid(41);PHOTO1=uid(51)
 EMAIL='synthetic-a@example.test'
+CAP_TOKEN='A'*43
 PNG=base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jS1cAAAAASUVORK5CYII=')
 JPEG=base64.b64decode('/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAUDBAQEAwUEBAQFBQUGBwwIBwcHBw8LCwkMEQ8SEhEPERETFhwXExQaFRERGCEYGh0dHx8fExciJCIeJBweHx7/2wBDAQUFBQcGBw4ICA4eFBEUHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh7/wAARCAAgACADASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwAooooAKKKKACiiigAooooA/9k=')
 def pin(id,label,scope='personal',scene=SCENE):
@@ -49,7 +50,7 @@ class Fixture:
         self.viewer_delay=0;self.fail_load=False;self.fail_save=False;self.fail_import=False;self.fail_delete=False
         self.pins={P1:pin(P1,'Account A'),P2:pin(P2,'Account shared','shared')} if workspace else {}
         self.contact={'id':CONTACT,'name':'Synthetic staff','role':'Fixture role','phone':'0000','active':True}
-        self.photos={P1:[],P2:[]}
+        self.photos={P1:[],P2:[]};self.capabilities={}
         self.requests=[];self.hold=None;self.confirmations=[]
     async def route(self,route):
         req=route.request;url=urlsplit(req.url);path=url.path;method=req.method
@@ -97,6 +98,16 @@ class Fixture:
                 self.workspace=True
                 await reply({'id':SCENE,'name':'My pins','shareCode':'abcde23456','isMine':None,'camera':{'purpose':'my-pins-v1'}})
             return
+        cap_match=re.fullmatch(r'/api/sites/landcros/scenes/'+SCENE+r'/points/([^/]+)/share-capability',path)
+        if cap_match:
+            point_id=cap_match.group(1)
+            if method=='DELETE':
+                revoked=point_id in self.capabilities;self.capabilities.pop(point_id,None);await reply({'ok':True,'revoked':revoked});return
+            if method=='POST':
+                if point_id not in self.pins or self.pins[point_id].get('scope')!='shared':await reply({'error':'MY_PIN_NOT_SHARED'},409);return
+                self.capabilities[point_id]=CAP_TOKEN
+                await reply({'pointId':point_id,'sceneId':SCENE,'purpose':'my-pins-v1','token':CAP_TOKEN,'capabilityId':uid(61),'issuedAt':'2026-09-23T00:00:00Z'});return
+            await reply({'error':'METHOD_NOT_ALLOWED'},405);return
         match=re.fullmatch(r'/api/sites/landcros/scenes/'+SCENE+r'/points(?:/([^/]+))?',path)
         if match:
             if method=='GET':await reply(copy.deepcopy(list(self.pins.values())));return
@@ -230,16 +241,22 @@ async def main():
                 await expect(page.locator('.pin-action-row')).to_contain_text('Stop sharing')
                 await page.evaluate('window._adminShowShareLink()')
                 await expect(page.locator('#share-link-row')).to_be_visible()
-                share_url=await page.locator('#share-url-input').input_value();parts=urlsplit(share_url);query=parse_qs(parts.query)
-                assert set(query)=={'myPin','id'}, query
-                assert query.get('myPin')==['abcde23456'] and query.get('id')==[P1]
-                assert not parts.fragment
+                share_url=await page.locator('#share-url-input').input_value();parts=urlsplit(share_url);query=parse_qs(parts.query);fragment=parse_qs(parts.fragment)
+                assert set(query)=={'id'}, query
+                assert query.get('id')==[P1]
+                assert fragment=={'myPin':[CAP_TOKEN]}, fragment
+                assert 'myPin=' not in parts.query and 'abcde23456' not in share_url
+                assert f.capabilities.get(P1)==CAP_TOKEN
                 await page.evaluate('window._adminToggleQR()')
                 await page.wait_for_function('window.__qrTexts?.length > 0')
                 assert await page.evaluate('window.__qrTexts.at(-1)')==share_url
-                checks.append('explicit publish emits only point-qualified share link and QR')
+                cap_path=f'/api/sites/landcros/scenes/{SCENE}/points/{P1}/share-capability'
+                assert any(r['method']=='POST' and r['path']==cap_path for r in f.requests)
+                checks.append('explicit publish emits bearer-fragment point link and QR without workspace share code')
 
                 await page.evaluate('window._adminSetAccountPublished(false)');await settle_save(page)
+                assert P1 not in f.capabilities
+                assert any(r['method']=='DELETE' and r['path']==cap_path for r in f.requests)
                 assert f.pins[P1]['scope']=='personal'
                 await expect(page.locator('.pin-action-row')).to_contain_text('Publish guide')
                 assert await page.locator('.pin-action-row').get_by_text('Share link',exact=True).count()==0
@@ -301,6 +318,8 @@ async def main():
                 row['status']='passed'
             except Exception:
                 row['status']='failed';row['failure']=traceback.format_exc()[-2200:]
+                row['diagnostic']=await page.evaluate('({viewer:!!window._v3d,ready:typeof window.togglePlacement,status:document.querySelector("#my-pins-status")?.textContent,identity:!!window._snAdminIdentity})')
+                row['requests']=f.requests[-30:]
                 try:await page.screenshot(path=str(OUT/f'failure-{width}.png'),full_page=True,timeout=4000)
                 except Exception:pass
             finally:
