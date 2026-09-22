@@ -4,12 +4,13 @@ Usage: python tests/browser-my-pins.py --base-url http://127.0.0.1:50157
 """
 import argparse
 import asyncio
+import base64
 import copy
 import json
 import pathlib
 import re
 import traceback
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 from playwright.async_api import async_playwright, expect
 
 parser=argparse.ArgumentParser()
@@ -19,8 +20,10 @@ args=parser.parse_args()
 assert urlsplit(args.base_url).hostname in ('127.0.0.1','localhost','::1'), 'Fixtures must run locally'
 OUT=pathlib.Path(args.output).resolve();OUT.mkdir(parents=True,exist_ok=True)
 def uid(n):return f'00000000-0000-4000-8000-{n:012d}'
-SCENE=uid(10);P1=uid(21);P2=uid(22);BASEPIN=uid(23);LOCAL1=uid(31);LOCAL2=uid(32);CONTACT=uid(41)
+SCENE=uid(10);P1=uid(21);P2=uid(22);BASEPIN=uid(23);LOCAL1=uid(31);LOCAL2=uid(32);CONTACT=uid(41);PHOTO1=uid(51)
 EMAIL='synthetic-a@example.test'
+PNG=base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jS1cAAAAASUVORK5CYII=')
+JPEG=base64.b64decode('/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAUDBAQEAwUEBAQFBQUGBwwIBwcHBw8LCwkMEQ8SEhEPERETFhwXExQaFRERGCEYGh0dHx8fExciJCIeJBweHx7/2wBDAQUFBQcGBw4ICA4eFBEUHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh7/wAARCAAgACADASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwAooooAKKKKACiiigAooooA/9k=')
 def pin(id,label,scope='personal',scene=SCENE):
     return {'id':id,'sceneId':scene,'label':label,'type':'meet-point','scope':scope,'position3d':{'x':3,'y':2.75,'z':-4},'latlng':[0,0],'notes':'Fixture notes','contactIds':[],'routeWaypoints':[],'routeWaypoints3d':[],'cameraPreset3d':None,'buildingRef':''}
 LEGACY=[pin(LOCAL1,'Browser A'),pin(LOCAL2,'Browser B')]
@@ -45,12 +48,14 @@ class Fixture:
         self.workspace=workspace;self.identity=EMAIL;self.auth_status=200;self.auth_delay=0
         self.viewer_delay=0;self.fail_load=False;self.fail_save=False;self.fail_import=False;self.fail_delete=False
         self.pins={P1:pin(P1,'Account A'),P2:pin(P2,'Account shared','shared')} if workspace else {}
+        self.contact={'id':CONTACT,'name':'Synthetic staff','role':'Fixture role','phone':'0000','active':True}
+        self.photos={P1:[],P2:[]}
         self.requests=[];self.hold=None;self.confirmations=[]
     async def route(self,route):
         req=route.request;url=urlsplit(req.url);path=url.path;method=req.method
         async def reply(data,status=200):await route.fulfill(status=status,content_type='application/json',body=json.dumps(data))
         if url.hostname not in ('127.0.0.1','localhost'):
-            if 'qrcode' in url.path:await route.fulfill(content_type='application/javascript',body="window.QRCode=class{static CorrectLevel={H:1};constructor(){window.__qrCalls=(window.__qrCalls||0)+1}};")
+            if 'qrcode' in url.path:await route.fulfill(content_type='application/javascript',body="window.QRCode=class{static CorrectLevel={H:1};constructor(el,opts){window.__qrCalls=(window.__qrCalls||0)+1;(window.__qrTexts||(window.__qrTexts=[])).push(opts&&opts.text||'')}};")
             elif path.endswith('.js'):await route.fulfill(content_type='application/javascript',body='')
             else:await route.fulfill(content_type='text/css',body='')
             return
@@ -63,13 +68,27 @@ class Fixture:
             await asyncio.sleep(self.auth_delay)
             await reply({'email':self.identity,'role':'editor','hasPin':True} if self.auth_status==200 else {'error':'Unauthorized'},self.auth_status);return
         if path=='/api/site':await reply({'slug':'landcros'});return
-        if path=='/api/sites/landcros/contacts':await reply([{'id':CONTACT,'name':'Synthetic staff','role':'Fixture role','phone':'0000','active':True}]);return
+        if path=='/api/sites/landcros/contacts':await reply([copy.deepcopy(self.contact)]);return
         if path=='/api/contacts':await reply([]);return
         if path=='/api/visits':await reply({'total':0,'points':{}});return
         if path=='/api/points':
             if method=='GET':await reply([pin(BASEPIN,'Base public','shared',None)])
             else:await reply({'error':'Unexpected base write'},500)
             return
+        photo_match=re.fullmatch(r'/api/sites/landcros/scenes/'+SCENE+r'/points/([^/]+)/photos(?:/([^/]+))?',path)
+        if photo_match:
+            point_id,photo_id=photo_match.groups();bucket=self.photos.setdefault(point_id,[])
+            if method=='GET' and photo_id:
+                if not any(x['id']==photo_id for x in bucket):await reply({'error':'PHOTO_NOT_FOUND'},404)
+                else:await route.fulfill(status=200,content_type='image/png',body=PNG)
+                return
+            if method=='GET':await reply(copy.deepcopy(bucket));return
+            if method=='POST':
+                saved={'id':PHOTO1,'pointId':point_id,'originalName':'synthetic.jpg','contentType':'image/jpeg','bytes':len(JPEG),'expiresAt':'2026-10-22T00:00:00Z'}
+                bucket[:] = [x for x in bucket if x['id']!=PHOTO1];bucket.append(saved);await reply(copy.deepcopy(saved),201);return
+            if method=='DELETE' and photo_id:
+                bucket[:] = [x for x in bucket if x['id']!=photo_id];await reply({'ok':True});return
+            await reply({'error':'Unexpected photo method'},405);return
         if path=='/api/sites/landcros/scenes':
             if method=='GET':
                 if self.fail_load:await reply({'error':'Synthetic unavailable'},500)
@@ -98,6 +117,19 @@ async def boot(browser,fixture,width=390,height=844,legacy=True):
     ctx=await browser.new_context(viewport={'width':width,'height':height},device_scale_factor=1)
     # Seed only fixture data, once. Later reloads must not reset storage.
     await ctx.add_init_script("if(!localStorage.getItem('fixture_seeded')) {localStorage.setItem('fixture_seeded','1');localStorage.setItem('sn_user_pins',"+json.dumps(RAW_LEGACY if legacy else '[]')+");localStorage.setItem('sn_pin_history','keep-original-history');}")
+    # Keep image compression deterministic in headless CI. This browser test is
+    # about ownership/routing/UI behavior, not codec quality.
+    await ctx.add_init_script("""
+      window.createImageBitmap = async () => ({width:32,height:32,close(){}});
+      const originalGetContext = HTMLCanvasElement.prototype.getContext;
+      HTMLCanvasElement.prototype.getContext = function(kind, ...args) {
+        if (kind === '2d') return {drawImage(){}};
+        return originalGetContext.call(this, kind, ...args);
+      };
+      HTMLCanvasElement.prototype.toBlob = function(cb) {
+        cb(new Blob([new Uint8Array([1,2,3,4])], {type:'image/jpeg'}));
+      };
+    """)
     await ctx.route('**/*',fixture.route);page=await ctx.new_page();errors=[]
     page.on('pageerror',lambda e:errors.append(str(e)))
     await page.goto(args.base_url+'/admin3d.html',wait_until='domcontentloaded')
@@ -135,7 +167,13 @@ async def main():
                 await expect(page.locator('#drawer-body')).to_contain_text('Browser A')
                 await page.evaluate('window.closeEditor()')
                 checks.append('auth/viewer ordering, GET-only boot, preserved XYZ and visible device backups')
+                scoped_prefix=f'/api/sites/landcros/scenes/{SCENE}/points/{P1}/photos'
+                photo_list_before=len(f.requests)
                 await openpin(page,P1)
+                for _ in range(50):
+                    if any(r['method']=='GET' and r['path']==scoped_prefix for r in f.requests[photo_list_before:]): break
+                    await asyncio.sleep(.01)
+                assert any(r['method']=='GET' and r['path']==scoped_prefix for r in f.requests[photo_list_before:])
                 await page.locator('#field-label').fill('Draft label')
                 await page.locator('#field-notes').fill('Draft notes preserved')
                 await page.evaluate('window._adminAddContact('+json.dumps(CONTACT)+')')
@@ -161,8 +199,53 @@ async def main():
                 await page.evaluate('window._adminShowShareLink();window._adminToggleQR();window._adminDownloadQR();window._adminPromoteToShared()')
                 await page.wait_for_timeout(30)
                 assert len(f.requests)==before
-                assert await page.locator('#pin-photo-input').count()==0
-                checks.append('private account share/QR/photos cannot invoke legacy paths')
+                assert await page.locator('#pin-photo-input').count()==1
+                checks.append('private account share/QR blocked while account photo UI stays available')
+
+                await page.locator('#field-phone-override').fill('+61 400 000 001')
+                await page.locator('#pin-save-button').click();await settle_save(page)
+                assert f.pins[P1]['phoneOverride']=='+61 400 000 001'
+                assert f.contact['phone']=='0000'
+                checks.append('phone override persists on the scene point without mutating staff contact')
+
+                photo_before=len(f.requests)
+                await page.locator('#pin-photo-input').set_input_files({'name':'synthetic.jpg','mimeType':'image/jpeg','buffer':JPEG})
+                await expect(page.locator('#pin-photo-status')).to_contain_text('1 photo',timeout=10000)
+                await expect(page.locator('#pin-photos img')).to_have_count(1)
+                await page.wait_for_function('document.querySelector("#pin-photos img")?.complete === true',timeout=6000)
+                photo_paths=[(r['method'],r['path']) for r in f.requests[photo_before:]]
+                assert ('POST',scoped_prefix) in photo_paths
+                assert any(m=='GET' and p==scoped_prefix+'/'+PHOTO1 for m,p in photo_paths)
+                photo_requests=[(m,p) for m,p in photo_paths if '/photos' in p or '/point-photos/' in p]
+                assert photo_requests
+                assert all(p==scoped_prefix or p.startswith(scoped_prefix+'/') for _,p in photo_requests), photo_requests
+                await page.locator('#pin-photos button[title="Remove photo"]').click()
+                await expect(page.locator('#pin-photos img')).to_have_count(0)
+                assert any(r['method']=='DELETE' and r['path']==scoped_prefix+'/'+PHOTO1 for r in f.requests)
+                assert not f.photos[P1]
+                checks.append('account photos list/upload/view/delete stay on scene-qualified routes')
+
+                await page.evaluate('window._adminSetAccountPublished(true)');await settle_save(page)
+                assert f.pins[P1]['scope']=='shared'
+                await expect(page.locator('.pin-action-row')).to_contain_text('Stop sharing')
+                await page.evaluate('window._adminShowShareLink()')
+                await expect(page.locator('#share-link-row')).to_be_visible()
+                share_url=await page.locator('#share-url-input').input_value();parts=urlsplit(share_url);query=parse_qs(parts.query)
+                assert set(query)=={'myPin','id'}, query
+                assert query.get('myPin')==['abcde23456'] and query.get('id')==[P1]
+                assert not parts.fragment
+                await page.evaluate('window._adminToggleQR()')
+                await page.wait_for_function('window.__qrTexts?.length > 0')
+                assert await page.evaluate('window.__qrTexts.at(-1)')==share_url
+                checks.append('explicit publish emits only point-qualified share link and QR')
+
+                await page.evaluate('window._adminSetAccountPublished(false)');await settle_save(page)
+                assert f.pins[P1]['scope']=='personal'
+                await expect(page.locator('.pin-action-row')).to_contain_text('Publish guide')
+                assert await page.locator('.pin-action-row').get_by_text('Share link',exact=True).count()==0
+                assert await page.locator('.pin-action-row').get_by_text('QR',exact=True).count()==0
+                assert await page.locator('#qr-section').evaluate('(el)=>el.style.display')=='none'
+                checks.append('stop sharing revokes account share controls and restores private scope')
                 await page.evaluate('window.closeEditor()');await openpin(page,P2)
                 await page.locator('#field-label').fill('Shared account update')
                 await page.locator('#pin-save-button').click();await settle_save(page)
