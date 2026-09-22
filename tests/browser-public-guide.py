@@ -126,6 +126,38 @@ with sync_playwright() as p:
             assert page.locator('#detail-label').inner_text() == PIN['label']
             page.locator('.back-link').click()
             row['checks'].append('native keyboard point/back controls with selected-state semantics')
+
+            # Browser history follows the same point/list state without
+            # generating a second pushState while restoring Back/Forward.
+            page.goto(args.base_url + '/?scene=abcde12345#map', wait_until='domcontentloaded')
+            page.wait_for_function('window._v3d && document.querySelectorAll("#labels-wrap [role=button]").length === 3', timeout=20000)
+            page.wait_for_selector('#app.scene-ready', timeout=10000)
+            if width <= 1024:
+                page.locator('.sheet-peek-cta').click()
+            else:
+                page.locator('#panel-tab').click()
+            page.locator(f'.point-item[data-pt-id="{PIN["id"]}"]').click()
+            page.wait_for_function('document.querySelector("#detail-label")?.textContent === "Fixture delivery"')
+            detail_url = page.url
+            assert parse_qs(urlsplit(detail_url).query).get('scene') == ['abcde12345']
+            assert parse_qs(urlsplit(detail_url).query).get('id') == [PIN['id']]
+            page.go_back()
+            page.wait_for_function('!document.querySelector("#point-detail").classList.contains("visible")')
+            assert parse_qs(urlsplit(page.url).query).get('scene') == ['abcde12345']
+            assert 'id' not in parse_qs(urlsplit(page.url).query)
+            page.go_forward()
+            page.wait_for_function('document.querySelector("#detail-label")?.textContent === "Fixture delivery"')
+            assert page.url == detail_url
+            # Building cards already create a history entry. Going Back from a
+            # card must restore the prior pin rather than leaving stale card UI.
+            page.get_by_role('button', name='Fixture Workshop', exact=True).dispatch_event('click')
+            assert page.locator('#detail-label').inner_text() == 'Fixture Workshop'
+            page.go_back()
+            page.wait_for_function('document.querySelector("#detail-label")?.textContent === "Fixture delivery"')
+            assert parse_qs(urlsplit(page.url).query).get('id') == [PIN['id']]
+            page.evaluate('window.showPointList()')
+            row['checks'].append('browser Back/Forward restores scene pin and Back from building card')
+
             workshop = page.get_by_role('button', name='Fixture Workshop', exact=True)
             workshop.click(timeout=10000)
             page.wait_for_function('document.querySelector("#detail-photos img")?.complete === true', timeout=6000)
@@ -198,7 +230,15 @@ with sync_playwright() as p:
             page.evaluate('window.showPointList()')
             assert 'id' not in parse_qs(urlsplit(page.url).query)
             assert parse_qs(urlsplit(page.url).query).get('s') == ['fixture1']
-            row['checks'].append('short-code pin survives refresh and close')
+            page.go_back()
+            page.wait_for_function('document.querySelector("#detail-label")?.textContent === "Fixture delivery"')
+            assert parse_qs(urlsplit(page.url).query).get('s') == ['fixture1']
+            assert parse_qs(urlsplit(page.url).query).get('id') == [PIN['id']]
+            page.go_forward()
+            page.wait_for_function('!document.querySelector("#point-detail").classList.contains("visible")')
+            assert parse_qs(urlsplit(page.url).query).get('s') == ['fixture1']
+            assert 'id' not in parse_qs(urlsplit(page.url).query)
+            row['checks'].append('short-code pin survives refresh/close and browser Back/Forward')
             legacy_before = len(legacy_share_reads)
             capability_before = len(capability_reads)
             poison_url = (
@@ -220,7 +260,23 @@ with sync_playwright() as p:
             assert scoped_query.get('id') == [PIN['id']]
             assert 's' not in scoped_query and 'd' not in scoped_query and 'myPin' not in scoped_query
             assert scoped_url.fragment == f'myPin={CAP_TOKEN}'
-            row['checks'].append('My Pins bearer capability suppresses legacy query fallbacks')
+            exact_capability_url = page.url
+            wrong_token = 'B' * 43
+            wrong_capability_url = args.base_url + '/?id=' + PIN['id'] + '#myPin=' + wrong_token
+            page.evaluate('(url) => history.pushState(null, "", url)', wrong_capability_url)
+            page.go_back()
+            page.wait_for_function('document.querySelector("#detail-label")?.textContent === "Fixture delivery"')
+            assert page.url == exact_capability_url
+            page.go_forward()
+            page.wait_for_function('!document.querySelector("#point-detail").classList.contains("visible")')
+            wrong_scoped = urlsplit(page.url)
+            assert 'myPin' not in parse_qs(wrong_scoped.query)
+            assert wrong_scoped.fragment == f'myPin={wrong_token}'
+            assert len(legacy_share_reads) == legacy_before, legacy_share_reads
+            page.go_back()
+            page.wait_for_function('document.querySelector("#detail-label")?.textContent === "Fixture delivery"')
+            assert page.url == exact_capability_url
+            row['checks'].append('My Pins bearer stays fragment-only and history restore fails closed')
             state['outage'] = True
             page.goto(args.base_url + '/', wait_until='domcontentloaded')
             page.wait_for_selector('#app.scene-ready', timeout=20000)

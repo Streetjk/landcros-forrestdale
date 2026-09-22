@@ -1615,9 +1615,12 @@ async function _renderPointPhotos(pt) {
   } catch {}
 }
 
-async function selectPoint(pt) {
-  // Second click on same pin deselects it
-  if (_selectedId === pt.id) {
+async function selectPoint(pt, options = {}) {
+  const historyMode = options?.historyMode === 'none' ? 'none'
+    : options?.historyMode === 'replace' ? 'replace' : 'push';
+  // A direct second click is a user toggle. History restoration must be able
+  // to re-apply the same detail without turning it back into the list view.
+  if (_selectedId === pt.id && historyMode === 'push') {
     showPointList();
     return;
   }
@@ -1637,7 +1640,8 @@ async function selectPoint(pt) {
       nextUrl = u.toString();
     }
   }
-  history.pushState(null, '', nextUrl);
+  if (historyMode === 'replace') history.replaceState(null, '', nextUrl);
+  else if (historyMode === 'push') history.pushState(null, '', nextUrl);
 
   const chipClass = { 'drop-off': 'chip-dropoff', 'collection': 'chip-collection', 'both': 'chip-both' };
   const chipLabel = { 'drop-off': 'Drop-off', 'collection': 'Collection', 'both': 'Drop-off & Collection' };
@@ -1818,7 +1822,9 @@ async function selectPoint(pt) {
   });
 }
 
-window.showPointList = function() {
+window.showPointList = function(options = {}) {
+  const historyMode = options?.historyMode === 'none' ? 'none'
+    : options?.historyMode === 'replace' ? 'replace' : 'push';
   _leavePinDetail();
   if (_camTween) { _camTween.kill(); _camTween = null; }
   stopAutoOrbit();
@@ -1836,10 +1842,59 @@ window.showPointList = function() {
   if (panel) panel.classList.remove('sheet-mid', 'sheet-full');
   if (window.innerWidth > 1024) document.getElementById('app')?.classList.remove('panel-open');
   window._updateCamPresetsBottom?.();
-  history.pushState(null, '', _publicMyPinActive && _publicMyPinPointId
-    ? _publicMyPinShareUrl()
-    : clearPinUrl(window.location.href));
+  if (historyMode !== 'none') {
+    const nextUrl = _publicMyPinActive && _publicMyPinPointId
+      ? _publicMyPinShareUrl()
+      : clearPinUrl(window.location.href);
+    if (historyMode === 'replace') history.replaceState(null, '', nextUrl);
+    else history.pushState(null, '', nextUrl);
+  }
 };
+
+function _activeMyPinHistoryUrlMatches() {
+  if (!_publicMyPinActive) return false;
+  const u = new URL(window.location.href);
+  const expectedHash = `#myPin=${encodeURIComponent(_publicMyPinToken)}`;
+  return u.searchParams.get('id') === _publicMyPinPointId && u.hash === expectedHash;
+}
+
+function _restorePublicGuideHistory() {
+  if (document.getElementById('admin-controls')) return;
+  const u = new URL(window.location.href);
+  const pointId = u.searchParams.get('id');
+  const hashParams = new URLSearchParams((u.hash || '').replace(/^#/, ''));
+  const hasMyPinBearer = hashParams.has('myPin');
+
+  // A viewer booted with a My Pins bearer remains capability-scoped for its
+  // lifetime. Back/Forward may restore only that exact authorised point and
+  // exact fragment. A missing/wrong bearer or id goes neutral rather than
+  // falling through to a coincidentally matching base-site point.
+  if (_publicMyPinMode || hasMyPinBearer) {
+    if (!_activeMyPinHistoryUrlMatches()) {
+      window.showPointList({ historyMode: 'none' });
+      return;
+    }
+    const pin = _pins[_publicMyPinPointId]?.pt;
+    if (pin) selectPoint(pin, { historyMode: 'none' });
+    else window.showPointList({ historyMode: 'none' });
+    return;
+  }
+
+  if (!pointId) {
+    window.showPointList({ historyMode: 'none' });
+    return;
+  }
+  const pin = _pins[pointId]?.pt;
+  if (pin) selectPoint(pin, { historyMode: 'none' });
+  else window.showPointList({ historyMode: 'none' });
+}
+
+let _publicGuideHistoryArmed = false;
+function _armPublicGuideHistory() {
+  if (_publicGuideHistoryArmed || document.getElementById('admin-controls')) return;
+  _publicGuideHistoryArmed = true;
+  window.addEventListener('popstate', _restorePublicGuideHistory);
+}
 
 window.startNav = function(pt) {
   // pt is the currently selected point (passed from the "Start Tour" button)
@@ -3640,7 +3695,7 @@ async function boot() {
       // Use replaceState so clearing the hash doesn't fire a hashchange
       history.replaceState(null, '', location.pathname + location.search);
       // Brief delay so scene settles before flying to the pin
-      setTimeout(() => selectPoint(ephemeral), 800);
+      setTimeout(() => selectPoint(ephemeral, { historyMode: 'replace' }), 800);
     } catch {
       renderPins(points);
       renderPointList(points);
@@ -3671,7 +3726,7 @@ async function boot() {
             renderPins([...points, _sPt]);
             renderPointList([...points, _sPt]);
           }
-          setTimeout(() => selectPoint(_sPt), 800);
+          setTimeout(() => selectPoint(_sPt, { historyMode: 'replace' }), 800);
         }
       } catch {}
     }
@@ -3712,9 +3767,10 @@ async function boot() {
         _baked.searchParams.set('d', btoa(JSON.stringify(_payload)));
         history.replaceState(null, '', _baked.toString());
       }
-      if (_deepPt) setTimeout(() => selectPoint(_deepPt), 800);
+      if (_deepPt) setTimeout(() => selectPoint(_deepPt, { historyMode: 'replace' }), 800);
     }
   }
+  _armPublicGuideHistory();
   } else if (_debugMode) {
   _updateVisitHud(await fetch('./data/points.json').then(r => r.json()).catch(() => []));
   }
