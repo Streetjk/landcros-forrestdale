@@ -23,7 +23,7 @@ PNG = base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4
 PIN = {'id': '00000000-0000-4000-8000-000000000001', 'label': 'Fixture delivery', 'type': 'drop-off', 'scope': 'shared', 'notes': 'Synthetic delivery', 'position3d': {'x': 0, 'y': 0, 'z': 0}, 'latlng': [0, 0], 'contactIds': []}
 features = []
 for name, pos, details in [
-    ('Fixture Workshop', {'x': -7.2, 'y': 2.3, 'z': -8}, {'description': 'Synthetic <script>not executable</script> text', 'phone': '(08) 0000 0000', 'image': '/fixture/workshop.png', 'imageAlt': 'Synthetic image, not a real building'}),
+    ('Fixture Workshop', {'x': -7.2, 'y': 2.3, 'z': -8}, {'description': 'Synthetic <script>not executable</script> text', 'visitorInfo': 'Synthetic visitors must report to reception before entry.', 'phone': '(08) 0000 0000', 'image': '/fixture/workshop.png', 'imageAlt': 'Synthetic image, not a real building'}),
     ('Fixture Empty', {'x': 7.7, 'y': 1.8, 'z': 3.3}, None),
     ('Fixture Broken Image', {'x': -2.5, 'y': 1.8, 'z': 4.4}, {'image': '/fixture/missing.png'})]:
     props = {'id': name.lower().replace(' ', '-'), 'name': name, 'pos3d': pos}
@@ -94,6 +94,9 @@ with sync_playwright() as p:
             assert page.locator('#detail-label').inner_text() == 'Fixture Workshop'
             assert page.locator('#detail-notes').inner_text() == 'Synthetic <script>not executable</script> text'
             assert page.locator('#detail-notes script').count() == 0
+            assert page.locator('#detail-visitor-info').is_visible()
+            assert page.locator('#detail-visitor-info .detail-visitor-heading').text_content() == 'Visitor information'
+            assert page.locator('#detail-visitor-info .detail-visitor-text').inner_text() == 'Synthetic visitors must report to reception before entry.'
             assert page.locator('#detail-contacts a').get_attribute('href') == 'tel:0800000000'
             assert page.locator('#detail-photos img').get_attribute('loading') == 'lazy'
             rect = page.locator('#detail-contacts a').bounding_box()
@@ -109,7 +112,9 @@ with sync_playwright() as p:
             assert page.locator('#detail-label').inner_text() == 'Fixture Empty'
             assert page.locator('#detail-photos img').count() == 0
             assert page.locator('#detail-contacts a').count() == 0
-            row['checks'].append('keyboard activation and optional-field reset')
+            assert not page.locator('#detail-visitor-info').is_visible()
+            assert page.locator('#detail-visitor-info .detail-visitor-text').inner_text() == ''
+            row['checks'].append('keyboard activation and optional-field reset including visitor information')
             page.evaluate('window.showPointList()')
             page.get_by_role('button', name='Fixture Broken Image', exact=True).click()
             page.wait_for_function('!document.querySelector("#detail-photos img")', timeout=6000)

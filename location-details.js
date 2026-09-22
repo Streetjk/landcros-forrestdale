@@ -58,14 +58,15 @@ export function sanitizeImageUrl(url) {
 
 /**
  * Validates building properties.details contract.
- * Contract: { description, phone, image, imageAlt }, all optional.
+ * Contract: { description, visitorInfo, phone, image, imageAlt }, all optional.
  * @param {unknown} details
- * @returns {{ description: string | null, phone: { display: string, href: string } | null, image: string | null, imageAlt: string | null }}
+ * @returns {{ description: string | null, visitorInfo: string | null, phone: { display: string, href: string } | null, image: string | null, imageAlt: string | null }}
  */
 export function validateBuildingDetails(details) {
   if (!details || typeof details !== 'object' || Array.isArray(details)) {
     return {
       description: null,
+      visitorInfo: null,
       phone: null,
       image: null,
       imageAlt: null,
@@ -75,6 +76,9 @@ export function validateBuildingDetails(details) {
   const description = typeof details.description === 'string' && details.description.trim()
     ? details.description.trim()
     : null;
+  const visitorInfo = typeof details.visitorInfo === 'string' && details.visitorInfo.trim()
+    ? details.visitorInfo.trim()
+    : null;
   const phone = sanitizePhone(details.phone);
   const image = sanitizeImageUrl(details.image);
   const imageAlt = image && typeof details.imageAlt === 'string' && details.imageAlt.trim()
@@ -83,6 +87,7 @@ export function validateBuildingDetails(details) {
 
   return {
     description,
+    visitorInfo,
     phone,
     image,
     imageAlt,
@@ -120,6 +125,28 @@ export function showBuildingDetail(building, openDetailPanel) {
   const notes = document.getElementById('detail-notes');
   if (notes) {
     notes.textContent = details.description || '';
+  }
+
+  let visitorBlock = document.getElementById('detail-visitor-info');
+  if (!visitorBlock && notes) {
+    visitorBlock = document.createElement('section');
+    visitorBlock.id = 'detail-visitor-info';
+    visitorBlock.className = 'detail-visitor-info';
+    visitorBlock.hidden = true;
+
+    const heading = document.createElement('div');
+    heading.className = 'detail-visitor-heading';
+    heading.textContent = 'Visitor information';
+
+    const body = document.createElement('div');
+    body.className = 'detail-visitor-text';
+    visitorBlock.append(heading, body);
+    notes.insertAdjacentElement('afterend', visitorBlock);
+  }
+  if (visitorBlock) {
+    const body = visitorBlock.querySelector('.detail-visitor-text');
+    if (body) body.textContent = details.visitorInfo || '';
+    visitorBlock.hidden = !details.visitorInfo;
   }
 
   const navSection = document.getElementById('detail-nav-section');

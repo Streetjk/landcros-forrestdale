@@ -139,6 +139,7 @@ test('location-details: validateBuildingDetails handles missing, complete, and s
   const empty = validateBuildingDetails(null);
   assert.deepEqual(empty, {
     description: null,
+    visitorInfo: null,
     phone: null,
     image: null,
     imageAlt: null,
@@ -146,11 +147,13 @@ test('location-details: validateBuildingDetails handles missing, complete, and s
 
   const valid = validateBuildingDetails({
     description: 'Main workshop and parts store.',
+    visitorInfo: 'Sign in at reception before entering the workshop.',
     phone: '+61 8 9456 1234',
     image: 'https://cdn.example.com/buildings/workshop.webp',
     imageAlt: 'Workshop building front',
   });
   assert.equal(valid.description, 'Main workshop and parts store.');
+  assert.equal(valid.visitorInfo, 'Sign in at reception before entering the workshop.');
   assert.equal(valid.phone.href, 'tel:+61894561234');
   assert.equal(valid.image, 'https://cdn.example.com/buildings/workshop.webp');
   assert.equal(valid.imageAlt, 'Workshop building front');
@@ -169,6 +172,15 @@ test('location-details: validateBuildingDetails handles missing, complete, and s
   assert.equal(filtered.phone, null);
   assert.equal(filtered.image, null);
   assert.equal(filtered.imageAlt, null);
+});
+
+
+test('location-details: visitorInfo is trimmed plain text and rejects non-strings', () => {
+  assert.equal(validateBuildingDetails({ visitorInfo: '  Report to reception.  ' }).visitorInfo, 'Report to reception.');
+  assert.equal(validateBuildingDetails({ visitorInfo: '<b>Use Gate 1</b>' }).visitorInfo, '<b>Use Gate 1</b>');
+  assert.equal(validateBuildingDetails({ visitorInfo: '   ' }).visitorInfo, null);
+  assert.equal(validateBuildingDetails({ visitorInfo: ['not', 'text'] }).visitorInfo, null);
+  assert.equal(validateBuildingDetails({ visitorInfo: 123 }).visitorInfo, null);
 });
 
 test('raw controls and backslashes never become image or phone URLs', () => {
