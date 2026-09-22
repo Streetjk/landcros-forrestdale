@@ -63,9 +63,17 @@ test('point-qualified capability returns one shared pin and only its contact/pho
     assert.equal(Object.hasOwn(bundle.pins[0], 'createdBy'), false);
     assert.deepEqual(bundle.pins[0].contactIds, [CONTACT]);
     assert.equal(bundle.contacts.length, 1);
-    assert.equal(bundle.contacts[0].id, CONTACT);
+    assert.deepEqual(bundle.contacts[0], {
+      id: CONTACT,
+      name: 'Public contact',
+      role: 'Gate',
+      phone: '000',
+      active: true,
+    });
+    assert.equal(Object.hasOwn(bundle.contacts[0], 'email'), false);
     assert.equal(Object.hasOwn(bundle.contacts[0], 'createdBy'), false);
     assert.equal(Object.hasOwn(bundle.contacts[0], 'createdAt'), false);
+    assert.equal(JSON.stringify(bundle).includes('public@example.invalid'), false);
     assert.equal(bundle.photos.length, 1);
     assert.equal(bundle.photos[0].id, PHOTO);
     assert.equal(Object.hasOwn(bundle.photos[0], 'storagePath'), false);
@@ -115,8 +123,13 @@ test('public My Pins bundle projects phone override without leaking original sta
     // Contact name and role are preserved
     assert.equal(contact.name, 'Warehouse Supervisor');
     assert.equal(contact.role, 'Logistics');
-    // Ensure the original staff phone is NOT leaked anywhere in the serialized bundle
+    assert.equal(contact.active, true);
+    assert.equal(Object.hasOwn(contact, 'email'), false);
+    assert.equal(Object.hasOwn(contact, 'createdBy'), false);
+    assert.equal(Object.hasOwn(contact, 'createdAt'), false);
+    // Ensure staff-only email/original phone are NOT leaked anywhere in the serialized bundle.
     const serialized = JSON.stringify(bundle);
+    assert.equal(serialized.includes('supervisor@example.invalid'), false);
     assert.equal(serialized.includes(STAFF_ORIGINAL_PHONE), false);
     assert.equal(serialized.includes(OVERRIDE_PHONE), true);
   });

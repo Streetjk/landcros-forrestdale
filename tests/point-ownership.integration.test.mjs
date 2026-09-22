@@ -146,6 +146,8 @@ test('scene point ownership: actual PostgreSQL and HTTP server', { skip: !proces
     });
     await t.test('My Pins public capability is one-point scoped and immediately revocable', async () => {
       assert.ok(myPinsSceneId);assert.ok(myPinsShareCode);
+      const syntheticStaffEmail='private-staff@example.test';
+      await sql.query('update contacts set email=$1 where id=$2',[syntheticStaffEmail,CONTACT_A]);
       const published=await request(route(myPinsSceneId),{method:'POST',body:payload(myPinsPointId,{scope:'shared',contactIds:[CONTACT_A]})});
       assert.equal(published.status,200);assert.equal(published.body.scope,'shared');
       const rootAnon=await request(`/api/scenes/by-code/${myPinsShareCode}`,{actor:null});
@@ -160,6 +162,10 @@ test('scene point ownership: actual PostgreSQL and HTTP server', { skip: !proces
       assert.equal(scoped.status,200);assert.deepEqual(scoped.body.pins.map(p=>p.id),[myPinsPointId]);
       assert.deepEqual(scoped.body.contacts.map(c=>c.id),[CONTACT_A]);assert.deepEqual(scoped.body.photos,[]);
       assert.equal(Object.hasOwn(scoped.body.pins[0],'createdBy'),false);
+      assert.equal(Object.hasOwn(scoped.body.contacts[0],'email'),false);
+      assert.equal(Object.hasOwn(scoped.body.contacts[0],'createdBy'),false);
+      assert.equal(Object.hasOwn(scoped.body.contacts[0],'createdAt'),false);
+      assert.equal(JSON.stringify(scoped.body).includes(syntheticStaffEmail),false);
       assert.equal((await request(`/api/scenes/by-code/${myPinsShareCode}/points/${uid(90)}`,{actor:null})).status,404);
       assert.equal((await request(`/api/scenes/by-code/${myPinsShareCode}/points/${myPinsPointId}/photos/${PHOTO}`,{actor:null})).status,404);
       const revoked=await request(route(myPinsSceneId),{method:'POST',body:payload(myPinsPointId,{scope:'personal',contactIds:[CONTACT_A]})});

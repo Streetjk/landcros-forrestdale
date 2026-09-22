@@ -319,15 +319,15 @@ async function getSharedMyPinByCode(code, pointId) {
     point.phoneOverride = phoneOverride;
   }
 
-  const contacts = contactsRes.rows.map(row => {
-    const contact = contactToJson(row);
-    delete contact.createdBy;
-    delete contact.createdAt;
-    if (phoneOverride) {
-      contact.phone = phoneOverride;
-    }
-    return contact;
-  });
+  // Anonymous My Pins links use a deliberately narrow projection. Staff
+  // directory email and internal metadata are never part of this capability.
+  const contacts = contactsRes.rows.map(row => ({
+    id: row.id,
+    name: row.name,
+    role: row.role,
+    phone: phoneOverride || row.phone,
+    active: row.active,
+  }));
   point.contactIds = contacts.map(contact => contact.id);
   const photos = photosRes.rows.map(row => ({
     id: row.id,
