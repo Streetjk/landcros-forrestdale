@@ -171,6 +171,6 @@ test('viewer wires render validators into public arrays and scene pin merge', as
   assert.match(viewer, /rawScenePins\.filter\(isRenderablePoint\)/);
   assert.match(viewer, /rawSceneContacts\.filter\(isRenderableContact\)/);
   assert.match(viewer, /sceneDataUnavailable/);
-  assert.match(viewer, /_publicMyPinCode[\s\S]*?scenePins\.find\(p => p\.id === _deepId\)/);
+  assert.match(viewer, /_publicMyPinMode[\s\S]*?scenePins\.find\(p => p\.id === _deepId\)/);
   assert.doesNotMatch(viewer, /_sceneBundle\?\.pins\?\.find\(p => p\.id === _deepId\)/);
 });

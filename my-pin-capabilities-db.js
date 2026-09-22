@@ -113,6 +113,30 @@ async function issueOrRotate(slug, sceneId, pointId, actorId) {
     client.release();
   }
 }
+async function resolveActivePublicBinding(token, pointId) {
+  const tokenHash = hashToken(token);
+  if (!tokenHash || typeof pointId !== 'string' || !UUID_RE.test(pointId)) return null;
+  const point = pointId.toLowerCase();
+  const { rows } = await supabaseDb.pool().query(
+    `select c.site_id, c.scene_id, c.point_id,
+            s.name as scene_name, s.kind as scene_kind, s.camera as scene_camera,
+            p.*
+       from my_pin_capabilities c
+       join scenes s on s.id = c.scene_id and s.site_id = c.site_id
+       join points p on p.id = c.point_id and p.scene_id = c.scene_id and p.site_id = c.site_id
+      where c.token_hash = $1
+        and c.point_id = $2::uuid
+        and c.purpose = $3
+        and c.revoked_at is null
+        and s.kind = 'admin'
+        and s.camera->>'purpose' = $3
+        and p.scope = 'shared'
+      limit 1`,
+    [tokenHash, point, PURPOSE]
+  );
+  return rows.length ? rows[0] : null;
+}
+
 async function revoke(slug, sceneId, pointId, actorId) {
   const scene = canonicalUuid(sceneId, 'INVALID_SCENE_ID');
   const point = canonicalUuid(pointId, 'INVALID_POINT_ID');
@@ -152,6 +176,7 @@ module.exports = {
   generateToken,
   isValidToken,
   hashToken,
+  resolveActivePublicBinding,
   issueOrRotate,
   revoke,
 };

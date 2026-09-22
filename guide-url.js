@@ -53,20 +53,23 @@ export function clearPinUrl(currentHref) {
 
 
 /**
- * Builds the scoped public URL for one account-owned My Pin. The workspace
- * share code is never sufficient on its own; the point UUID is always paired
- * with it so recipients cannot enumerate the rest of the workspace.
+ * Builds one account-owned My Pin share URL. The bearer capability stays in
+ * the URL fragment so it is not sent in the document request or Referer.
  */
-export function buildMyPinShareUrl(origin, shareCode, pointId) {
-  if (!origin || !shareCode || !pointId) throw new Error('My Pin share URL requires origin, share code and point id');
-  const u = new URL('/viewer3d.html', origin);
-  u.searchParams.set('myPin', String(shareCode));
-  u.searchParams.set('id', String(pointId));
+export function buildMyPinShareUrl(origin, token, pointId) {
+  const uuid = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+  const tokenRe = /^[A-Za-z0-9_-]{43}$/;
+  if (!origin || !uuid.test(String(pointId || "")) || !tokenRe.test(String(token || ""))) {
+    throw new Error("My Pin share URL requires point id and capability token");
+  }
+  const u = new URL("/viewer3d.html", origin);
+  u.searchParams.set("id", String(pointId));
+  u.hash = `myPin=${encodeURIComponent(String(token))}`;
   return u.toString();
 }
 
-/** Public My Pins media is compressed-only; there is intentionally no original flag. */
-export function buildMyPinPhotoUrl(shareCode, pointId, photoId) {
-  if (!shareCode || !pointId || !photoId) throw new Error('My Pin photo URL requires share code, point id and photo id');
-  return `/api/scenes/by-code/${encodeURIComponent(String(shareCode))}/points/${encodeURIComponent(String(pointId))}/photos/${encodeURIComponent(String(photoId))}`;
+/** Public My Pins media is compressed-only; bearer auth is sent by fetch. */
+export function buildMyPinPhotoUrl(pointId, photoId) {
+  if (!pointId || !photoId) throw new Error("My Pin photo URL requires point id and photo id");
+  return `/api/my-pins/points/${encodeURIComponent(String(pointId))}/photos/${encodeURIComponent(String(photoId))}`;
 }

@@ -4,50 +4,54 @@ import { readFile } from 'node:fs/promises';
 
 const admin = await readFile(new URL('../admin3d.js', import.meta.url), 'utf8');
 const viewer = await readFile(new URL('../viewer3d.js', import.meta.url), 'utf8');
+const session = await readFile(new URL('../my-pins-session.js', import.meta.url), 'utf8');
 
-test('account My Pins require an explicit publish action and use point-qualified share URLs', () => {
+test('account My Pins publish/revoke a per-pin capability and never fall back to scene shareCode', () => {
   assert.match(admin, /Publish guide/);
   assert.match(admin, /Stop sharing/);
-  assert.match(admin, /_adminSetAccountPublished/);
-  assert.match(admin, /_adminSave\(target\)/);
-  assert.match(admin, /requestedAccountScope/);
-  assert.match(admin, /buildMyPinShareUrl\(location\.origin, scene\.shareCode, pt\.id\)/);
-  assert.match(admin, /pt\?\.scope !== 'shared'/);
-  assert.match(admin, /if \(_editingIsAccount\) return showToast\('Scoped share link is unavailable/);
-  assert.match(admin, /if \(_editingIsAccount\) \{ sec\.style\.display = 'none'; return showToast\('Scoped QR is unavailable/);
-  assert.doesNotMatch(admin, /Share link — not enabled/);
+  assert.match(admin, /_accountShareTokens = new Map\(\)/);
+  assert.match(admin, /revokeShareCapability\(pointId\)[\s\S]*_adminSave\('shared'\)[\s\S]*issueShareCapability\(pointId\)/);
+  assert.match(admin, /revokeShareCapability\(pointId\)[\s\S]*_adminSave\('personal'\)/);
+  assert.match(admin, /buildMyPinShareUrl\(location\.origin, token, pt\.id\)/);
+  assert.match(admin, /Guide is published, but secure sharing is unavailable\. No public link was issued\./);
+  assert.doesNotMatch(admin, /buildMyPinShareUrl\([^\n]*shareCode/);
+  assert.match(admin, /_accountShareTokens\.delete\(snapshot\.id\)/);
+  assert.match(admin, /_accountShareTokens\.clear\(\)/);
 });
 
-test('public My Pins viewer consumes only the point-qualified capability and compressed media', () => {
-  assert.match(viewer, /_params\.get\('myPin'\)/);
-  assert.match(viewer, /\/api\/scenes\/by-code\/\$\{encodeURIComponent\(_publicMyPinCode\)\}\/points\/\$\{encodeURIComponent\(_deepId\)\}/);
-  assert.match(viewer, /scenePins\.find\(p => p\.id === _deepId\)/);
-  assert.match(viewer, /buildMyPinPhotoUrl\(_publicMyPinCode, pt\.id, ph\.id\)/);
-  assert.match(viewer, /publicMyPin \? compressedUrl : `\$\{compressedUrl\}\?original=1`/);
-  assert.match(viewer, /if \(_sceneBundle\?\.scene && _sceneCode && !_publicMyPinCode\) renderSceneStatusBar/);
-  assert.match(viewer, /\(_sceneCode \|\| _publicMyPinCode\) \? null : _params\.get\('d'\)/);
-  assert.match(viewer, /const hashMatch = _publicMyPinCode \? null : window\.location\.hash\.match/);
-  assert.match(viewer, /const _shortCode = _publicMyPinCode \? null : _params\.get\('s'\)/);
-  assert.match(viewer, /u\.searchParams\.delete\('myPin'\);[\s\S]*u\.searchParams\.delete\('d'\);/);
+test('plaintext account share capability is transient memory, not persisted by My Pins state/UI', () => {
+  assert.match(admin, /_accountShareTokens = new Map\(\)/);
+  assert.doesNotMatch(admin, /localStorage\.(?:setItem|getItem)\([^\n]*_accountShareTokens/);
+  assert.doesNotMatch(admin, /sessionStorage\.(?:setItem|getItem)\([^\n]*_accountShareTokens/);
+  assert.doesNotMatch(admin, /JSON\.stringify\(_accountShareTokens/);
+  assert.match(session, /return deepClone\(await api\.issueAccountPinShareCapability/);
+  assert.doesNotMatch(session, /state\.[A-Za-z0-9_]*(?:token|capabilit)/i);
 });
 
-test('account-pin editor provides phone override input and viewer displays callable override', () => {
-  // Clear label and field
+test('public My Pins viewer reads fragment bearer only for the exact point and compressed photos', () => {
+  assert.match(viewer, /new URLSearchParams\(\(window\.location\.hash \|\| ''\)\.replace\(\/\^#\//);
+  assert.doesNotMatch(viewer, /_params\.get\('myPin'\)/);
+  assert.match(viewer, /_publicMyPinActive/);
+  assert.match(viewer, /fetch\(`\/api\/my-pins\/points\/\$\{encodeURIComponent\(_deepId\)\}`/);
+  assert.match(viewer, /Authorization: `Bearer \$\{_publicMyPinToken\}`/);
+  assert.match(viewer, /cache: 'no-store', referrerPolicy: 'no-referrer'/);
+  assert.match(viewer, /buildMyPinPhotoUrl\(pt\.id, ph\.id\)/);
+  assert.match(viewer, /URL\.createObjectURL\(blob\)/);
+  assert.match(viewer, /URL\.revokeObjectURL\(url\)/);
+  assert.doesNotMatch(viewer, /\/api\/scenes\/by-code\/\$\{encodeURIComponent\(_publicMyPin/);
+  assert.match(viewer, /_sceneCode && !_publicMyPinMode/);
+  assert.match(viewer, /const hashMatch = _publicMyPinMode \? null/);
+  assert.match(viewer, /const _shortCode = _publicMyPinMode \? null/);
+  assert.match(viewer, /\(_sceneCode \|\| _publicMyPinMode\) \? null : _params\.get\('d'\)/);
+});
+
+test('account-pin phone override is callable only in the authorized My Pin context', () => {
   assert.match(admin, /Phone override \(optional\)/);
   assert.match(admin, /id="field-phone-override"/);
-  assert.match(admin, /_editingPoint\.phoneOverride = overrideInput\.value/);
   assert.match(admin, /snapshot\.phoneOverride = rawOverride \|\| null/);
-  // Contacts directory is not mutated
   assert.doesNotMatch(admin, /_contacts\[.*\]\.phone\s*=/);
 
-  // Viewer displays callable phone link using the override
-  assert.match(viewer, /pt\.phoneOverride/);
-  assert.match(viewer, /displayPhone = \(_publicMyPinCode && pt\.id === _publicMyPinPointId && pt\.phoneOverride\) \? pt\.phoneOverride : c\.phone/);
-  assert.match(viewer, /const sceneContacts = rawSceneContacts\.filter\(isRenderableContact\)/);
-  assert.match(viewer, /_allContacts = \[\.\.\.sceneContacts, \.\.\.contacts\]/);
-
-  // Viewer safely sanitizes phone numbers and does not show an empty phone
-  assert.match(viewer, /sanitizePhone/);
-  assert.match(viewer, /overridePhone = \(_publicMyPinCode && pt\.id === _publicMyPinPointId && pt\.phoneOverride\)\s*\?\s*sanitizePhone\(pt\.phoneOverride\)\s*:\s*null/);
+  assert.match(viewer, /displayPhone = \(_publicMyPinActive && pt\.id === _publicMyPinPointId && pt\.phoneOverride\)/);
+  assert.match(viewer, /overridePhone = \(_publicMyPinActive && pt\.id === _publicMyPinPointId && pt\.phoneOverride\)/);
   assert.match(viewer, /const sanitized = sanitizePhone\(displayPhone\);/);
 });

@@ -653,44 +653,62 @@ const server = http.createServer((req, res) => {
   // slice). The editor still reads/writes via /api/sites/:slug/objects below.
   const SLUG_RE = /^[a-z0-9][a-z0-9-]{1,62}$/;
 
-  // ── My Pins point-qualified public capability ───────────────────────────
-  // A My Pins scene is an account workspace containing multiple private or
-  // published guides. Its scene code alone is never a public workspace link;
-  // the point UUID narrows the capability to exactly one shared guide.
-  const _myPinPhotoMatch = /^\/api\/scenes\/by-code\/([a-z0-9]{10})\/points\/([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})\/photos\/([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/.exec(pathname);
+  // ── My Pins per-pin public capability ────────────────────────────────
+  // The point UUID selects the resource; a valid per-pin bearer is required
+  // in Authorization for every public metadata or compressed-photo read.
+  const _capToken = (() => {
+    const value = req.headers?.authorization;
+    const match = typeof value === 'string' ? /^Bearer ([A-Za-z0-9_-]{43})$/.exec(value) : null;
+    return match ? match[1] : null;
+  })();
+  const _capSchemaUnavailable = e => e && e.code === '42P01';
+  const _myPinJson = (code, obj) => {
+    res.writeHead(code, {
+      'Content-Type': 'application/json',
+      'Cache-Control': 'private, no-store',
+      'Referrer-Policy': 'no-referrer',
+    });
+    res.end(req.method === 'HEAD' ? undefined : JSON.stringify(obj));
+  };
+
+  const _myPinPhotoMatch = /^\/api\/my-pins\/points\/([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})\/photos\/([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/.exec(pathname);
   if (_myPinPhotoMatch && (req.method === 'GET' || req.method === 'HEAD')) {
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.setHeader('Referrer-Policy', 'no-referrer');
     if (_rateLimited(req, res, 'my-pin-public-photo', 240, 3600000)) return;
-    pointPhotosDb.readSharedScenePointPhotoByCode(_myPinPhotoMatch[1], _myPinPhotoMatch[2], _myPinPhotoMatch[3]).then(photo => {
-      if (!photo) return _json(res, 404, { error: 'not found' });
+    if (!_capToken) return _myPinJson(404, { error: 'not found' });
+    pointPhotosDb.readSharedScenePointPhotoByCapability(_capToken, _myPinPhotoMatch[1], _myPinPhotoMatch[2]).then(photo => {
+      if (!photo) return _myPinJson(404, { error: 'not found' });
       res.writeHead(200, {
         'Content-Type': photo.contentType,
         'Content-Length': photo.buffer.length,
         'Cache-Control': 'private, no-store',
+        'Referrer-Policy': 'no-referrer',
         'X-Content-Type-Options': 'nosniff',
         'Content-Disposition': 'inline; filename="photo.jpg"',
       });
       res.end(req.method === 'HEAD' ? undefined : photo.buffer);
     }).catch(e => {
-      res.writeHead(500, { 'Content-Type': 'application/json' });
-      res.end(_errBody(e));
+      if (_capSchemaUnavailable(e)) return _myPinJson(503, { error: 'sharing unavailable' });
+      console.error('[my-pins] public photo read failed');
+      _myPinJson(500, { error: 'Internal error' });
     });
     return;
   }
 
-  const _myPinPointMatch = /^\/api\/scenes\/by-code\/([a-z0-9]{10})\/points\/([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/.exec(pathname);
+  const _myPinPointMatch = /^\/api\/my-pins\/points\/([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/.exec(pathname);
   if (_myPinPointMatch && req.method === 'GET') {
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.setHeader('Referrer-Policy', 'no-referrer');
     if (_rateLimited(req, res, 'my-pin-public-point', 120, 3600000)) return;
-    scenesDb.getSharedMyPinByCode(_myPinPointMatch[1], _myPinPointMatch[2]).then(bundle => {
-      if (!bundle) return _json(res, 404, { error: 'not found' });
-      res.writeHead(200, {
-        'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*',
-        'Cache-Control': 'private, no-store',
-      });
-      res.end(JSON.stringify(bundle));
+    if (!_capToken) return _myPinJson(404, { error: 'not found' });
+    scenesDb.getSharedMyPinByCapability(_capToken, _myPinPointMatch[1]).then(bundle => {
+      if (!bundle) return _myPinJson(404, { error: 'not found' });
+      _myPinJson(200, bundle);
     }).catch(e => {
-      res.writeHead(500, { 'Content-Type': 'application/json' });
-      res.end(_errBody(e));
+      if (_capSchemaUnavailable(e)) return _myPinJson(503, { error: 'sharing unavailable' });
+      console.error('[my-pins] public guide read failed');
+      _myPinJson(500, { error: 'Internal error' });
     });
     return;
   }

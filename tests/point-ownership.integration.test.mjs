@@ -91,12 +91,15 @@ test('scene point ownership: actual PostgreSQL and HTTP server', { skip: !proces
       return `${data}.${createHmac('sha256',secret).update(data).digest('base64url')}`;
     };
     const route = (scene=SCENE_A,point='',site='alpha') => `/api/sites/${site}/scenes/${scene}/points${point ? '/'+point : ''}`;
-    async function request(path, { method='GET', actor=OWNER, body, raw, binary, createOnly = false } = {}) {
+    async function request(path, { method='GET', actor=OWNER, body, raw, binary, createOnly = false, bearer = null } = {}) {
       const headers={}; if(createOnly) headers['If-None-Match']='*'; if(actor)headers.Cookie=`sn_session=${token(actor)}`;
+      if(bearer) headers.Authorization=`Bearer ${bearer}`;
       if(body !== undefined || raw !== undefined) headers['Content-Type']='application/json';
       if(binary) headers['Content-Type']='application/octet-stream';
       const res=await fetch(origin+path,{method,headers,body:binary || raw || (body === undefined ? undefined : JSON.stringify(body)),signal:AbortSignal.timeout(4000)});
-      return {status:res.status,headers:res.headers,body:await res.json()};
+      const text=await res.text(); let parsed=text;
+      if(text){ try { parsed=JSON.parse(text); } catch (_) {} }
+      return {status:res.status,headers:res.headers,body:parsed};
     }
     const count = async (table) => Number((await sql.query(`select count(*) as n from ${table}`)).rows[0].n);
     let myPinsSceneId = null, myPinsShareCode = null;
@@ -204,19 +207,33 @@ test('scene point ownership: actual PostgreSQL and HTTP server', { skip: !proces
 
     await t.test('My Pins public capability is one-point scoped and immediately revocable', async () => {
       assert.ok(myPinsSceneId);assert.ok(myPinsShareCode);
+      const capRoute=`/api/sites/alpha/scenes/${myPinsSceneId}/points/${myPinsPointId}/share-capability`;
+      const publicRoute=`/api/my-pins/points/${myPinsPointId}`;
       const syntheticStaffEmail='private-staff@example.test';
       await sql.query('update contacts set email=$1 where id=$2',[syntheticStaffEmail,CONTACT_A]);
       const published=await request(route(myPinsSceneId),{method:'POST',body:payload(myPinsPointId,{scope:'shared',contactIds:[CONTACT_A]})});
       assert.equal(published.status,200);assert.equal(published.body.scope,'shared');
-      const rootAnon=await request(`/api/scenes/by-code/${myPinsShareCode}`,{actor:null});
-      assert.equal(rootAnon.status,404);
-      const rootOther=await request(`/api/scenes/by-code/${myPinsShareCode}`,{actor:OTHER});
-      assert.equal(rootOther.status,404);
+
+      // Workspace share code must never expose a My Pins workspace or point anonymously.
+      assert.equal((await request(`/api/scenes/by-code/${myPinsShareCode}`,{actor:null})).status,404);
+      assert.equal((await request(`/api/scenes/by-code/${myPinsShareCode}/points/${myPinsPointId}`,{actor:null})).status,404);
+      assert.equal((await request(`/api/scenes/by-code/${myPinsShareCode}/points/${myPinsPointId}/photos/${PHOTO}`,{actor:null})).status,404);
       const rootOwner=await request(`/api/scenes/by-code/${myPinsShareCode}`);
       assert.equal(rootOwner.status,200);
       assert.equal((await request(`/api/scenes/by-code/${myPinsShareCode}/status`,{method:'POST',actor:OTHER,body:{status:'resolved'}})).status,403);
       assert.equal((await request(`/api/sites/alpha/scenes/${myPinsSceneId}/status`,{method:'POST',actor:OTHER,body:{status:'resolved'}})).status,403);
-      const scoped=await request(`/api/scenes/by-code/${myPinsShareCode}/points/${myPinsPointId}`,{actor:null});
+
+      const issued=await request(capRoute,{method:'POST'});
+      assert.equal(issued.status,200);assert.match(issued.body.token,/^[A-Za-z0-9_-]{43}$/);
+      const capability=issued.body.token;
+      const noBearer=await request(publicRoute,{actor:null});
+      assert.equal(noBearer.status,404);assert.deepEqual(noBearer.body,{error:'not found'});
+      const wrongBearer=await request(publicRoute,{actor:null,bearer:'B'.repeat(43)});
+      assert.equal(wrongBearer.status,404);assert.deepEqual(wrongBearer.body,{error:'not found'});
+      const crossPoint=await request(`/api/my-pins/points/${uid(90)}`,{actor:null,bearer:capability});
+      assert.equal(crossPoint.status,404);assert.deepEqual(crossPoint.body,{error:'not found'});
+
+      const scoped=await request(publicRoute,{actor:null,bearer:capability});
       assert.equal(scoped.status,200);assert.deepEqual(scoped.body.pins.map(p=>p.id),[myPinsPointId]);
       assert.deepEqual(scoped.body.contacts.map(c=>c.id),[CONTACT_A]);assert.deepEqual(scoped.body.photos,[]);
       assert.equal(Object.hasOwn(scoped.body.pins[0],'createdBy'),false);
@@ -224,14 +241,27 @@ test('scene point ownership: actual PostgreSQL and HTTP server', { skip: !proces
       assert.equal(Object.hasOwn(scoped.body.contacts[0],'createdBy'),false);
       assert.equal(Object.hasOwn(scoped.body.contacts[0],'createdAt'),false);
       assert.equal(JSON.stringify(scoped.body).includes(syntheticStaffEmail),false);
-      assert.equal((await request(`/api/scenes/by-code/${myPinsShareCode}/points/${uid(90)}`,{actor:null})).status,404);
-      assert.equal((await request(`/api/scenes/by-code/${myPinsShareCode}/points/${myPinsPointId}/photos/${PHOTO}`,{actor:null})).status,404);
-      const revoked=await request(route(myPinsSceneId),{method:'POST',body:payload(myPinsPointId,{scope:'personal',contactIds:[CONTACT_A]})});
-      assert.equal(revoked.status,200);assert.equal(revoked.body.scope,'personal');
-      assert.equal((await request(`/api/scenes/by-code/${myPinsShareCode}/points/${myPinsPointId}`,{actor:null})).status,404);
+      assert.equal(scoped.headers.get('cache-control'),'private, no-store');
+      assert.equal(scoped.headers.get('referrer-policy'),'no-referrer');
+
+      const rotated=await request(capRoute,{method:'POST'});
+      assert.equal(rotated.status,200);assert.notEqual(rotated.body.token,capability);
+      assert.equal((await request(publicRoute,{actor:null,bearer:capability})).status,404);
+      assert.equal((await request(publicRoute,{actor:null,bearer:rotated.body.token})).status,200);
+
+      const revoked=await request(capRoute,{method:'DELETE'});
+      assert.equal(revoked.status,200);assert.equal(revoked.body.revoked,true);
+      assert.equal((await request(publicRoute,{actor:null,bearer:rotated.body.token})).status,404);
+
+      // A personal point remains unavailable even if a syntactically valid stale bearer exists.
+      await request(route(myPinsSceneId),{method:'POST',body:payload(myPinsPointId,{scope:'personal',contactIds:[CONTACT_A]})});
+      assert.equal((await request(publicRoute,{actor:null,bearer:rotated.body.token})).status,404);
+      await request(route(myPinsSceneId),{method:'POST',body:payload(myPinsPointId,{scope:'shared',contactIds:[CONTACT_A]})});
     });
-    await t.test('My Pins phone override survives omitted admin edits, rejects admin override, and masks staff phone publicly', async () => {
-      assert.ok(myPinsSceneId);assert.ok(myPinsShareCode);
+    await t.test('My Pins phone override masks staff phone through the per-pin bearer capability', async () => {
+      assert.ok(myPinsSceneId);
+      const capRoute=`/api/sites/alpha/scenes/${myPinsSceneId}/points/${myPinsPointId}/share-capability`;
+      const publicRoute=`/api/my-pins/points/${myPinsPointId}`;
       const staffPhone='0411 222 333', overridePhone='+61 499 888 777';
       await sql.query('update contacts set phone=$1 where id=$2',[staffPhone,CONTACT_A]);
 
@@ -247,15 +277,19 @@ test('scene point ownership: actual PostgreSQL and HTTP server', { skip: !proces
       assert.equal(adminOverride.status,400);assert.equal(adminOverride.body.error,'INVALID_PHONE_OVERRIDE');
       assert.equal((await sql.query('select phone_override from points where id=$1',[myPinsPointId])).rows[0].phone_override,overridePhone);
 
-      const publicBundle=await request(`/api/scenes/by-code/${myPinsShareCode}/points/${myPinsPointId}`,{actor:null});
+      const issued=await request(capRoute,{method:'POST'});
+      assert.equal(issued.status,200);
+      const publicBundle=await request(publicRoute,{actor:null,bearer:issued.body.token});
       assert.equal(publicBundle.status,200);assert.equal(publicBundle.body.pins[0].phoneOverride,overridePhone);
       assert.equal(publicBundle.body.contacts[0].phone,overridePhone);
       assert.equal(JSON.stringify(publicBundle.body).includes(staffPhone),false);
 
+      assert.equal((await request(capRoute,{method:'DELETE'})).status,200);
       const cleared=await request(route(myPinsSceneId),{method:'POST',body:payload(myPinsPointId,{scope:'personal',contactIds:[CONTACT_A],phoneOverride:null})});
       assert.equal(cleared.status,200);assert.equal(cleared.body.phoneOverride,null);
       assert.equal((await sql.query('select phone_override from points where id=$1',[myPinsPointId])).rows[0].phone_override,null);
-      assert.equal((await request(`/api/scenes/by-code/${myPinsShareCode}/points/${myPinsPointId}`,{actor:null})).status,404);
+      assert.equal((await request(publicRoute,{actor:null,bearer:issued.body.token})).status,404);
+      await request(route(myPinsSceneId),{method:'POST',body:payload(myPinsPointId,{scope:'shared',contactIds:[CONTACT_A]})});
     });
     await t.test('create-only browser import cannot overwrite an existing or racing account pin', async () => {
       const before=await sql.query('select label,notes,created_by from points where id=$1',[POINT_A]);

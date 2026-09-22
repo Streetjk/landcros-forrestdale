@@ -12,6 +12,7 @@ const supabaseDb = require('./supabase-db');
 const { j, pointToJson, contactToJson } = supabaseDb;
 const { sceneObjectToJson } = require('./scene-db');
 const hazardDb = require('./hazard-db');
+const myPinCapabilities = require('./my-pin-capabilities-db');
 
 // 'admin' scenes are the public admin map (share link open to anyone);
 // 'hazard' scenes are the hazard report map (share link needs a session).
@@ -264,63 +265,44 @@ async function getSceneBundleByCode(code, viewerProfileId = null) {
   };
 }
 
-// Public point-qualified capability for account-owned My Pins. The scene code
-// identifies the workspace, while the point UUID narrows authorization to one
-// explicitly shared guide. Nothing from other pins in the workspace is joined.
-async function getSharedMyPinByCode(code, pointId) {
-  if (typeof code !== 'string' || !code || typeof pointId !== 'string' || !UUID_RE.test(pointId)) return null;
+// Public per-pin bearer capability for account-owned My Pins. The capability
+// resolver binds the token hash to one active shared point and its exact
+// site/scene/purpose before any contact or photo metadata is projected.
+async function getSharedMyPinByCapability(token, pointId) {
+  const binding = await myPinCapabilities.resolveActivePublicBinding(token, pointId);
+  if (!binding) return null;
   const pool = _getPool();
-  const sceneRes = await pool.query(
-    `select s.id, s.site_id, s.name, s.camera, s.kind
-       from scenes s
-      where s.share_code = $1
-        and s.kind = 'admin'
-        and s.camera->>'purpose' = 'my-pins-v1'`,
-    [code]
-  );
-  if (!sceneRes.rows.length) return null;
-  const scene = sceneRes.rows[0];
+  const siteId = binding.site_id;
+  const pointIdBound = binding.point_id;
 
-  const pointRes = await pool.query(
-    `select * from points
-      where id = $1 and site_id = $2 and scene_id = $3 and scope = 'shared'`,
-    [pointId, scene.site_id, scene.id]
-  );
-  if (!pointRes.rows.length) return null;
-  const pointRow = pointRes.rows[0];
-
-  const contactIds = Array.isArray(pointRow.contact_ids) ? pointRow.contact_ids : [];
+  const contactIds = Array.isArray(binding.contact_ids) ? binding.contact_ids : [];
   const contactsRes = contactIds.length
     ? await pool.query(
-        `select * from contacts where site_id = $1 and id = any($2::uuid[]) and active = true`,
-        [scene.site_id, contactIds]
+        `select id, name, role, phone, active
+           from contacts
+          where site_id = $1::uuid and id = any($2::uuid[]) and active = true`,
+        [siteId, contactIds]
       )
     : { rows: [] };
 
   const photosRes = await pool.query(
     `select ph.id, ph.point_id, ph.bytes, ph.width, ph.height, ph.expires_at
        from point_photos ph
-       join points p on p.id = ph.point_id and p.site_id = ph.site_id
-      where ph.site_id = $1 and p.scene_id = $2 and ph.point_id = $3
-        and p.scope = 'shared'
+      where ph.site_id = $1::uuid and ph.point_id = $2::uuid
         and (ph.expires_at is null or ph.expires_at > now())
       order by ph.created_at`,
-    [scene.site_id, scene.id, pointId]
+    [siteId, pointIdBound]
   );
 
-  const point = pointToJson(pointRow);
+  const point = pointToJson(binding);
   delete point.createdBy;
   delete point.createdAt;
   delete point.updatedAt;
   delete point.sceneId;
 
-  const phoneOverride = pointRow.phone_override ? String(pointRow.phone_override).trim() : null;
-  if (phoneOverride) {
-    point.phoneOverride = phoneOverride;
-  }
+  const phoneOverride = binding.phone_override ? String(binding.phone_override).trim() : null;
+  if (phoneOverride) point.phoneOverride = phoneOverride;
 
-  // Anonymous My Pins links use a deliberately narrow projection. Staff
-  // directory email and internal metadata are never part of this capability.
   const contacts = contactsRes.rows.map(row => ({
     id: row.id,
     name: row.name,
@@ -329,6 +311,7 @@ async function getSharedMyPinByCode(code, pointId) {
     active: row.active,
   }));
   point.contactIds = contacts.map(contact => contact.id);
+
   const photos = photosRes.rows.map(row => ({
     id: row.id,
     pointId: row.point_id,
@@ -340,7 +323,7 @@ async function getSharedMyPinByCode(code, pointId) {
   }));
 
   return {
-    scene: { name: scene.name, kind: 'admin' },
+    scene: { name: binding.scene_name, kind: 'admin' },
     viewer: { signedIn: false, isMine: false },
     objects: [],
     pins: [point],
@@ -421,5 +404,5 @@ module.exports = {
   deleteScene,
   sceneHasPointPhotos,
   getSceneBundleByCode,
-  getSharedMyPinByCode,
+  getSharedMyPinByCapability,
 };

@@ -19,6 +19,7 @@ let _saving        = false;
 let _isNewPoint    = false;
 let _placing        = false;
 let _accountSession = null;
+let _accountShareTokens = new Map(); // plaintext capabilities live in memory only
 let _accountReady = false;
 let _legacyPins = [];       // read-only browser backup until explicitly imported
 let _editingIsLegacy = false;
@@ -170,6 +171,7 @@ async function _maybeInitAdmin() {
   }
   const epoch = ++_initEpoch;
   const email = window._snAdminIdentity.email;
+  if (_accountEmail && _accountEmail !== email) _accountShareTokens.clear();
   _accountReady = false; _setBusy(false); _setAccountStatus('Loading account pins…');
   _initPromise = (async () => {
     const [bounds, site] = await Promise.all([
@@ -211,7 +213,7 @@ window.addEventListener('viewer3d:ready', () => _maybeInitAdmin());
 window.addEventListener('sitenav:auth-ready', () => _maybeInitAdmin());
 window.addEventListener('sitenav:auth-cleared', () => {
   _setEditorPanel(false);
-  ++_initEpoch; _accountReady = false; _accountSession = null; _accountEmail = null;
+  ++_initEpoch; _accountReady = false; _accountSession = null; _accountEmail = null; _accountShareTokens.clear();
   _personalPins = []; _legacyPins = []; _contacts = []; _contactsAll = []; _editingContactIds = [];
   _editingPoint = null; _editingIsLegacy = false; _isNewPoint = false;
   _pinPhotos = []; _pinPhotosFor = null;
@@ -975,8 +977,8 @@ window._adminSave = async (accountScope = null) => {
     renderPointList(); renderDrawerBody();
     document.getElementById('drawer-title').textContent = saved.label;
     if (_slug && (account || saved.scope === 'shared')) _loadPinPhotos(saved.id);
-    if (account && requestedAccountScope === 'shared') showToast('Guide published. Anyone with this scoped link can open it.');
-    else if (account && requestedAccountScope === 'personal') showToast('Sharing stopped. The public link is revoked.');
+    if (account && requestedAccountScope === 'shared') showToast('Guide published. Creating secure share capability…');
+    else if (account && requestedAccountScope === 'personal') showToast('Guide made private. Public access is blocked.');
     else showToast(account ? 'Saved and verified in your account' : 'Saved');
     if (account && requestedAccountScope === 'personal') {
       document.getElementById('qr-section').style.display = 'none';
@@ -998,9 +1000,41 @@ window._adminPromoteToShared = async () => {
 window._adminSetAccountPublished = async (publish) => {
   if (_saving || !_editingPoint || !_editingIsAccount || _editingIsLegacy || !_accountReady) return;
   if (_isNewPoint) return showToast('Save this pin to your account before publishing it.');
+  const pointId = _editingPoint.id;
   const target = publish ? 'shared' : 'personal';
   if ((_editingPoint.scope || _editingScope) === target) return;
-  await window._adminSave(target);
+
+  if (publish) {
+    // Revoke first while the point is still private. This prevents an old
+    // plaintext capability from becoming live during a republish race.
+    try { await _accountSession.revokeShareCapability(pointId); }
+    catch (error) { return showToast(_handleAccountFailure(error)); }
+    _accountShareTokens.delete(pointId);
+    await window._adminSave('shared');
+    if (_editingPoint?.id !== pointId || _editingPoint.scope !== 'shared') return;
+    try {
+      const cap = await _accountSession.issueShareCapability(pointId);
+      _accountShareTokens.set(pointId, cap.token);
+      showToast('Guide published with a new revocable scoped link.');
+    } catch (error) {
+      showToast('Guide is published, but secure sharing is unavailable. No public link was issued.');
+    }
+    return;
+  }
+
+  // Revoke while still shared so the operation is explicit and durable before
+  // the point becomes private. If revocation fails, do not pretend sharing
+  // stopped; leave the guide unchanged and let the owner retry.
+  try {
+    await _accountSession.revokeShareCapability(pointId);
+  } catch (error) {
+    return showToast(_handleAccountFailure(error));
+  }
+  _accountShareTokens.delete(pointId);
+  await window._adminSave('personal');
+  if (_editingPoint?.id === pointId && _editingPoint.scope === 'personal') {
+    showToast('Sharing stopped. Existing scoped links are revoked.');
+  }
 };
 
 window._adminDelete = async () => {
@@ -1012,7 +1046,7 @@ window._adminDelete = async () => {
   _saving = true; _setBusy(true);
   try {
     if (!_isNewPoint) {
-      if (account) { await _accountSession.remove(snapshot.id); _syncAccountPins(); }
+      if (account) { await _accountSession.remove(snapshot.id); _accountShareTokens.delete(snapshot.id); _syncAccountPins(); }
       else { await deletePoint(snapshot.id); _points = _points.filter(p => p.id !== snapshot.id); }
     }
     if (epoch !== _initEpoch) return;
@@ -1033,9 +1067,15 @@ window._adminDelete = async () => {
 async function _buildShareUrl(pt) {
   if (pt?.sceneId || _editingIsAccount) {
     if (!_editingIsAccount || pt?.scope !== 'shared') throw new Error('Publish this account pin before sharing');
-    const scene = _accountSession?.getState().scene;
-    if (!scene?.shareCode) throw new Error('Account share code is unavailable');
-    return buildMyPinShareUrl(location.origin, scene.shareCode, pt.id);
+    if (!_accountSession?.getState().scene?.id) throw new Error('Account guide workspace is unavailable');
+    let token = _accountShareTokens.get(pt.id) || null;
+    if (!token) {
+      const cap = await _accountSession.issueShareCapability(pt.id);
+      token = cap?.token || null;
+      if (!token) throw new Error('Account share capability is unavailable');
+      _accountShareTokens.set(pt.id, token);
+    }
+    return buildMyPinShareUrl(location.origin, token, pt.id);
   }
   const allContacts = await getContacts();
   const contacts = allContacts.filter(c => (pt.contactIds ?? []).includes(c.id));

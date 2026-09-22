@@ -191,6 +191,37 @@ export async function saveAccountPin(slug, sceneId, point, { fetchFn = globalThi
   return saved;
 }
 
+export async function issueAccountPinShareCapability(slug, sceneId, pointId, { fetchFn = globalThis.fetch } = {}) {
+  if (!slug || !sceneId || !pointId) throw new MyPinsError(0, 'INVALID_INPUT');
+  const url = `/api/sites/${encodeURIComponent(slug)}/scenes/${encodeURIComponent(sceneId)}/points/${encodeURIComponent(pointId)}/share-capability`;
+  const data = await performRequest(url, {
+    method: 'POST',
+    credentials: 'same-origin',
+    cache: 'no-store'
+  }, fetchFn);
+  if (!data || typeof data !== 'object' || Array.isArray(data)
+      || data.sceneId !== sceneId || data.pointId !== pointId
+      || data.purpose !== MY_PINS_PURPOSE
+      || typeof data.token !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(data.token)) {
+    throw new MyPinsError(200, 'MALFORMED_RESPONSE');
+  }
+  return data;
+}
+
+export async function revokeAccountPinShareCapability(slug, sceneId, pointId, { fetchFn = globalThis.fetch } = {}) {
+  if (!slug || !sceneId || !pointId) throw new MyPinsError(0, 'INVALID_INPUT');
+  const url = `/api/sites/${encodeURIComponent(slug)}/scenes/${encodeURIComponent(sceneId)}/points/${encodeURIComponent(pointId)}/share-capability`;
+  const data = await performRequest(url, {
+    method: 'DELETE',
+    credentials: 'same-origin',
+    cache: 'no-store'
+  }, fetchFn);
+  if (!data || typeof data !== 'object' || data.ok !== true || typeof data.revoked !== 'boolean') {
+    throw new MyPinsError(200, 'MALFORMED_RESPONSE');
+  }
+  return data;
+}
+
 export async function deleteAccountPin(slug, sceneId, pointId, { fetchFn = globalThis.fetch } = {}) {
   if (!slug || !sceneId || !pointId) {
     throw new MyPinsError(0, 'INVALID_INPUT');

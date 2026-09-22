@@ -60,27 +60,29 @@ test('guide-url: clearPinUrl removes query string cleanly when id was only param
   assert.equal(out, 'https://example.com/map#overview');
 });
 
-test('guide-url: account My Pin links are point-qualified and media URLs cannot request originals', () => {
-  const out = new URL(buildMyPinShareUrl('https://example.com', 'abcde23456', '00000000-0000-4000-8000-000000000003'));
+test('guide-url: account My Pin links keep bearer in fragment and media URLs are token-free', () => {
+  const token = 'A'.repeat(43);
+  const point = '00000000-0000-4000-8000-000000000003';
+  const out = new URL(buildMyPinShareUrl('https://example.com', token, point));
   assert.equal(out.origin, 'https://example.com');
   assert.equal(out.pathname, '/viewer3d.html');
-  assert.equal(out.searchParams.get('myPin'), 'abcde23456');
-  assert.equal(out.searchParams.get('id'), '00000000-0000-4000-8000-000000000003');
+  assert.equal(out.searchParams.get('id'), point);
+  assert.equal(out.searchParams.has('myPin'), false);
+  assert.equal(out.searchParams.has('scene'), false);
+  assert.equal(out.searchParams.has('s'), false);
   assert.equal(out.searchParams.has('d'), false);
+  assert.equal(out.hash, `#myPin=${token}`);
 
-  const photo = buildMyPinPhotoUrl('abcde23456', 'point/id', 'photo id');
-  assert.equal(photo, '/api/scenes/by-code/abcde23456/points/point%2Fid/photos/photo%20id');
+  const photo = buildMyPinPhotoUrl('point/id', 'photo id');
+  assert.equal(photo, '/api/my-pins/points/point%2Fid/photos/photo%20id');
+  assert.equal(photo.includes(token), false);
   assert.equal(photo.includes('original'), false);
 });
 
-test('guide-url: scoped My Pin context never reuses a legacy embedded payload for another pin', () => {
-  const current = 'https://example.com/viewer3d.html?myPin=abcde23456&id=one&d=legacy-payload';
-  const out = new URL(buildPinUrl(current, 'two'));
-  assert.equal(out.searchParams.get('myPin'), 'abcde23456');
-  assert.equal(out.searchParams.get('id'), 'two');
-  // The viewer suppresses d whenever myPin is present; preserving it here keeps
-  // generic guide query round-trips stable without granting it authority.
-  assert.equal(out.searchParams.get('d'), 'legacy-payload');
+test('guide-url: account My Pin links reject malformed token or point id', () => {
+  const point = '00000000-0000-4000-8000-000000000003';
+  assert.throws(() => buildMyPinShareUrl('https://example.com', 'short', point));
+  assert.throws(() => buildMyPinShareUrl('https://example.com', 'A'.repeat(43), 'not-a-uuid'));
 });
 
 test('location-details: sanitizePhone accepts valid phone numbers and formats tel URI', () => {

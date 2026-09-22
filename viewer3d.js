@@ -155,10 +155,18 @@ controls.update();
 
 const _params = new URLSearchParams(location.search);
 const _debugMode = _params.get('debug') === '1';
-// Point-qualified account guide capability. The code alone is never fetched;
-// a point UUID is required before the server returns any account-owned data.
-const _publicMyPinCode = _params.get('myPin');
-const _publicMyPinPointId = _publicMyPinCode ? _params.get('id') : null;
+// Per-pin account guide capability. The bearer stays in the URL fragment so
+// document/API request URLs and normal Referer headers do not carry it.
+const _publicMyPinToken = new URLSearchParams((window.location.hash || '').replace(/^#/, '')).get('myPin');
+const _publicMyPinMode = Boolean(_publicMyPinToken);
+const _publicMyPinPointId = _publicMyPinMode ? _params.get('id') : null;
+const _publicMyPinUuidRe = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+const _publicMyPinActive = Boolean(_publicMyPinMode
+  && _publicMyPinUuidRe.test(_publicMyPinPointId || '')
+  && /^[A-Za-z0-9_-]{43}$/.test(_publicMyPinToken || ''));
+function _publicMyPinShareUrl() {
+  return buildMyPinShareUrl(location.origin, _publicMyPinToken, _publicMyPinPointId);
+}
 
 function _parseRoute() {
   const model = _params.get('model');
@@ -1314,6 +1322,7 @@ function _openDetailPanel() {
 // Invalidate in-flight pin photos before another panel takes ownership.
 // Also clears the selected pin used by the optional tour button.
 function _leavePinDetail() {
+  _clearPublicPhotoUrls();
   document.getElementById('point-detail')?.classList.remove('public-location-detail');
   _photoReqPt = null;
   window._selectedPt = null;
@@ -1530,6 +1539,11 @@ renderer.domElement.addEventListener('click', e => {
 // explicitly hidden again when a pin has no photos.
 let _pointPhotoSlug = null;
 let _photoReqPt = null;   // pin whose photos are currently being fetched
+let _publicPhotoObjectUrls = [];
+function _clearPublicPhotoUrls() {
+  _publicPhotoObjectUrls.forEach(url => URL.revokeObjectURL(url));
+  _publicPhotoObjectUrls = [];
+}
 async function _renderPointPhotos(pt) {
   _photoReqPt = pt.id;
   const notes = document.getElementById('detail-notes');
@@ -1549,7 +1563,7 @@ async function _renderPointPhotos(pt) {
   try {
     let list = [];
     let publicMyPin = false;
-    if (_publicMyPinCode && pt.id === _publicMyPinPointId) {
+    if (_publicMyPinActive && pt.id === _publicMyPinPointId) {
       // Point-qualified My Pins metadata was already authorized when the bundle
       // loaded. Media URLs repeat the same code+point+photo boundary and serve
       // only the compressed copy; there is intentionally no public original.
@@ -1567,23 +1581,37 @@ async function _renderPointPhotos(pt) {
     // The panel may have moved on to another pin while this was in flight;
     // _photoReqPt is set by the caller on every selectPoint().
     if (_photoReqPt !== pt.id) return;
-    list.forEach(ph => {
+    _clearPublicPhotoUrls();
+    for (const ph of list) {
       const a = document.createElement('a');
-      const compressedUrl = publicMyPin
-        ? buildMyPinPhotoUrl(_publicMyPinCode, pt.id, ph.id)
-        : `/api/point-photos/${encodeURIComponent(ph.id)}`;
-      a.href = publicMyPin ? compressedUrl : `${compressedUrl}?original=1`;
+      let displayUrl;
+      if (publicMyPin) {
+        const response = await fetch(buildMyPinPhotoUrl(pt.id, ph.id), {
+          headers: { Authorization: `Bearer ${_publicMyPinToken}` },
+          cache: 'no-store', referrerPolicy: 'no-referrer'
+        }).catch(() => null);
+        if (!response?.ok || _photoReqPt !== pt.id) continue;
+        const blob = await response.blob().catch(() => null);
+        if (!blob || _photoReqPt !== pt.id) continue;
+        displayUrl = URL.createObjectURL(blob);
+        _publicPhotoObjectUrls.push(displayUrl);
+        a.href = displayUrl;
+      } else {
+        const compressedUrl = `/api/point-photos/${encodeURIComponent(ph.id)}`;
+        displayUrl = compressedUrl;
+        a.href = `${compressedUrl}?original=1`;
+      }
       a.target = '_blank';
       a.rel = 'noopener';
       const img = document.createElement('img');
-      img.src = compressedUrl;
+      img.src = displayUrl;
       img.alt = ph.originalName || 'Pin photo';
       img.loading = 'lazy';
       img.style.cssText = 'width:100%;height:80px;object-fit:cover;border-radius:6px;display:block;';
       a.appendChild(img);
       grid.appendChild(a);
-    });
-    grid.style.display = 'grid';
+    }
+    if (grid.childElementCount) grid.style.display = 'grid';
   } catch {}
 }
 
@@ -1597,17 +1625,15 @@ async function selectPoint(pt) {
   window._selectedPt = pt;
   updatePinHighlight(pt.id);
   let nextUrl = buildPinUrl(window.location.href, pt.id);
-  if (_publicMyPinCode) {
-    if (pt.id === _publicMyPinPointId) {
-      nextUrl = buildMyPinShareUrl(location.origin, _publicMyPinCode, _publicMyPinPointId);
+  if (_publicMyPinMode) {
+    if (_publicMyPinActive && pt.id === _publicMyPinPointId) {
+      nextUrl = _publicMyPinShareUrl();
     } else {
-      // Selecting a normal base-site pin leaves the private-guide capability
-      // context instead of carrying that bearer code into an unrelated link.
+      // Selecting a base-site pin drops the private bearer instead of carrying
+      // it into an unrelated location URL.
       const u = new URL(nextUrl, location.origin);
-      u.searchParams.delete('myPin');
-      // `d` is deliberately ignored while a My Pins capability is active. Do
-      // not let a suppressed legacy payload regain authority after leaving it.
       u.searchParams.delete('d');
+      u.hash = '';
       nextUrl = u.toString();
     }
   }
@@ -1634,7 +1660,7 @@ async function selectPoint(pt) {
   const contactsEl = document.getElementById('detail-contacts');
   contactsEl.innerHTML = '';
   if (contacts.length === 0) {
-    const overridePhone = (_publicMyPinCode && pt.id === _publicMyPinPointId && pt.phoneOverride)
+    const overridePhone = (_publicMyPinActive && pt.id === _publicMyPinPointId && pt.phoneOverride)
       ? sanitizePhone(pt.phoneOverride)
       : null;
     if (overridePhone) {
@@ -1671,7 +1697,7 @@ async function selectPoint(pt) {
       role.textContent = c.role;
       info.appendChild(name);
       info.appendChild(role);
-      const displayPhone = (_publicMyPinCode && pt.id === _publicMyPinPointId && pt.phoneOverride) ? pt.phoneOverride : c.phone;
+      const displayPhone = (_publicMyPinActive && pt.id === _publicMyPinPointId && pt.phoneOverride) ? pt.phoneOverride : c.phone;
       const sanitized = sanitizePhone(displayPhone);
       if (sanitized) {
         const phone = document.createElement('a');
@@ -1810,8 +1836,8 @@ window.showPointList = function() {
   if (panel) panel.classList.remove('sheet-mid', 'sheet-full');
   if (window.innerWidth > 1024) document.getElementById('app')?.classList.remove('panel-open');
   window._updateCamPresetsBottom?.();
-  history.pushState(null, '', _publicMyPinCode && _publicMyPinPointId
-    ? buildMyPinShareUrl(location.origin, _publicMyPinCode, _publicMyPinPointId)
+  history.pushState(null, '', _publicMyPinActive && _publicMyPinPointId
+    ? _publicMyPinShareUrl()
     : clearPinUrl(window.location.href));
 };
 
@@ -3546,16 +3572,18 @@ async function boot() {
 
   // Scene objects/pins are SCENE-SCOPED (Scenes feature): the default viewer
   // is vanilla and loads NONE. General scenes open with ?scene=<code>. Account
-  // My Pins use ?myPin=<code>&id=<point UUID> so the workspace code can never
-  // be used by this viewer to enumerate the owner's other pins.
+  // My Pins use ?id=<point UUID>#myPin=<bearer>. The fragment bearer is
+  // copied only into Authorization for that exact point; scene codes are not
+  // part of public My Pins sharing.
   let _sceneBundle = null;
   const _sceneCode = _params.get('scene');
   const _deepId = _params.get('id');
-  if (_publicMyPinCode && _deepId && !document.getElementById('add-label-btn')) {
-    _sceneBundle = await fetch(`/api/scenes/by-code/${encodeURIComponent(_publicMyPinCode)}/points/${encodeURIComponent(_deepId)}`)
-      .then(r => r.ok ? r.json() : null)
-      .catch(() => null);
-  } else if (_sceneCode && !document.getElementById('add-label-btn')) {
+  if (_publicMyPinActive && _deepId && !document.getElementById('add-label-btn')) {
+    _sceneBundle = await fetch(`/api/my-pins/points/${encodeURIComponent(_deepId)}`, {
+      headers: { Authorization: `Bearer ${_publicMyPinToken}` },
+      cache: 'no-store', referrerPolicy: 'no-referrer'
+    }).then(r => r.ok ? r.json() : null).catch(() => null);
+  } else if (_sceneCode && !_publicMyPinMode && !document.getElementById('add-label-btn')) {
     _sceneBundle = await fetch(`/api/scenes/by-code/${encodeURIComponent(_sceneCode)}`)
       .then(async r => {
         if (r.ok) return r.json();
@@ -3568,7 +3596,7 @@ async function boot() {
   _scenePhotos = _sceneBundle?.photos ?? [];
   if (_sceneBundle?.objects) renderSceneWidgets(_sceneBundle.objects);
   // My Pins is a one-guide public capability, not a mutable scene workflow.
-  if (_sceneBundle?.scene && _sceneCode && !_publicMyPinCode) renderSceneStatusBar(_sceneCode, _sceneBundle);
+  if (_sceneBundle?.scene && _sceneCode && !_publicMyPinMode) renderSceneStatusBar(_sceneCode, _sceneBundle);
 
   // viewer3d.html: load pins/contacts
   if (!document.getElementById('admin-controls') && _showOverlays) {
@@ -3592,7 +3620,7 @@ async function boot() {
   _allContacts = [...sceneContacts, ...contacts];
 
   // Consume #share=<base64> hash — add the shared pin ephemerally, then select it
-  const hashMatch = _publicMyPinCode ? null : window.location.hash.match(/^#share=(.+)$/);
+  const hashMatch = _publicMyPinMode ? null : window.location.hash.match(/^#share=(.+)$/);
   if (hashMatch) {
     try {
       const shared = JSON.parse(atob(hashMatch[1]));
@@ -3624,7 +3652,7 @@ async function boot() {
     _updateVisitHud(points);
 
     // Short-code deep link: ?s=<code> → fetch /api/share/<code>
-    const _shortCode = _publicMyPinCode ? null : _params.get('s');
+    const _shortCode = _publicMyPinMode ? null : _params.get('s');
     if (_shortCode) {
       try {
         const _shareResp = await fetch(`/api/share/${encodeURIComponent(_shortCode)}`);
@@ -3653,10 +3681,10 @@ async function boot() {
     if (_deepId && !_shortCode) {
       // A failed My Pins capability must fail closed rather than falling back to
       // a coincidentally matching base pin ID.
-      let _deepPt = _publicMyPinCode
+      let _deepPt = _publicMyPinMode
         ? scenePins.find(p => p.id === _deepId) ?? null
         : points.find(p => p.id === _deepId);
-      const _deepData = (_sceneCode || _publicMyPinCode) ? null : _params.get('d');
+      const _deepData = (_sceneCode || _publicMyPinMode) ? null : _params.get('d');
       if (_deepData) {
         try {
           const parsed = JSON.parse(atob(_deepData));
@@ -3674,7 +3702,7 @@ async function boot() {
             renderPointList([...points, _deepPt]);
           }
         } catch {}
-      } else if (_deepPt && !_sceneCode && !_publicMyPinCode) {
+      } else if (_deepPt && !_sceneCode && !_publicMyPinMode) {
         // Never bake a scene's scoped contact data into a legacy public URL.
         // Pin found on server but URL has no ?d= — bake data in so future refreshes
         // survive a server restart (Render ephemeral filesystem)

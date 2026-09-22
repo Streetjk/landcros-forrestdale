@@ -3,6 +3,8 @@ import {
   ensureMyPinsScene,
   listAccountPins,
   saveAccountPin,
+  issueAccountPinShareCapability,
+  revokeAccountPinShareCapability,
   deleteAccountPin,
   buildLegacyImportPlan,
   listAccountPinPhotos,
@@ -108,6 +110,8 @@ export function createMyPinsSession(slug, options = {}) {
     ensureMyPinsScene,
     listAccountPins,
     saveAccountPin,
+    issueAccountPinShareCapability,
+    revokeAccountPinShareCapability,
     deleteAccountPin,
     buildLegacyImportPlan,
     listAccountPinPhotos,
@@ -223,6 +227,33 @@ export function createMyPinsSession(slug, options = {}) {
       state.loaded = true;
 
       return deepClone(saved);
+    } finally {
+      state.busy = false;
+    }
+  }
+
+  async function issueShareCapability(pointId) {
+    if (state.busy) throw new MyPinsError(0, 'BUSY');
+    state.busy = true;
+    try {
+      await verifySessionIdentity(fetchFn, identity);
+      const pin = _findOwnedPin(pointId);
+      const scene = _getAuthoritativeScene();
+      if (pin.scope !== 'shared') throw new MyPinsError(409, 'NOT_SHARED');
+      return deepClone(await api.issueAccountPinShareCapability(slug, scene.id, pin.id, { fetchFn }));
+    } finally {
+      state.busy = false;
+    }
+  }
+
+  async function revokeShareCapability(pointId) {
+    if (state.busy) throw new MyPinsError(0, 'BUSY');
+    state.busy = true;
+    try {
+      await verifySessionIdentity(fetchFn, identity);
+      const pin = _findOwnedPin(pointId);
+      const scene = _getAuthoritativeScene();
+      return deepClone(await api.revokeAccountPinShareCapability(slug, scene.id, pin.id, { fetchFn }));
     } finally {
       state.busy = false;
     }
@@ -471,6 +502,8 @@ export function createMyPinsSession(slug, options = {}) {
   return {
     load,
     save,
+    issueShareCapability,
+    revokeShareCapability,
     remove,
     importLegacy,
     getState,

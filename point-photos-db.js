@@ -14,6 +14,8 @@
 
 const { createClient } = require('@supabase/supabase-js');
 const supabaseDb = require('./supabase-db');
+const myPinCapabilities = require('./my-pin-capabilities-db');
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const BUCKET = 'point-photos';
 const RETENTION_DAYS = 30;
@@ -239,7 +241,7 @@ module.exports = {
   listScenePointPhotos,
   addScenePointPhoto,
   readScenePointPhoto,
-  readSharedScenePointPhotoByCode,
+  readSharedScenePointPhotoByCapability,
   setScenePointPhotoRetention,
   deleteScenePointPhoto,
   sceneHasPointPhotos,
@@ -374,22 +376,24 @@ async function readScenePointPhoto(slug, sceneId, pointId, photoId, { original =
   return { buffer: Buffer.from(await data.arrayBuffer()), contentType: original ? r.content_type : 'image/jpeg', row: r };
 }
 
-// Anonymous My Pins photo read. The scene code is resolved inside the same
-// query and the point must still be explicitly shared; revocation therefore
-// takes effect before any storage bytes are fetched.
-async function readSharedScenePointPhotoByCode(sceneCode, pointId, photoId) {
+// Anonymous My Pins compressed-photo read. The bearer capability is re-bound
+// to the exact site + scene + point before any Storage bytes are downloaded.
+async function readSharedScenePointPhotoByCapability(token, pointId, photoId) {
+  const tokenHash = myPinCapabilities.hashToken(token);
+  if (!tokenHash || typeof pointId !== 'string' || !UUID_RE.test(pointId)
+      || typeof photoId !== 'string' || !UUID_RE.test(photoId)) return null;
   const { rows } = await _getPool().query(
-    `select ph.* from scenes s
-       join points p on p.scene_id = s.id and p.site_id = s.site_id
+    `select ph.*
+       from my_pin_capabilities c
+       join scenes s on s.id = c.scene_id and s.site_id = c.site_id
+       join points p on p.id = c.point_id and p.scene_id = c.scene_id and p.site_id = c.site_id
        join point_photos ph on ph.point_id = p.id and ph.site_id = p.site_id
-      where s.share_code = $1
-        and s.kind = 'admin'
-        and s.camera->>'purpose' = 'my-pins-v1'
-        and p.id = $2
-        and p.scope = 'shared'
-        and ph.id = $3
+      where c.token_hash = $1 and c.point_id = $2::uuid
+        and c.purpose = $3 and c.revoked_at is null
+        and s.kind = 'admin' and s.camera->>'purpose' = $3
+        and p.scope = 'shared' and ph.id = $4::uuid
         and (ph.expires_at is null or ph.expires_at > now())`,
-    [sceneCode, pointId, photoId]
+    [tokenHash, pointId.toLowerCase(), myPinCapabilities.PURPOSE, photoId.toLowerCase()]
   );
   if (!rows.length) return null;
   const r = rows[0];
