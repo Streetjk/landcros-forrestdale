@@ -10,6 +10,7 @@ import { initComparison, updateComparison, comparisonNeedsRender } from './splat
 import { buildPinUrl, clearPinUrl, buildMyPinShareUrl, buildMyPinPhotoUrl } from './guide-url.js';
 import { showBuildingDetail, sanitizePhone } from './location-details.js';
 import { loadPublicArray, renderPublicDataNotice, isRenderablePoint, isRenderableContact } from './public-data.js';
+import { getBasePublicVisitPointId } from './visit-analytics.js';
 
 // ── Site config (loaded from data/config.json in boot()) ──────────────────
 let _cfg = {};
@@ -214,7 +215,7 @@ const _LS_PT_VISITS   = 'sn_point_visits';
   localStorage.setItem(_LS_VISITS, String(n));
   if (!localStorage.getItem(_LS_FIRST_VISIT)) localStorage.setItem(_LS_FIRST_VISIT, new Date().toISOString());
   localStorage.setItem(_LS_LAST_VISIT, new Date().toISOString());
-  const _ptId = _params.get('id');
+  const _ptId = getBasePublicVisitPointId(_params, window.location.hash);
   if (_ptId) {
     const ptv = _lsGet(_LS_PT_VISITS, {});
     ptv[_ptId] = (ptv[_ptId] || 0) + 1;
