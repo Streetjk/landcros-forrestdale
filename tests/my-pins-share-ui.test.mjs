@@ -26,6 +26,8 @@ test('public My Pins viewer consumes only the point-qualified capability and com
   assert.match(viewer, /publicMyPin \? compressedUrl : `\$\{compressedUrl\}\?original=1`/);
   assert.match(viewer, /if \(_sceneBundle\?\.scene && _sceneCode && !_publicMyPinCode\) renderSceneStatusBar/);
   assert.match(viewer, /\(_sceneCode \|\| _publicMyPinCode\) \? null : _params\.get\('d'\)/);
+  assert.match(viewer, /const hashMatch = _publicMyPinCode \? null : window\.location\.hash\.match/);
+  assert.match(viewer, /const _shortCode = _publicMyPinCode \? null : _params\.get\('s'\)/);
   assert.match(viewer, /u\.searchParams\.delete\('myPin'\);[\s\S]*u\.searchParams\.delete\('d'\);/);
 });
 

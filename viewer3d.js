@@ -3478,7 +3478,7 @@ async function boot() {
   _allContacts = _sceneBundle?.contacts ? [..._sceneBundle.contacts, ...contacts] : contacts;
 
   // Consume #share=<base64> hash — add the shared pin ephemerally, then select it
-  const hashMatch = window.location.hash.match(/^#share=(.+)$/);
+  const hashMatch = _publicMyPinCode ? null : window.location.hash.match(/^#share=(.+)$/);
   if (hashMatch) {
     try {
       const shared = JSON.parse(atob(hashMatch[1]));
@@ -3510,7 +3510,7 @@ async function boot() {
     _updateVisitHud(points);
 
     // Short-code deep link: ?s=<code> → fetch /api/share/<code>
-    const _shortCode = _params.get('s');
+    const _shortCode = _publicMyPinCode ? null : _params.get('s');
     if (_shortCode) {
       try {
         const _shareResp = await fetch(`/api/share/${encodeURIComponent(_shortCode)}`);

@@ -38,7 +38,7 @@ with sync_playwright() as p:
         context = browser.new_context(viewport={'width': width, 'height': height}, device_scale_factor=1)
         context.add_init_script("Object.defineProperty(navigator, 'connection', {configurable:true,value:{effectiveType:'2g',saveData:true}})")
         page = context.new_page()
-        errors, writes, photos, pending = [], [], [], []
+        errors, writes, photos, pending, legacy_share_reads = [], [], [], [], []
         state = {'hold': False, 'outage': False}
         page.on('pageerror', lambda e: errors.append(str(e)))
 
@@ -61,6 +61,7 @@ with sync_playwright() as p:
             elif path.startswith('/api/scenes/by-code/'):
                 reply({'scene': {'id': 'fixture', 'kind': 'admin', 'name': 'Fixture guide', 'status': 'open'}, 'objects': [], 'pins': [PIN], 'contacts': [], 'photos': [], 'viewer': {'signedIn': False}})
             elif path.startswith('/api/share/'):
+                legacy_share_reads.append(path)
                 reply(PIN)
             elif path == '/api/site':
                 reply({'slug': 'landcros'})
@@ -155,6 +156,28 @@ with sync_playwright() as p:
             assert 'id' not in parse_qs(urlsplit(page.url).query)
             assert parse_qs(urlsplit(page.url).query).get('s') == ['fixture1']
             row['checks'].append('short-code pin survives refresh and close')
+            legacy_before = len(legacy_share_reads)
+            legacy_hash = base64.b64encode(json.dumps({
+                'label': 'Legacy hash payload', 'latlng': [0, 0], 'notes': 'must be ignored'
+            }).encode()).decode()
+            poison_url = (
+                args.base_url + '/?myPin=abcde23456&id=' + PIN['id'] +
+                '&s=fixture1#share=' + legacy_hash
+            )
+            page.goto(poison_url, wait_until='domcontentloaded')
+            page.wait_for_function(
+                'document.querySelector("#detail-label")?.textContent === "Fixture delivery"',
+                timeout=20000,
+            )
+            page.wait_for_timeout(150)
+            assert len(legacy_share_reads) == legacy_before, legacy_share_reads
+            assert page.get_by_text('Legacy hash payload', exact=True).count() == 0
+            scoped_query = parse_qs(urlsplit(page.url).query)
+            assert scoped_query.get('myPin') == ['abcde23456']
+            assert scoped_query.get('id') == [PIN['id']]
+            assert 's' not in scoped_query and 'd' not in scoped_query
+            assert not urlsplit(page.url).fragment
+            row['checks'].append('My Pins capability suppresses legacy query/hash share fallbacks')
             state['outage'] = True
             page.goto(args.base_url + '/', wait_until='domcontentloaded')
             page.wait_for_selector('#app.scene-ready', timeout=20000)
