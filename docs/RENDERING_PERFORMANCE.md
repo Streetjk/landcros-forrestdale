@@ -291,3 +291,43 @@ This clears the gross-hole/alignment regression check only. Real Android/iPhone 
 ### Promotion status
 
 **Not promoted.** The current `site-lite.splat` remains the configured asset. Alpha-80 KSplat c1 is now the leading candidate for physical-device qualification. Promotion still requires the existing low-end Android + iPhone/Safari visual/performance gate, public-guide regression, and a separate rollbackable asset/config commit.
+
+## Offline physical-device evidence qualification
+
+Physical-phone results must stay distinct from the constrained Chromium/SwiftShader lane. After completing the physical-device protocol above, wrap the JSON copied from `?perf=1` in an operator-supplied evidence record and validate it locally:
+
+```sh
+node scripts/qualify-device-perf.mjs validate low-android-default.json
+node scripts/qualify-device-perf.mjs compare low-android-default.json low-android-dpr075.json
+```
+
+The record uses `schemaVersion: 1`, `evidenceKind: "physical-device"`, an observed build commit, device class/model, OS/browser/version, network and cache state, route/viewport/gesture protocol, `movingDpr`, moving-image clarity judgement, the tested asset SHA-256, and the unchanged `snapshot` copied from the probe. The validator requires `baseGuideReady`, `visualReady` and full-model `splatReady`, usable motion samples, long-task and splat-update metrics, renderer dimensions, explicit memory-unavailable state when the browser exposes no memory API, and a hidden→resume visibility trace.
+
+Example envelope shape:
+
+```json
+{
+  "schemaVersion": 1,
+  "evidenceKind": "physical-device",
+  "capturedAt": "2026-09-22T23:10:00+08:00",
+  "buildCommit": "fed155f",
+  "deviceClass": "lower-end-android",
+  "deviceModel": "<model>",
+  "os": "Android <version>",
+  "browser": "Chrome",
+  "browserVersion": "<version>",
+  "networkProfile": "Wi-Fi same access point",
+  "cacheState": "cold",
+  "route": "/",
+  "viewport": { "width": 390, "height": 844 },
+  "gestureProtocol": "orbit 15s; pinch 15s; hide 30s; resume",
+  "movingDpr": "default",
+  "motionClarity": "acceptable",
+  "assetSha256": "<64 hex characters>",
+  "snapshot": { "version": 1, "enabled": true }
+}
+```
+
+For the moving-DPR A/B, the comparison tool accepts only a matched pair: identical build, physical device/browser, network, cache state, route, viewport, gesture protocol, quality tier and exact asset identity. Record `route` as the logical viewer path (for example `/`), with the perf/DPR query represented separately by the evidence fields. The baseline must use the normal moving DPR (`"default"`) and the candidate must use `0.75`. It reports paired metric deltas but never recommends or applies a default change. An explicit acceptable moving-image clarity judgement is only a gate to human promotion review.
+
+This is deliberately offline and dependency-free; it reads local JSON files and emits local JSON to stdout. It neither uploads evidence nor proves the claimed hardware identity. Physical provenance remains operator-supplied, so a structurally valid file is not by itself proof that a phone was tested. Running this validator, its unit tests, or the headless harness does **not** qualify any physical device. The alpha/KSplat figures above remain synthetic until matching Android/iPhone evidence is collected.
