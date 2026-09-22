@@ -138,3 +138,74 @@ These are engineering targets, not current-product claims:
 6. **Measure satellite/other texture GPU memory.** The WebP reduces transfer bytes but not decoded texture dimensions/GPU memory. If physical memory pressure remains high, test a separate lower-resolution texture for low-tier devices.
 
 Performance work should remain evidence-led: each change needs before/after measurements, visual comparison and a rollbackable development-branch checkpoint. Do not use headless FPS as release evidence.
+
+## Alpha-filtered lite-splat experiment — 22 Sep 2026
+
+This is an **experiment and qualification tool**, not a production/default asset change. The canonical `site-lite.splat` remains the configured model until a physical-phone review confirms the visual trade-off.
+
+The current `.splat` file uses fixed 32-byte records; its alpha byte distribution showed that a large fraction of records are low-opacity. `scripts/filter-splat.mjs` now provides a deterministic, dependency-free way to copy only records at or above a requested alpha threshold while preserving every surviving record byte-for-byte and in original order. It writes optional deterministic metadata with source/output SHA-256, record counts and byte counts. Generated candidates should remain outside tracked source until they pass qualification.
+
+Example:
+
+```sh
+node scripts/filter-splat.mjs \
+  sites/landcros/assets/site-lite.splat \
+  /tmp/site-lite-a96.splat \
+  --min-alpha 96 \
+  --metadata /tmp/site-lite-a96.json
+```
+
+`tests/render-performance.py` accepts `--splat-asset ./assets/...` for local benchmark-only configuration interception and `--capture-presets` for fixed-camera canvas captures. This does not edit the checked-in site config.
+
+### Candidate population
+
+Baseline source SHA-256: `79bc00b5c7bb58ed5e143685554ab418119b986af9ae690dae0b5afe8167a6b0`.
+
+| Candidate | Records | Bytes | Reduction |
+| --- | ---: | ---: | ---: |
+| Current baseline | 273,224 | 8,743,168 | — |
+| alpha ≥48 | 193,933 | 6,205,856 | 29.0% |
+| alpha ≥64 | 173,440 | 5,550,080 | 36.5% |
+| alpha ≥80 | 156,529 | 5,008,928 | 42.7% |
+| alpha ≥96 | 142,209 | 4,550,688 | 48.0% |
+
+Filtering through alpha 96 did not materially change the raw XYZ extent in this file: the dominant span remained ~3.973–3.975 source units, and center changes were small. This reduces the risk of the existing automatic centering/scaling moving the whole site, but it does not prove visual quality at every camera or device.
+
+### Three-run constrained comparison
+
+The table below reports medians from three synthetic `low-4g` runs (4× CPU slowdown, 80 ms synthetic latency, 8 Mbps), using the real viewer and the same scripted gesture. These numbers are regression evidence only, not physical-phone FPS.
+
+| Metric | Baseline 8.74 MB | alpha ≥80 5.01 MB | alpha ≥96 4.55 MB |
+| --- | ---: | ---: | ---: |
+| Splat transfer | 8.87 s | 5.24 s | 4.80 s |
+| `addSplatScene` | 2.52 s | 1.72 s | 1.59 s |
+| Visual ready | **13.32 s** | **8.79 s** | **8.14 s** |
+| Moving rendered FPS | 10.3 | 14.6 | 15.3 |
+| Moving p95 | 48.1 ms | 39.0 ms | 39.2 ms |
+| Long-task total | 3.77 s | 2.47 s | 2.24 s |
+
+The alpha-96 candidate therefore currently leads the **synthetic** startup/size trade-off. It is not yet the preferred production asset.
+
+### Fixed-camera visual comparison
+
+The harness captured the configured overhead, entry and exit presets after cancelling the intro through the real preset API. Against the baseline headless canvas capture:
+
+- alpha ≥64 was pixel-identical in all three tested presets;
+- alpha ≥80 was effectively identical, with only negligible differences;
+- alpha ≥96 was identical at overhead/exit and differed only minimally at entry (mean absolute RGB difference ~0.008 on a 0–255 scale in that capture).
+
+These screenshots are useful for catching gross holes/alignment changes, but software/headless rendering can hide device-specific artifacts and does not substitute for human inspection on a real phone. Thin/translucent site detail remains the primary risk of raising the alpha threshold.
+
+### Promotion gate
+
+Before changing `sites/landcros/data/config.json` to any filtered candidate:
+
+1. regenerate it from the canonical baseline using the committed tool and verify the recorded source hash;
+2. inspect overhead, entry, exit and real visitor views on at least a low-end Android and an iPhone/Safari device;
+3. repeat `?perf=1` cold/warm load and motion tests on those phones;
+4. confirm building/site recognizability, alignment, thin structures and low-opacity details are acceptable;
+5. compare alpha-80 and alpha-96 rather than assuming the smallest file is better;
+6. run the normal public-guide browser regressions;
+7. make the asset/config switch as a separate rollbackable development commit.
+
+Custom `.ksplat` compression remains a later independent experiment. Mixing format conversion with alpha filtering now would make the performance/quality attribution less clear.

@@ -17,11 +17,19 @@ parser=argparse.ArgumentParser()
 parser.add_argument('--base-url',default='http://127.0.0.1:50170')
 parser.add_argument('--profiles',default='low-save-data,ios-like')
 parser.add_argument('--output',default='../evidence/render-performance')
+parser.add_argument('--splat-asset',default=None,help='Local experiment asset path such as ./assets/experiments/site-lite-a64.splat; benchmark only')
+parser.add_argument('--capture-presets',action='store_true',help='Capture canvas screenshots at configured camera presets')
 parser.add_argument('--drag-dpr',type=float,default=None,help='Perf-only moving DPR experiment; does not change normal viewer defaults')
 args=parser.parse_args()
 origin=urlsplit(args.base_url)
 assert origin.hostname in ('127.0.0.1','localhost','::1'), 'Local benchmark server only'
 OUT=pathlib.Path(args.output).resolve();OUT.mkdir(parents=True,exist_ok=True)
+ROOT=pathlib.Path(__file__).resolve().parents[1]
+CONFIG=json.loads((ROOT/'sites/landcros/data/config.json').read_text())
+if args.splat_asset:
+    parts=pathlib.PurePosixPath(args.splat_asset).parts
+    if not args.splat_asset.startswith('./assets/') or '://' in args.splat_asset or '..' in parts:
+        raise SystemExit('splat override must be a local ./assets/... path')
 
 PROFILES={
  'low-save-data':dict(mem=2,cores=2,dpr=2,etype='4g',save=True,cpu=4,latency=120,down_mbps=2,expect='low',expect_splat=False),
@@ -42,6 +50,11 @@ async def run_profile(browser,name,p):
     context=await browser.new_context(viewport={'width':390,'height':844},device_scale_factor=p['dpr'])
     await context.add_init_script(init_script(p))
     page=await context.new_page();errors=[];requests=[]
+    if args.splat_asset:
+      async def config_override(route):
+        cfg=json.loads(json.dumps(CONFIG));cfg.setdefault('assets',{})['splat']=[args.splat_asset]
+        await route.fulfill(status=200,content_type='application/json',body=json.dumps(cfg))
+      await page.route('**/data/config.json',config_override)
     page.on('pageerror',lambda e:errors.append(str(e)))
     page.on('request',lambda r:requests.append({'method':r.method,'url':urlsplit(r.url).path}))
     cdp=await context.new_cdp_session(page)
@@ -53,7 +66,7 @@ async def run_profile(browser,name,p):
       'uploadThroughput':2*1024*1024/8,
       'connectionType':'cellular4g'
     })
-    row={'profile':name,'synthetic':True,'note':'Headless Chromium timings are regression signals, not phone-GPU FPS.','errors':errors}
+    row={'profile':name,'synthetic':True,'note':'Headless Chromium timings are regression signals, not phone-GPU FPS.','errors':errors,'splatOverride':args.splat_asset}
     try:
       query='/?perf=1&perfHud=0'
       if args.drag_dpr is not None: query += '&dragDpr=' + str(args.drag_dpr)
@@ -61,6 +74,14 @@ async def run_profile(browser,name,p):
       await page.wait_for_function("window.__sitenavPerf && typeof window.__sitenavPerf.snapshot==='function'",timeout=15000)
       await page.wait_for_selector('#app.scene-ready',timeout=65000)
       await page.wait_for_timeout(1200)
+      if args.capture_presets:
+        asset_tag=(pathlib.PurePosixPath(args.splat_asset).name if args.splat_asset else 'baseline').replace('.splat','')
+        for preset in CONFIG.get('camera',{}).get('presets',[]):
+          pos=preset.get('position');target=preset.get('target')
+          if not (isinstance(pos,list) and len(pos)==3 and isinstance(target,list) and len(target)==3): continue
+          await page.evaluate("(id)=>{ window.setCameraPreset(id, 1); window._v3d.controls.autoRotate=false; }", preset.get('id'))
+          await page.wait_for_timeout(300)
+          await page.locator('#three-canvas').screenshot(path=str(OUT/f'{name}-{asset_tag}-{preset.get("id","preset")}.png'))
       # Real pointer motion exercises OrbitControls and dynamic DPR on the real viewer.
       canvas=page.locator('#three-canvas');box=await canvas.bounding_box()
       if box:
