@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
-import { createHmac, randomUUID } from 'node:crypto';
+import { createHash, createHmac, randomUUID } from 'node:crypto';
 import { fork } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { once } from 'node:events';
@@ -58,6 +58,12 @@ test('scene point ownership: actual PostgreSQL and HTTP server', { skip: !proces
       create table point_photos(id uuid primary key,site_id uuid,point_id uuid references points(id) on delete cascade,
         storage_path text,original_path text,original_name text,content_type text,bytes integer,original_bytes integer,
         width integer,height integer,created_by uuid,expires_at timestamptz,created_at timestamptz default now());
+      create table my_pin_capabilities(id uuid primary key default gen_random_uuid(),site_id uuid not null references sites(id),
+        scene_id uuid not null,point_id uuid not null references points(id) on delete cascade,purpose text not null default 'my-pins-v1',
+        token_hash text not null unique,issued_by uuid not null references profiles(id),issued_at timestamptz not null default now(),
+        revoked_at timestamptz,revoked_by uuid references profiles(id),rotated_from uuid references my_pin_capabilities(id),
+        foreign key(site_id,scene_id) references scenes(site_id,id) on delete cascade);
+      create unique index fixture_one_active_my_pin_capability on my_pin_capabilities(point_id) where revoked_at is null;
     `);
     await sql.query('insert into sites(id,slug) values ($1,\'alpha\'),($2,\'beta\')', [SITE_A,SITE_B]);
     for (const [id,email] of [[OWNER,'owner@example.test'],[OTHER,'other@example.test'],[VIEWER,'viewer@example.test'],[ADMIN,'platform@example.test'],[OUTSIDER,'outsider@example.test']]) {
@@ -144,6 +150,58 @@ test('scene point ownership: actual PostgreSQL and HTTP server', { skip: !proces
       const otherList=await request('/api/sites/alpha/scenes?kind=admin',{actor:OTHER});
       assert.equal(otherList.body.some(scene=>scene.id===created.body.id),false);
     });
+    await t.test('owner-only per-pin capability issue, rotation and revoke are durable', async () => {
+      assert.ok(myPinsSceneId);
+      const capRoute = (scene = myPinsSceneId, point = myPinsPointId) =>
+        `/api/sites/alpha/scenes/${scene}/points/${point}/share-capability`;
+      await request(route(myPinsSceneId), { method: 'POST', body: payload(myPinsPointId, { scope: 'shared' }) });
+
+      for (const actor of [OTHER, ADMIN]) {
+        const denied = await request(capRoute(), { method: 'POST', actor });
+        assert.equal(denied.status, 403, JSON.stringify({ actor, denied }));
+      }
+      const wrongPurpose = await request(capRoute(SCENE_A, POINT_A), { method: 'POST' });
+      assert.equal(wrongPurpose.status, 403);
+      const wrongPoint = await request(capRoute(myPinsSceneId, uid(89)), { method: 'POST' });
+      assert.equal(wrongPoint.status, 404);
+
+      const first = await request(capRoute(), { method: 'POST' });
+      assert.equal(first.status, 200);
+      assert.match(first.body.token, /^[A-Za-z0-9_-]{43}$/);
+      const firstHash = createHash('sha256').update(first.body.token).digest('hex');
+      const firstRow = await sql.query('select token_hash,revoked_at from my_pin_capabilities where id=$1', [first.body.capabilityId]);
+      assert.equal(firstRow.rows[0].token_hash, firstHash);
+      assert.equal(firstRow.rows[0].token_hash.includes(first.body.token), false);
+      assert.equal(firstRow.rows[0].revoked_at, null);
+
+      const second = await request(capRoute(), { method: 'POST' });
+      assert.equal(second.status, 200);
+      assert.notEqual(second.body.token, first.body.token);
+      const activeAfterRotate = await sql.query('select id from my_pin_capabilities where point_id=$1 and revoked_at is null', [myPinsPointId]);
+      assert.deepEqual(activeAfterRotate.rows.map(r => r.id), [second.body.capabilityId]);
+      assert.notEqual((await sql.query('select revoked_at from my_pin_capabilities where id=$1', [first.body.capabilityId])).rows[0].revoked_at, null);
+
+      const revoked = await request(capRoute(), { method: 'DELETE' });
+      assert.equal(revoked.status, 200);
+      assert.equal(revoked.body.ok, true);
+      assert.equal(revoked.body.revoked, true);
+      assert.equal((await sql.query('select count(*)::int as n from my_pin_capabilities where point_id=$1 and revoked_at is null', [myPinsPointId])).rows[0].n, 0);
+      const idempotent = await request(capRoute(), { method: 'DELETE' });
+      assert.equal(idempotent.status, 200);
+      assert.equal(idempotent.body.revoked, false);
+
+      const third = await request(capRoute(), { method: 'POST' });
+      assert.equal(third.status, 200);
+      await request(route(myPinsSceneId), { method: 'POST', body: payload(myPinsPointId, { scope: 'personal' }) });
+      const revokeAfterUnpublish = await request(capRoute(), { method: 'DELETE' });
+      assert.equal(revokeAfterUnpublish.status, 200);
+      assert.equal(revokeAfterUnpublish.body.revoked, true);
+      const personal = await request(capRoute(), { method: 'POST' });
+      assert.equal(personal.status, 409);
+      assert.equal(personal.body.error, 'MY_PIN_NOT_SHARED');
+      await request(route(myPinsSceneId), { method: 'POST', body: payload(myPinsPointId, { scope: 'shared' }) });
+    });
+
     await t.test('My Pins public capability is one-point scoped and immediately revocable', async () => {
       assert.ok(myPinsSceneId);assert.ok(myPinsShareCode);
       const syntheticStaffEmail='private-staff@example.test';

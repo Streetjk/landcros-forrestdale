@@ -24,11 +24,16 @@ function make(overrides = {}) {
     async saveScenePoint(slug, scene, body, actor) { calls.push(['save', slug, scene, body, actor]); return { id: body.id, sceneId: scene }; },
     async deleteScenePoint(slug, scene, id, actor) { calls.push(['delete', slug, scene, id, actor]); },
   };
+  const capabilities = {
+    async issueOrRotate(slug, scene, point, actor) { calls.push(['cap-issue', slug, scene, point, actor]); return { pointId: point, token: 'synthetic-token' }; },
+    async revoke(slug, scene, point, actor) { calls.push(['cap-revoke', slug, scene, point, actor]); return { ok: true, revoked: true }; },
+  };
   const deps = {
     requireEditor(_req, _res, _slug, cb) { calls.push(['editor']); cb({ profileId: '00000000-0000-4000-8000-000000000009' }); },
     async managedScene(_res, _slug, _scene, _session) { calls.push(['scene']); return { id: SCENE }; },
     readJson(_req, cb) { cb(null, { id: POINT, label: 'Synthetic pin', position3d: { x: 0, y: 0, z: 0 } }); },
     db,
+    capabilities,
     ...overrides,
   };
   return { handle: createScenePointHandler(deps), calls, db };
@@ -97,4 +102,28 @@ test('rejected authorization promise and synchronous read failures terminate saf
     const {handle}=make(overrides);const res=response();handle(req('POST'),res,new URL('http://local'+BASE));await settle();
     assert.equal(res.writableEnded,true);assert.ok([400,500].includes(res.statusCode));assert.doesNotMatch(res.body,/internal lookup|read failed/);
   }
+});
+
+test('capability POST/DELETE authenticate but bypass generic managedScene policy', async () => {
+  for (const [method, expected] of [['POST', 'cap-issue'], ['DELETE', 'cap-revoke']]) {
+    const { handle, calls } = make();
+    const url = `${BASE}/${POINT}/share-capability`;
+    const res = response();
+    handle(req(method, url), res, new URL('http://local' + url));
+    await settle();
+    assert.equal(res.statusCode, 200);
+    assert.deepEqual(calls.map(x => x[0]), ['editor', expected]);
+    assert.equal(calls.some(x => x[0] === 'scene'), false);
+  }
+});
+
+test('capability route rejects unsupported methods before authorization', async () => {
+  const { handle, calls } = make();
+  const url = `${BASE}/${POINT}/share-capability`;
+  const res = response();
+  handle(req('GET', url), res, new URL('http://local' + url));
+  await settle();
+  assert.equal(res.statusCode, 405);
+  assert.equal(res.headers.Allow, 'POST, DELETE');
+  assert.deepEqual(calls, []);
 });

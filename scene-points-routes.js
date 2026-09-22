@@ -1,10 +1,12 @@
 'use strict';
 
 const defaultDb = require('./scene-points-db');
+const defaultCapabilities = require('./my-pin-capabilities-db');
 const { PointError, UUID_RE } = defaultDb;
 
 const SLUG_RE = /^[a-z0-9][a-z0-9-]{1,62}$/;
 const PATH_RE = /^\/api\/sites\/([^/]+)\/scenes\/([^/]+)\/points(?:\/([^/]+))?$/;
+const CAPABILITY_PATH_RE = /^\/api\/sites\/([^/]+)\/scenes\/([^/]+)\/points\/([^/]+)\/share-capability$/;
 
 function sendJson(res, statusCode, body) {
   if (res.writableEnded) return;
@@ -21,19 +23,23 @@ function createScenePointHandler(options = {}) {
     readJson,
     json = sendJson,
     db = defaultDb,
+    capabilities = defaultCapabilities,
     onError = () => {},
   } = options;
 
   return function handle(req, res, url) {
     const pathname = typeof url === 'string' ? url : url?.pathname || req.url;
-    const match = PATH_RE.exec(pathname);
-    if (!match) return false;
+    const capabilityMatch = CAPABILITY_PATH_RE.exec(pathname);
+    const match = capabilityMatch ? null : PATH_RE.exec(pathname);
+    if (!capabilityMatch && !match) return false;
+    const routeMatch = capabilityMatch || match;
+    const isCapability = Boolean(capabilityMatch);
 
     res.setHeader('Cache-Control', 'no-store');
 
-    const rawSlug = match[1];
-    const rawSceneId = match[2];
-    const rawPointId = match[3];
+    const rawSlug = routeMatch[1];
+    const rawSceneId = routeMatch[2];
+    const rawPointId = routeMatch[3];
 
     if (!SLUG_RE.test(rawSlug)) {
       json(res, 404, { error: 'SITE_NOT_FOUND' });
@@ -59,7 +65,13 @@ function createScenePointHandler(options = {}) {
     const method = (req.method || 'GET').toUpperCase();
     const isItem = pointId !== null;
 
-    if (isItem) {
+    if (isCapability) {
+      if (method !== 'POST' && method !== 'DELETE') {
+        res.setHeader('Allow', 'POST, DELETE');
+        json(res, 405, { error: 'METHOD_NOT_ALLOWED' });
+        return true;
+      }
+    } else if (isItem) {
       if (method !== 'DELETE') {
         res.setHeader('Allow', 'DELETE');
         json(res, 405, { error: 'METHOD_NOT_ALLOWED' });
@@ -92,10 +104,19 @@ function createScenePointHandler(options = {}) {
         }
 
         (async () => {
+          const actor = session.profileId;
+
+          if (isCapability) {
+            const result = method === 'POST'
+              ? await capabilities.issueOrRotate(slug, sceneId, pointId, actor)
+              : await capabilities.revoke(slug, sceneId, pointId, actor);
+            if (res.writableEnded) return;
+            json(res, 200, result);
+            return;
+          }
+
           const scene = await managedScene(res, slug, sceneId, session);
           if (!scene || res.writableEnded) return;
-
-          const actor = session.profileId;
 
           if (method === 'GET') {
             const points = await db.getScenePoints(slug, sceneId);
