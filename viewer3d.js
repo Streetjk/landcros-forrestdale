@@ -3142,7 +3142,12 @@ async function loadSplatBackground(opts = {}) {
   for (const path of candidates) {
     try {
       const r = await fetch(path, { method: 'HEAD' });
-      if (r.ok) { splatPath = path; _perf.asset({ path, phase: 'select', status: 'ok' }); break; }
+      if (r.ok) {
+        splatPath = path;
+        const contentLength = Number.parseInt(r.headers.get('content-length') || '', 10);
+        _perf.asset({ path, bytes: Number.isFinite(contentLength) ? contentLength : null, phase: 'select', status: 'ok' });
+        break;
+      }
     } catch {}
   }
   if (!splatPath) {
@@ -3175,7 +3180,7 @@ async function loadSplatBackground(opts = {}) {
       _perf.asset({ path: splatPath, bytes: rawBuf?.byteLength ?? null, phase: 'fetched', status: 'ok' });
     }
     const STRIDE = 32;
-    let cx = 0, cy = 0, cz = 0, scale = 1;
+    let scannedPlacement = null;
     if (rawBuf) {
       const _endBoundsScan = _perf.begin('splatBoundsScan', { bytes: rawBuf.byteLength });
       const count = Math.floor(rawBuf.byteLength / STRIDE);
@@ -3190,13 +3195,21 @@ async function loadSplatBackground(opts = {}) {
         if (y < minY) minY=y; if (y > maxY) maxY=y;
         if (z < minZ) minZ=z; if (z > maxZ) maxZ=z;
       }
-      cx = (minX + maxX) / 2;
-      cy = (minY + maxY) / 2;
-      cz = (minZ + maxZ) / 2;
+      const center = [(minX + maxX) / 2, (minY + maxY) / 2, (minZ + maxZ) / 2];
       const span = Math.max(maxX - minX, maxY - minY, maxZ - minZ);
-      scale = 40 / span;
+      scannedPlacement = { center, scale: 40 / span };
       _endBoundsScan({ splats: count });
     }
+    let placement = scannedPlacement
+      ? { center: [...scannedPlacement.center], scale: scannedPlacement.scale, source: 'scanned' }
+      : { center: [0, 0, 0], scale: 1, source: 'default' };
+    if (_cfg.splat?.normalization != null) {
+      const { resolveSplatPlacement } = await import('./splat-normalization.js');
+      placement = resolveSplatPlacement({ configured: _cfg.splat.normalization, scanned: scannedPlacement });
+    }
+    const [cx, cy, cz] = placement.center;
+    const scale = placement.scale;
+    _perf.mark('splatPlacement', { source: placement.source, center: placement.center, scale });
 
     if (!onProgress && msg) msg.textContent = `Loading ${ext}… 0%`;
     const _endSplatImport = _perf.begin('splatModuleImport');
@@ -3255,7 +3268,9 @@ async function loadSplatBackground(opts = {}) {
       await Promise.race([
         sv.addSplatScene(splatBlobUrl || splatPath, {
           showLoadingUI: false,
-          ...(splatBlobUrl ? { format: GS3D.SceneFormat.Splat } : {}),
+          ...(splatBlobUrl ? { format: GS3D.SceneFormat.Splat }
+            : ext === 'KSPLAT' ? { format: GS3D.SceneFormat.KSplat }
+            : {}),
           onProgress: (p) => {
             const pct = Math.min(99, Math.round(p));
             if (onProgress) {

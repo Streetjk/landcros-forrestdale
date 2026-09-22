@@ -97,3 +97,7 @@ Mobile/low-end rendering is now a first-class measured development lane. `?perf=
 ### Reduced-splat experiment checkpoint
 
 A deterministic alpha-filter generator and benchmark override now make the next mobile optimization reproducible without changing the configured model. Three constrained runs put the 4.55 MB alpha-96 candidate at ~8.14 s median visual-ready versus ~13.32 s for the 8.74 MB baseline, with moving p95 ~39.2 ms versus ~48.1 ms; fixed visitor-preset captures were nearly identical in the headless comparison. The candidate binary is deliberately **not** committed or selected by default. Real Android/iPhone visual + `?perf=1` qualification is required before any asset switch. See `RENDERING_PERFORMANCE.md`.
+
+### KSplat qualification update
+
+The rendering lane now has safe optional normalization support and `.ksplat` benchmark coverage without changing the configured LANDCROS model. Against the current 8.74 MB `site-lite.splat`, the leading candidate for physical-device qualification is alpha ≥80 plus GaussianSplats3D v0.4.7 KSplat compression level 1 at **3.77 MB** (56.9% smaller). Three synthetic low-4G runs reduced median full-model `splatReady` from ~12.02 s to ~5.21 s while fixed-camera headless comparisons showed no gross holes or alignment drift. This remains synthetic evidence only: the binary/config switch is withheld until low-end Android and iPhone/Safari visual/performance qualification.

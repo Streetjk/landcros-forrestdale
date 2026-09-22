@@ -228,4 +228,66 @@ Before changing `sites/landcros/data/config.json` to any filtered candidate:
 6. run the normal public-guide browser regressions;
 7. make the asset/config switch as a separate rollbackable development commit.
 
-Custom `.ksplat` compression remains a later independent experiment. Mixing format conversion with alpha filtering now would make the performance/quality attribution less clear.
+The `.ksplat` representation is evaluated separately below. The first pass established format-only behavior before combining it with alpha filtering so the performance/quality attribution remained explicit.
+
+## KSplat format experiment — 22 Sep 2026
+
+The current raw `.splat` is already poorly compressible with generic HTTP compression (gzip level 9 retained ~95.2% of its bytes), so transparent gzip is not a meaningful model-transfer solution. The supported `.ksplat` format in the exact viewer dependency is a better experiment because it changes the data representation rather than wrapping the same bytes.
+
+The conversion experiment was bound to **GaussianSplats3D v0.4.7**, upstream tag commit `2dfc83e497bd76e558fe970c54464b17b5f5c689`, matching the browser import-map version. No production dependency/config was changed. The upstream conversion utility was built in `/tmp`; experiment assets are not committed.
+
+### Normalization safety
+
+The existing viewer derives LANDCROS placement by scanning raw `.splat` XYZ records. `.ksplat` cannot use that 32-byte raw-record scan, so format comparisons require explicit placement metadata or the model will be mis-scaled/misaligned.
+
+Canonical `site-lite.splat` normalization measured from the checked-in source:
+
+- center: `[0.2094523311, -0.2026439290, 0.0384622216]`
+- source span: `3.9752675295`
+- viewer scale: `10.0622158643`
+
+The development experiment adds strict optional `splat.normalization` handling. It accepts only finite numeric XYZ plus a finite positive scale. The checked-in LANDCROS config still has **no normalization field**, so today's raw `.splat` behavior remains unchanged. The helper is dynamically imported only when normalization metadata exists, avoiding another normal-viewer module request. `.ksplat` paths are explicitly identified as `SceneFormat.KSplat`.
+
+### Size results
+
+| Candidate | Bytes | Reduction vs current 8.74 MB |
+| --- | ---: | ---: |
+| Current `site-lite.splat` | 8,743,168 | — |
+| Plain KSplat c1 | 6,575,316 | 24.8% |
+| alpha ≥80 `.splat` | 5,008,928 | 42.7% |
+| **alpha ≥80 + KSplat c1** | **3,769,164** | **56.9%** |
+| alpha ≥96 `.splat` | 4,550,688 | 48.0% |
+| alpha ≥96 + KSplat c1 | 3,424,812 | 60.8% |
+
+Compression level 0 produced a larger 12,026,976-byte KSplat. Levels 1 and 2 were both 6,575,316 bytes on this degree-0 source, so c1 is sufficient for this experiment.
+
+The conservative combined candidate is alpha ≥80 + KSplat c1. It preserves more low-opacity detail than alpha ≥96 while gaining most of the byte reduction.
+
+### Three-run constrained comparison
+
+Three synthetic `low-4g` runs (4× CPU slowdown, 80 ms synthetic latency, 8 Mbps) were compared. These are headless/SwiftShader regression measurements, **not physical-phone FPS**.
+
+| Metric (median of 3) | Current 8.74 MB | alpha ≥80 5.01 MB | **alpha ≥80 + KSplat 3.77 MB** |
+| --- | ---: | ---: | ---: |
+| Base guide ready | 0.79 s | 0.70 s | **0.55 s** |
+| Full model `splatReady` | **12.02 s** | **7.30 s** | **5.21 s** |
+| `addSplatScene` / KSplat load+construction | 2.61 s | 1.58 s | 4.74 s* |
+| Moving rendered FPS | 5.1 | 7.3 | **8.9** |
+| Moving p95 | 36.2 ms | **35.3 ms** | 35.7 ms |
+| Long-task total | 3.51 s | 2.41 s | **1.92 s** |
+
+`*` For KSplat, the library performs the network fetch inside `addSplatScene`, so this number includes transfer + decode/construction and is not directly comparable to raw `.splat`'s separate fetch and construction phases. Resource timing showed the 3,769,164-byte KSplat transfer at roughly 3.76 s in the constrained profile.
+
+### Fixed-camera regression comparison
+
+Using the canonical normalization and the real configured overhead/entry/exit presets, current `.splat` vs alpha-80 KSplat c1 produced:
+
+- overhead: pixel-identical in the captured headless frame;
+- entry: mean absolute RGB difference ~0.020; 0% of pixels differed by more than 16 levels; ~0.44% differed by more than 5;
+- exit: mean absolute RGB difference ~0.019; 0% of pixels differed by more than 16 levels; ~0.44% differed by more than 5.
+
+This clears the gross-hole/alignment regression check only. Real Android/iPhone inspection remains mandatory before an asset/config switch because translucent/thin details and GPU behavior can differ from SwiftShader.
+
+### Promotion status
+
+**Not promoted.** The current `site-lite.splat` remains the configured asset. Alpha-80 KSplat c1 is now the leading candidate for physical-device qualification. Promotion still requires the existing low-end Android + iPhone/Safari visual/performance gate, public-guide regression, and a separate rollbackable asset/config commit.

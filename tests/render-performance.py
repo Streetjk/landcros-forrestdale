@@ -26,6 +26,19 @@ assert origin.hostname in ('127.0.0.1','localhost','::1'), 'Local benchmark serv
 OUT=pathlib.Path(args.output).resolve();OUT.mkdir(parents=True,exist_ok=True)
 ROOT=pathlib.Path(__file__).resolve().parents[1]
 CONFIG=json.loads((ROOT/'sites/landcros/data/config.json').read_text())
+
+def baseline_splat_normalization():
+    src=ROOT/'sites/landcros/assets/site-lite.splat'
+    data=src.read_bytes(); stride=32
+    import struct
+    mins=[float('inf')]*3; maxs=[float('-inf')]*3
+    for off in range(0,len(data),stride):
+        xyz=struct.unpack_from('<fff',data,off)
+        for i,v in enumerate(xyz): mins[i]=min(mins[i],v); maxs[i]=max(maxs[i],v)
+    center=[(mins[i]+maxs[i])/2 for i in range(3)]
+    span=max(maxs[i]-mins[i] for i in range(3))
+    return {'center':center,'scale':40/span}
+BASELINE_NORMALIZATION=baseline_splat_normalization()
 if args.splat_asset:
     parts=pathlib.PurePosixPath(args.splat_asset).parts
     if not args.splat_asset.startswith('./assets/') or '://' in args.splat_asset or '..' in parts:
@@ -58,6 +71,8 @@ async def run_profile(browser,name,p):
     if args.splat_asset:
       async def config_override(route):
         cfg=json.loads(json.dumps(CONFIG));cfg.setdefault('assets',{})['splat']=[args.splat_asset]
+        if args.splat_asset.lower().endswith('.ksplat'):
+          cfg.setdefault('splat',{})['normalization']=BASELINE_NORMALIZATION
         await route.fulfill(status=200,content_type='application/json',body=json.dumps(cfg))
       await page.route('**/data/config.json',config_override)
     page.on('pageerror',lambda e:errors.append(str(e)))
@@ -88,7 +103,7 @@ async def run_profile(browser,name,p):
         )
       await page.wait_for_timeout(1200)
       if args.capture_presets:
-        asset_tag=(pathlib.PurePosixPath(args.splat_asset).name if args.splat_asset else 'baseline').replace('.splat','')
+        asset_tag=(pathlib.PurePosixPath(args.splat_asset).name if args.splat_asset else 'baseline').replace('.ksplat','').replace('.splat','')
         for preset in CONFIG.get('camera',{}).get('presets',[]):
           pos=preset.get('position');target=preset.get('target')
           if not (isinstance(pos,list) and len(pos)==3 and isinstance(target,list) and len(target)==3): continue
@@ -103,8 +118,8 @@ async def run_profile(browser,name,p):
         for step in range(1,8): await page.mouse.move(x+step*12,y+step*3,steps=2)
         await page.mouse.up();await page.wait_for_timeout(1200)
       snap=await page.evaluate('window.__sitenavPerf.snapshot()')
-      resource=await page.evaluate("""performance.getEntriesByType('resource').filter(r=>/\\.(splat|ply)(?:$|\\?)/.test(r.name)).map(r=>({name:r.name.split('/').pop().split('?')[0],durationMs:Math.round(r.duration),transferSize:r.transferSize,encodedBodySize:r.encodedBodySize}))""")
-      splat_requests=[x for x in requests if x['method']=='GET' and x['url'].endswith(('.splat','.ply'))]
+      resource=await page.evaluate("""performance.getEntriesByType('resource').filter(r=>/\\.(splat|ksplat|ply)(?:$|\\?)/.test(r.name)).map(r=>({name:r.name.split('/').pop().split('?')[0],durationMs:Math.round(r.duration),transferSize:r.transferSize,encodedBodySize:r.encodedBodySize}))""")
+      splat_requests=[x for x in requests if x['method']=='GET' and x['url'].endswith(('.splat','.ksplat','.ply'))]
       event_by_name={e.get('name'):e for e in snap.get('events',[]) if isinstance(e,dict) and e.get('name')}
       required_readiness=('baseGuideReady','visualReady') + (('splatReady',) if p['expect_splat'] else ())
       missing_readiness=[name for name in required_readiness if not isinstance((event_by_name.get(name) or {}).get('t'),(int,float))]
@@ -117,7 +132,8 @@ async def run_profile(browser,name,p):
         extra=event.get('extra') if isinstance(event.get('extra'),dict) else {}
         splat_timings_ms[label]=extra.get('durationMs')
       if p['expect_splat']:
-        missing_phases=[label for label,value in splat_timings_ms.items() if not isinstance(value,(int,float))]
+        required_phases=['moduleImport','addScene'] if (args.splat_asset or '').lower().endswith('.ksplat') else ['fetch','boundsScan','moduleImport','addScene']
+        missing_phases=[label for label in required_phases if not isinstance(splat_timings_ms.get(label),(int,float))]
         assert not missing_phases, f'missing required splat phase durations: {missing_phases}'
       row.update(status='passed',evidenceKind='synthetic-headless-regression',fullSplatCompletionMetric=('splatReady' if p['expect_splat'] else None),readinessMs=readiness_ms,splatTimingsMs=splat_timings_ms,quality=snap['quality'],device=snap['device'],frames=snap['frames'],splatUpdate=snap['splatUpdate'],longTasks=snap['longTasks'],memory=snap['memory'],renderer=snap['renderer'],asset=snap['asset'],resources=resource,splatGetCount=len(splat_requests),resolutionSwitches=snap['resolutionSwitches'],events=snap['events'])
       assert snap['quality'].get('tier')==p['expect'],(snap['quality'],p['expect'])
