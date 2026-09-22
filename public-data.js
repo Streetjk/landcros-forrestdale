@@ -1,4 +1,20 @@
-export async function loadPublicArray(url, fetchFn = globalThis.fetch) {
+export function isRenderablePoint(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  if (typeof value.id !== 'string' || value.id.trim() === '') return false;
+  if (typeof value.label !== 'string' || value.label.trim() === '') return false;
+  if (typeof value.type !== 'string') return false;
+  const position = value.position3d;
+  if (!position || typeof position !== 'object' || Array.isArray(position)) return false;
+  return Number.isFinite(position.x) && Number.isFinite(position.y) && Number.isFinite(position.z);
+}
+
+export function isRenderableContact(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  return typeof value.id === 'string' && value.id.trim() !== ''
+    && typeof value.name === 'string' && value.name.trim() !== '';
+}
+
+export async function loadPublicArray(url, fetchFn = globalThis.fetch, itemValidator = null) {
   try {
     const response = await fetchFn(url);
     if (!response || !response.ok) {
@@ -8,7 +24,11 @@ export async function loadPublicArray(url, fetchFn = globalThis.fetch) {
     if (!Array.isArray(parsed)) {
       return { data: [], unavailable: true };
     }
-    return { data: parsed, unavailable: false };
+    if (typeof itemValidator !== 'function') {
+      return { data: parsed, unavailable: false };
+    }
+    const data = parsed.filter(itemValidator);
+    return { data, unavailable: data.length !== parsed.length };
   } catch {
     return { data: [], unavailable: true };
   }

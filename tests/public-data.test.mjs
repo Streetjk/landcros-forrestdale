@@ -5,7 +5,7 @@ import { readFile } from 'node:fs/promises';
 const fileUrl = new URL('../public-data.js', import.meta.url);
 const code = await readFile(fileUrl, 'utf8');
 const dataUri = `data:text/javascript;base64,${Buffer.from(code).toString('base64')}`;
-const { loadPublicArray, renderPublicDataNotice } = await import(dataUri);
+const { loadPublicArray, renderPublicDataNotice, isRenderablePoint, isRenderableContact } = await import(dataUri);
 
 test('loadPublicArray - 200 array success', async () => {
   const payload = [{ id: 1, name: 'Main Lobby' }, { id: 2, name: 'North Exit' }];
@@ -128,4 +128,49 @@ test('renderPublicDataNotice - DOM behaviors', () => {
 
   renderPublicDataNotice(container, false);
   assert.equal(container.children.length, 0);
+});
+
+test('render validators filter malformed rows and preserve accepted objects unchanged', async () => {
+  const validPoint = {
+    id: 'point-1', label: 'Gate 1', type: 'drop-off',
+    position3d: { x: 1, y: 2, z: 3 }, sceneId: 'scene-1', createdBy: 'profile-1', contactIds: ['contact-1']
+  };
+  const invalidPoints = [
+    null, [], {},
+    { ...validPoint, id: '   ' },
+    { ...validPoint, label: '' },
+    { ...validPoint, type: null },
+    { ...validPoint, position3d: null },
+    { ...validPoint, position3d: { x: 1, y: 2, z: Number.NaN } },
+  ];
+  const pointPayload = [validPoint, ...invalidPoints];
+  const pointResult = await loadPublicArray('/points', async () => ({ ok: true, json: async () => pointPayload }), isRenderablePoint);
+  assert.deepEqual(pointResult, { data: [validPoint], unavailable: true });
+  assert.equal(pointResult.data[0], validPoint);
+  assert.equal(pointResult.data[0].sceneId, 'scene-1');
+  assert.equal(pointResult.data[0].createdBy, 'profile-1');
+  assert.deepEqual(pointResult.data[0].contactIds, ['contact-1']);
+
+  const validContact = { id: 'contact-1', name: 'Reception', phone: '0000', createdBy: 'profile-1' };
+  const contactPayload = [validContact, null, [], {}, { id: '', name: 'Bad' }, { id: 'c2', name: '   ' }];
+  const contactResult = await loadPublicArray('/contacts', async () => ({ ok: true, json: async () => contactPayload }), isRenderableContact);
+  assert.deepEqual(contactResult, { data: [validContact], unavailable: true });
+  assert.equal(contactResult.data[0], validContact);
+  assert.equal(contactResult.data[0].createdBy, 'profile-1');
+});
+
+test('render validators accept the minimum required contracts', () => {
+  assert.equal(isRenderablePoint({ id: 'p', label: 'Pin', type: '', position3d: { x: 0, y: -1, z: 2.5 } }), true);
+  assert.equal(isRenderableContact({ id: 'c', name: 'Contact' }), true);
+});
+
+test('viewer wires render validators into public arrays and scene pin merge', async () => {
+  const viewer = await readFile(new URL('../viewer3d.js', import.meta.url), 'utf8');
+  assert.match(viewer, /loadPublicArray\('\.\/data\/points\.json', globalThis\.fetch, isRenderablePoint\)/);
+  assert.match(viewer, /loadPublicArray\('\.\/data\/contacts\.json', globalThis\.fetch, isRenderableContact\)/);
+  assert.match(viewer, /rawScenePins\.filter\(isRenderablePoint\)/);
+  assert.match(viewer, /rawSceneContacts\.filter\(isRenderableContact\)/);
+  assert.match(viewer, /sceneDataUnavailable/);
+  assert.match(viewer, /_publicMyPinCode[\s\S]*?scenePins\.find\(p => p\.id === _deepId\)/);
+  assert.doesNotMatch(viewer, /_sceneBundle\?\.pins\?\.find\(p => p\.id === _deepId\)/);
 });

@@ -21,7 +21,7 @@ test('account My Pins require an explicit publish action and use point-qualified
 test('public My Pins viewer consumes only the point-qualified capability and compressed media', () => {
   assert.match(viewer, /_params\.get\('myPin'\)/);
   assert.match(viewer, /\/api\/scenes\/by-code\/\$\{encodeURIComponent\(_publicMyPinCode\)\}\/points\/\$\{encodeURIComponent\(_deepId\)\}/);
-  assert.match(viewer, /_sceneBundle\?\.pins\?\.find\(p => p\.id === _deepId\)/);
+  assert.match(viewer, /scenePins\.find\(p => p\.id === _deepId\)/);
   assert.match(viewer, /buildMyPinPhotoUrl\(_publicMyPinCode, pt\.id, ph\.id\)/);
   assert.match(viewer, /publicMyPin \? compressedUrl : `\$\{compressedUrl\}\?original=1`/);
   assert.match(viewer, /if \(_sceneBundle\?\.scene && _sceneCode && !_publicMyPinCode\) renderSceneStatusBar/);
@@ -43,7 +43,8 @@ test('account-pin editor provides phone override input and viewer displays calla
   // Viewer displays callable phone link using the override
   assert.match(viewer, /pt\.phoneOverride/);
   assert.match(viewer, /displayPhone = \(_publicMyPinCode && pt\.id === _publicMyPinPointId && pt\.phoneOverride\) \? pt\.phoneOverride : c\.phone/);
-  assert.match(viewer, /_allContacts = _sceneBundle\?\.contacts \? \[\.\.\._sceneBundle\.contacts, \.\.\.contacts\] : contacts/);
+  assert.match(viewer, /const sceneContacts = rawSceneContacts\.filter\(isRenderableContact\)/);
+  assert.match(viewer, /_allContacts = \[\.\.\.sceneContacts, \.\.\.contacts\]/);
 
   // Viewer safely sanitizes phone numbers and does not show an empty phone
   assert.match(viewer, /sanitizePhone/);

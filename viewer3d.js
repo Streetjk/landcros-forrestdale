@@ -9,7 +9,7 @@ import { Sky } from 'three/addons/objects/Sky.js';
 import { initComparison, updateComparison, comparisonNeedsRender } from './splat-compare.js';
 import { buildPinUrl, clearPinUrl, buildMyPinShareUrl, buildMyPinPhotoUrl } from './guide-url.js';
 import { showBuildingDetail, sanitizePhone } from './location-details.js';
-import { loadPublicArray, renderPublicDataNotice } from './public-data.js';
+import { loadPublicArray, renderPublicDataNotice, isRenderablePoint, isRenderableContact } from './public-data.js';
 
 // ── Site config (loaded from data/config.json in boot()) ──────────────────
 let _cfg = {};
@@ -3572,19 +3572,23 @@ async function boot() {
   // viewer3d.html: load pins/contacts
   if (!document.getElementById('admin-controls') && _showOverlays) {
   const [pointResult, contactResult] = await Promise.all([
-    loadPublicArray('./data/points.json'),
-    loadPublicArray('./data/contacts.json'),
+    loadPublicArray('./data/points.json', globalThis.fetch, isRenderablePoint),
+    loadPublicArray('./data/contacts.json', globalThis.fetch, isRenderableContact),
   ]);
   const points = pointResult.data;
   const contacts = contactResult.data;
+  const rawScenePins = Array.isArray(_sceneBundle?.pins) ? _sceneBundle.pins : [];
+  const rawSceneContacts = Array.isArray(_sceneBundle?.contacts) ? _sceneBundle.contacts : [];
+  const scenePins = rawScenePins.filter(isRenderablePoint);
+  const sceneContacts = rawSceneContacts.filter(isRenderableContact);
+  const sceneDataUnavailable = scenePins.length !== rawScenePins.length
+    || sceneContacts.length !== rawSceneContacts.length;
   renderPublicDataNotice(document.getElementById('point-list'),
-    pointResult.unavailable || contactResult.unavailable);
-  // Overlay the open scene's pins + contacts on the vanilla base. Scene pins
-  // carry a valid position3d (editor-created); guard defensively anyway.
-  if (_sceneBundle?.pins?.length) {
-    points.push(..._sceneBundle.pins.filter(p => p.position3d));
-  }
-  _allContacts = _sceneBundle?.contacts ? [..._sceneBundle.contacts, ...contacts] : contacts;
+    pointResult.unavailable || contactResult.unavailable || sceneDataUnavailable);
+  // Overlay only render-safe scene rows on the vanilla base. Accepted objects
+  // stay unchanged so ownership/scope metadata remains available downstream.
+  points.push(...scenePins);
+  _allContacts = [...sceneContacts, ...contacts];
 
   // Consume #share=<base64> hash — add the shared pin ephemerally, then select it
   const hashMatch = _publicMyPinCode ? null : window.location.hash.match(/^#share=(.+)$/);
@@ -3649,7 +3653,7 @@ async function boot() {
       // A failed My Pins capability must fail closed rather than falling back to
       // a coincidentally matching base pin ID.
       let _deepPt = _publicMyPinCode
-        ? _sceneBundle?.pins?.find(p => p.id === _deepId) ?? null
+        ? scenePins.find(p => p.id === _deepId) ?? null
         : points.find(p => p.id === _deepId);
       const _deepData = (_sceneCode || _publicMyPinCode) ? null : _params.get('d');
       if (_deepData) {
