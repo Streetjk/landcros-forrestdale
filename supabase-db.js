@@ -108,6 +108,16 @@ function contactToJson(r) {
   };
 }
 
+function publicContactToJson(r) {
+  return {
+    id: r.id,
+    name: r.name,
+    role: r.role,
+    phone: r.phone,
+    active: r.active,
+  };
+}
+
 // ── Points ──────────────────────────────────────────────────────────────────
 // baseOnly (public path): return only vanilla base pins (scene_id IS NULL).
 // Scene-scoped pins never reach the public /api/points route — they load
@@ -170,22 +180,24 @@ async function deletePoint(slug, id, changedBy = null) {
 }
 
 // ── Contacts ──────────────────────────────────────────────────────────────
-// baseOnly (public path): exclude "scene-only" contacts — those referenced
-// ONLY by scene-scoped pins and by no base pin. Contacts have no scene_id of
-// their own (they're referenced by pins' contact_ids[]), so a contact is
-// treated as public if a base pin references it OR no scene pin references it.
-// This keeps scene-created contacts (PII) from leaking via the public
-// /api/contacts route (Fable amendment). The editor passes baseOnly:false.
+// baseOnly is the anonymous public-contact path. A contact is public only when
+// an existing base pin (scene_id IS NULL) explicitly references it. Unreferenced
+// staff-directory rows and scene-only contacts remain staff-only. The public
+// projection also strips email/audit metadata; the editor passes baseOnly:false
+// and receives the existing full staff shape.
 async function getContacts(slug, { baseOnly = false } = {}) {
   const siteId = await getSiteId(slug);
   const sql = baseOnly
-    ? `select * from contacts c where c.site_id = $1 and (
-         exists (select 1 from points p where p.site_id = $1 and p.scene_id is null and c.id = any(p.contact_ids))
-         or not exists (select 1 from points p where p.site_id = $1 and p.scene_id is not null and c.id = any(p.contact_ids))
-       ) order by c.created_at`
+    ? `select c.* from contacts c where c.site_id = $1
+         and exists (
+           select 1 from points p
+            where p.site_id = $1 and p.scene_id is null
+              and c.id = any(p.contact_ids)
+         )
+       order by c.created_at`
     : 'select * from contacts where site_id = $1 order by created_at';
   const { rows } = await _getPool().query(sql, [siteId]);
-  return rows.map(contactToJson);
+  return rows.map(baseOnly ? publicContactToJson : contactToJson);
 }
 
 async function saveContact(slug, contact, changedBy = null) {
@@ -255,7 +267,8 @@ module.exports = {
   j, // exported so other data-access modules (submissions-db.js, events-db.js) don't duplicate it
   appendAudit: _appendAudit, // exported so new modules reuse this instead of a third copy (scene-db.js already has one)
   pointToJson,   // exported so scenes-db.js's by-code bundle returns the exact viewer-expected pin shape
-  contactToJson, // ditto for contacts
+  contactToJson, // full authenticated/staff contact shape
+  publicContactToJson, // anonymous projection: no email/audit metadata
   getPoints,
   savePoint,
   deletePoint,

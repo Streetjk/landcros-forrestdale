@@ -10,7 +10,7 @@ const { Client } = require('pg');
 const uid = n => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 const SITE_A = uid(1), SITE_B = uid(2), OWNER = uid(11), OTHER = uid(12), VIEWER = uid(13), ADMIN = uid(14), OUTSIDER = uid(15);
 const SCENE_A = uid(21), SCENE_A2 = uid(22), SCENE_B = uid(23), SCENE_FOREIGN = uid(24), SCENE_LEGACY = uid(25);
-const CONTACT_A = uid(31), CONTACT_B = uid(32), POINT_A = uid(41), POINT_B = uid(42), POINT_BASE = uid(43), PHOTO = uid(51);
+const CONTACT_A = uid(31), CONTACT_B = uid(32), CONTACT_PUBLIC = uid(33), CONTACT_SCENE_ONLY = uid(34), CONTACT_UNREFERENCED = uid(35), POINT_A = uid(41), POINT_B = uid(42), POINT_BASE = uid(43), PHOTO = uid(51);
 const payload = (id = POINT_A, extra = {}) => ({ id, label: 'Synthetic fixture pin', position3d: { x: 1, y: 2, z: 3 }, ...extra });
 
 test('scene point ownership: actual PostgreSQL and HTTP server', { skip: !process.env.SITENAV_TEST_DATABASE_URL, timeout: 45000 }, async t => {
@@ -139,6 +139,44 @@ test('scene point ownership: actual PostgreSQL and HTTP server', { skip: !proces
       assert.deepEqual(otherSite.body.map(c=>c.id),[CONTACT_B]);
       assert.equal((await request('/api/sites/beta/contacts')).status,403);
     });
+    await t.test('anonymous public contacts expose only base-pin references and strip staff metadata', async () => {
+      const publicPoint = uid(44), sceneOnlyPoint = uid(45);
+      try {
+        await sql.query(
+          `insert into contacts(id,site_id,name,role,phone,email,created_by) values
+             ($1,$4,'Synthetic public','Reception','0000 0000','public@example.invalid','fixture'),
+             ($2,$4,'Synthetic scene only','Workshop','1111 1111','scene@example.invalid','fixture'),
+             ($3,$4,'Synthetic unreferenced','Office','2222 2222','unreferenced@example.invalid','fixture')`,
+          [CONTACT_PUBLIC, CONTACT_SCENE_ONLY, CONTACT_UNREFERENCED, SITE_A]
+        );
+        await sql.query(
+          `insert into points(id,site_id,scene_id,label,position3d,contact_ids) values
+             ($1,$3,null,'Synthetic base contact pin','{"x":0,"y":0,"z":0}',array[$4]::uuid[]),
+             ($2,$3,$5,'Synthetic scene contact pin','{"x":0,"y":0,"z":0}',array[$6]::uuid[])`,
+          [publicPoint, sceneOnlyPoint, SITE_A, CONTACT_PUBLIC, SCENE_A, CONTACT_SCENE_ONLY]
+        );
+
+        const publicContacts = await request('/api/contacts', { actor: null });
+        assert.equal(publicContacts.status, 200);
+        assert.deepEqual(publicContacts.body.map(c => c.id), [CONTACT_PUBLIC]);
+        assert.deepEqual(Object.keys(publicContacts.body[0]).sort(), ['active','id','name','phone','role']);
+        assert.equal(JSON.stringify(publicContacts.body).includes('example.invalid'), false);
+
+        const staffContacts = await request('/api/sites/alpha/contacts');
+        assert.equal(staffContacts.status, 200);
+        for (const id of [CONTACT_PUBLIC, CONTACT_SCENE_ONLY, CONTACT_UNREFERENCED]) {
+          const contact = staffContacts.body.find(c => c.id === id);
+          assert.ok(contact);
+          assert.equal(typeof contact.email, 'string');
+          assert.ok(Object.hasOwn(contact, 'createdBy'));
+          assert.ok(Object.hasOwn(contact, 'createdAt'));
+        }
+      } finally {
+        await sql.query('delete from points where id = any($1::uuid[])', [[publicPoint, sceneOnlyPoint]]);
+        await sql.query('delete from contacts where id = any($1::uuid[])', [[CONTACT_PUBLIC, CONTACT_SCENE_ONLY, CONTACT_UNREFERENCED]]);
+      }
+    });
+
     await t.test('actual scene create/list supports tagged My Pins workspace rediscovery', async () => {
       const initial=await request('/api/sites/alpha/scenes?kind=admin');assert.equal(initial.status,200);
       assert.equal(initial.body.filter(scene=>scene.camera?.purpose==='my-pins-v1').length,0);
