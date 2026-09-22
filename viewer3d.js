@@ -1010,7 +1010,7 @@ function renderSceneStatusBar(code, bundle) {
   if (!bar) {
     bar = document.createElement('div');
     bar.id = 'scene-status-bar';
-    bar.style.cssText = 'position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:41;display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:center;max-width:calc(100vw - 32px);padding:6px 10px 6px 12px;border-radius:12px;background:rgba(8,10,16,0.9);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border:1px solid rgba(255,255,255,0.1);color:#eef0f4;font:500 12px Inter,system-ui,sans-serif;box-shadow:0 4px 16px rgba(0,0,0,0.35);';
+    bar.style.cssText = 'position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:41;display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:center;max-width:calc(100vw - 32px);padding:6px 10px 6px 12px;border-radius:12px;background:rgba(8,10,16,0.9);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border:1px solid rgba(255,255,255,0.1);color:#eef0f4;font:500 12px Inter,system-ui,sans-serif;box-shadow:0 4px 16px rgba(0,0,0,0.35);pointer-events:none;';
     document.body.appendChild(bar);
   }
   bar.replaceChildren();
@@ -1026,14 +1026,14 @@ function renderSceneStatusBar(code, bundle) {
   const btn = (label, onClick, accent) => {
     const b = document.createElement('button');
     b.textContent = label;
-    b.style.cssText = `padding:5px 10px;border-radius:8px;border:1px solid rgba(255,255,255,0.14);background:${accent ? 'rgba(180,83,9,0.35)' : 'rgba(255,255,255,0.06)'};color:#fff;font:600 11px Inter,system-ui,sans-serif;cursor:pointer;min-height:28px;`;
+    b.style.cssText = `padding:5px 10px;border-radius:8px;border:1px solid rgba(255,255,255,0.14);background:${accent ? 'rgba(180,83,9,0.35)' : 'rgba(255,255,255,0.06)'};color:#fff;font:600 11px Inter,system-ui,sans-serif;cursor:pointer;min-height:28px;pointer-events:auto;`;
     b.addEventListener('click', onClick);
     return b;
   };
   if (!signedIn) {
     const a = document.createElement('a');
     a.href = '#'; a.textContent = 'Sign in to update';
-    a.style.cssText = 'color:#93c5fd;font-size:11px;';
+    a.style.cssText = 'color:#93c5fd;font-size:11px;pointer-events:auto;';
     a.addEventListener('click', e => { e.preventDefault(); window._snHazardLoginRequired?.({ name: scene.name, kind: scene.kind }); });
     bar.appendChild(a);
     return;

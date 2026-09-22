@@ -28,3 +28,10 @@ for (const name of htmlFiles) {
     assert.match(html, /\.point-item\s*\{[^}]*width:\s*100%/s);
   });
 }
+
+
+test('scene status chrome passes map taps through while its controls stay interactive', () => {
+  assert.match(viewer, /scene-status-bar[\s\S]*pointer-events:none/);
+  assert.match(viewer, /b\.style\.cssText = `[^`]*pointer-events:auto;/);
+  assert.match(viewer, /a\.style\.cssText = '[^']*pointer-events:auto;'/);
+});

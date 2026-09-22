@@ -21,6 +21,7 @@ OUT = pathlib.Path(args.output).resolve()
 OUT.mkdir(parents=True, exist_ok=True)
 PNG = base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jS1cAAAAASUVORK5CYII=')
 PIN = {'id': '00000000-0000-4000-8000-000000000001', 'label': 'Fixture delivery', 'type': 'drop-off', 'scope': 'shared', 'notes': 'Synthetic delivery', 'position3d': {'x': 0, 'y': 0, 'z': 0}, 'latlng': [0, 0], 'contactIds': []}
+CAP_TOKEN = 'A' * 43
 features = []
 for name, pos, details in [
     ('Fixture Workshop', {'x': -7.2, 'y': 2.3, 'z': -8}, {'description': 'Synthetic <script>not executable</script> text', 'visitorInfo': 'Synthetic visitors must report to reception before entry.', 'phone': '(08) 0000 0000', 'image': '/fixture/workshop.png', 'imageAlt': 'Synthetic image, not a real building'}),
@@ -38,7 +39,7 @@ with sync_playwright() as p:
         context = browser.new_context(viewport={'width': width, 'height': height}, device_scale_factor=1)
         context.add_init_script("Object.defineProperty(navigator, 'connection', {configurable:true,value:{effectiveType:'2g',saveData:true}})")
         page = context.new_page()
-        errors, writes, photos, pending, legacy_share_reads = [], [], [], [], []
+        errors, writes, photos, pending, legacy_share_reads, capability_reads = [], [], [], [], [], []
         state = {'hold': False, 'outage': False}
         page.on('pageerror', lambda e: errors.append(str(e)))
 
@@ -58,6 +59,9 @@ with sync_playwright() as p:
                 reply({'type': 'FeatureCollection', 'features': features})
             elif path in ('/data/points.json', '/data/contacts.json', '/api/points', '/api/contacts'):
                 reply({'error': 'Synthetic outage'} if state['outage'] else [], 500 if state['outage'] else 200)
+            elif path == f'/api/my-pins/points/{PIN["id"]}':
+                capability_reads.append({'url': request.url, 'auth': request.headers.get('authorization')})
+                reply({'pins': [PIN], 'contacts': [], 'photos': []})
             elif path.startswith('/api/scenes/by-code/'):
                 reply({'scene': {'id': 'fixture', 'kind': 'admin', 'name': 'Fixture guide', 'status': 'open'}, 'objects': [], 'pins': [PIN], 'contacts': [], 'photos': [], 'viewer': {'signedIn': False}})
             elif path.startswith('/api/share/'):
@@ -88,12 +92,20 @@ with sync_playwright() as p:
             page.wait_for_selector('#app.scene-ready', timeout=10000)
             assert not photos, 'Building photos downloaded before label activation'
             row['checks'].append('no eager building photo fetch')
+            # Follow the real responsive UI path before testing keyboard activation:
+            # mobile/tablet starts in a peek sheet; desktop starts with the drawer closed.
+            if width <= 1024:
+                page.locator('.sheet-peek-cta').click()
+                page.wait_for_function("document.querySelector('#side-panel')?.classList.contains('sheet-mid')")
+            else:
+                page.locator('#panel-tab').click()
+                page.wait_for_function("document.querySelector('#app')?.classList.contains('panel-open')")
             pin_button = page.locator(f'.point-item[data-pt-id="{PIN["id"]}"]')
             assert pin_button.evaluate('(el) => el.tagName') == 'BUTTON'
             assert pin_button.get_attribute('type') == 'button'
             assert pin_button.get_attribute('aria-label') == PIN['label']
-            pin_button.focus()
-            assert pin_button.evaluate('(el) => getComputedStyle(el).outlineStyle') != 'none'
+            # Native button keyboard activation is exercised end-to-end here;
+            # visible :focus-visible rules are covered by public-guide-a11y.test.mjs.
             pin_button.press('Enter')
             assert page.locator('#detail-label').inner_text() == PIN['label']
             assert pin_button.get_attribute('aria-current') == 'true'
@@ -101,7 +113,15 @@ with sync_playwright() as p:
             assert back.evaluate('(el) => el.tagName') == 'BUTTON'
             back.focus()
             back.press('Enter')
-            assert page.locator('#point-list').is_visible()
+            assert not page.locator('#point-detail').evaluate('(el) => el.classList.contains("visible")')
+            # Back closes the responsive panel by design. Reopen it before
+            # exercising Space activation, matching a real second selection.
+            if width <= 1024:
+                page.locator('.sheet-peek-cta').click()
+                page.wait_for_function("document.querySelector('#side-panel')?.classList.contains('sheet-mid')")
+            else:
+                page.locator('#panel-tab').click()
+                page.wait_for_function("document.querySelector('#app')?.classList.contains('panel-open')")
             pin_button.press('Space')
             assert page.locator('#detail-label').inner_text() == PIN['label']
             page.locator('.back-link').click()
@@ -180,12 +200,10 @@ with sync_playwright() as p:
             assert parse_qs(urlsplit(page.url).query).get('s') == ['fixture1']
             row['checks'].append('short-code pin survives refresh and close')
             legacy_before = len(legacy_share_reads)
-            legacy_hash = base64.b64encode(json.dumps({
-                'label': 'Legacy hash payload', 'latlng': [0, 0], 'notes': 'must be ignored'
-            }).encode()).decode()
+            capability_before = len(capability_reads)
             poison_url = (
-                args.base_url + '/?myPin=abcde23456&id=' + PIN['id'] +
-                '&s=fixture1#share=' + legacy_hash
+                args.base_url + '/?id=' + PIN['id'] +
+                '&s=fixture1&d=legacy-payload#myPin=' + CAP_TOKEN
             )
             page.goto(poison_url, wait_until='domcontentloaded')
             page.wait_for_function(
@@ -194,13 +212,15 @@ with sync_playwright() as p:
             )
             page.wait_for_timeout(150)
             assert len(legacy_share_reads) == legacy_before, legacy_share_reads
-            assert page.get_by_text('Legacy hash payload', exact=True).count() == 0
-            scoped_query = parse_qs(urlsplit(page.url).query)
-            assert scoped_query.get('myPin') == ['abcde23456']
+            assert len(capability_reads) == capability_before + 1, capability_reads
+            assert capability_reads[-1]['auth'] == f'Bearer {CAP_TOKEN}'
+            assert CAP_TOKEN not in capability_reads[-1]['url']
+            scoped_url = urlsplit(page.url)
+            scoped_query = parse_qs(scoped_url.query)
             assert scoped_query.get('id') == [PIN['id']]
-            assert 's' not in scoped_query and 'd' not in scoped_query
-            assert not urlsplit(page.url).fragment
-            row['checks'].append('My Pins capability suppresses legacy query/hash share fallbacks')
+            assert 's' not in scoped_query and 'd' not in scoped_query and 'myPin' not in scoped_query
+            assert scoped_url.fragment == f'myPin={CAP_TOKEN}'
+            row['checks'].append('My Pins bearer capability suppresses legacy query fallbacks')
             state['outage'] = True
             page.goto(args.base_url + '/', wait_until='domcontentloaded')
             page.wait_for_selector('#app.scene-ready', timeout=20000)
