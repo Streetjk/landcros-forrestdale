@@ -105,7 +105,21 @@ async def run_profile(browser,name,p):
       snap=await page.evaluate('window.__sitenavPerf.snapshot()')
       resource=await page.evaluate("""performance.getEntriesByType('resource').filter(r=>/\\.(splat|ply)(?:$|\\?)/.test(r.name)).map(r=>({name:r.name.split('/').pop().split('?')[0],durationMs:Math.round(r.duration),transferSize:r.transferSize,encodedBodySize:r.encodedBodySize}))""")
       splat_requests=[x for x in requests if x['method']=='GET' and x['url'].endswith(('.splat','.ply'))]
-      row.update(status='passed',quality=snap['quality'],device=snap['device'],frames=snap['frames'],splatUpdate=snap['splatUpdate'],longTasks=snap['longTasks'],memory=snap['memory'],renderer=snap['renderer'],asset=snap['asset'],resources=resource,splatGetCount=len(splat_requests),resolutionSwitches=snap['resolutionSwitches'],events=snap['events'])
+      event_by_name={e.get('name'):e for e in snap.get('events',[]) if isinstance(e,dict) and e.get('name')}
+      required_readiness=('baseGuideReady','visualReady') + (('splatReady',) if p['expect_splat'] else ())
+      missing_readiness=[name for name in required_readiness if not isinstance((event_by_name.get(name) or {}).get('t'),(int,float))]
+      assert not missing_readiness, f'missing required readiness events: {missing_readiness}'
+      readiness_ms={name:(event_by_name.get(name) or {}).get('t') for name in ('baseGuideReady','visualReady','splatReady')}
+      phase_names={'fetch':'splatFetch:end','boundsScan':'splatBoundsScan:end','moduleImport':'splatModuleImport:end','addScene':'splatAddScene:end'}
+      splat_timings_ms={}
+      for label,event_name in phase_names.items():
+        event=event_by_name.get(event_name) or {}
+        extra=event.get('extra') if isinstance(event.get('extra'),dict) else {}
+        splat_timings_ms[label]=extra.get('durationMs')
+      if p['expect_splat']:
+        missing_phases=[label for label,value in splat_timings_ms.items() if not isinstance(value,(int,float))]
+        assert not missing_phases, f'missing required splat phase durations: {missing_phases}'
+      row.update(status='passed',evidenceKind='synthetic-headless-regression',fullSplatCompletionMetric=('splatReady' if p['expect_splat'] else None),readinessMs=readiness_ms,splatTimingsMs=splat_timings_ms,quality=snap['quality'],device=snap['device'],frames=snap['frames'],splatUpdate=snap['splatUpdate'],longTasks=snap['longTasks'],memory=snap['memory'],renderer=snap['renderer'],asset=snap['asset'],resources=resource,splatGetCount=len(splat_requests),resolutionSwitches=snap['resolutionSwitches'],events=snap['events'])
       assert snap['quality'].get('tier')==p['expect'],(snap['quality'],p['expect'])
       if p['expect_splat'] is False:
         assert snap['quality'].get('skipSplat') is True

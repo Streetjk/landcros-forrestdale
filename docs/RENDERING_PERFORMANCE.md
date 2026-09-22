@@ -38,6 +38,8 @@ The probe records: device-tier inputs, effective connection/Save-Data state, ass
 
 `tests/render-performance.py` runs the **real viewer** under synthetic low-end/mobile hints, CPU throttling and network throttling, then collects the same `?perf=1` data. It is for request/tiering/startup/regression evidence. Headless Chromium/SwiftShader is **not** a physical-phone GPU benchmark and its FPS must never be reported as real phone FPS.
 
+The harness writes explicit top-level `readinessMs` (`baseGuideReady`, `visualReady`, `splatReady`) and `splatTimingsMs` fields. On the progressive vanilla public route, `visualReady` means the base guide is usable; **full-splat candidate comparisons must use `splatReady`**, not `visualReady`. Output is labelled `synthetic-headless-regression` to keep that provenance visible in downstream summaries.
+
 Example:
 
 ```sh
@@ -72,13 +74,13 @@ This is a safe default optimization because pixel dimensions and map geometry ar
 
 Current preferred model: `site-lite.splat`, **8,743,168 bytes** (~273k 32-byte splat records).
 
-In the synthetic low-tier 8 Mbps profile after the satellite reduction, one representative trace recorded approximately:
+In the synthetic low-tier 8 Mbps profile after the satellite reduction, one representative **pre-progressive-reveal** trace recorded approximately:
 
 - splat transfer: **8.9 s**
 - bounds scan: **24 ms** under 4× CPU throttling
 - splat module import: **0.26 s**
 - `addSplatScene`: **2.49 s**
-- `visualReady`: **13.3 s**
+- then-`visualReady` (which still waited for the full splat): **13.3 s**
 
 The bounds scan is therefore not the first optimization target. Model bytes, library/scene construction and moving GPU cost matter much more. A prior PNG run observed ~16.8 s visual-ready, but exact full-path deltas are affected by parallel downloads/cache/network-emulation variation and should not be attributed solely to the satellite change.
 
@@ -132,7 +134,7 @@ These are engineering targets, not current-product claims:
 
 1. **Real-phone DPR A/B.** Validate 1.0 vs 0.75 moving DPR before any default change.
 2. **Smaller splat candidate.** Produce a reduced `site-lite` variant and compare site recognition, label alignment, load time and physical-device motion performance. Do not replace the current model solely on file size.
-3. **Earlier usable UI while 3D finishes.** Test revealing the base map/labels/controls before splat completion while keeping a non-blocking “3D model loading” indicator. Preserve intro/camera behavior and test slow/error fallback.
+3. **Earlier usable UI while 3D finishes — implemented on the development branch.** The vanilla public route can reveal the base guide while the splat continues in the background; deep/share/debug routes remain blocking. Keep qualifying this behavior, but use `splatReady` for full-model timing.
 4. **Static splat-update experiment.** Verify whether `GaussianSplats3D.Viewer.update()` can be skipped when camera/splat state is unchanged without stale sorting or visual artifacts. Only then reduce idle updates.
 5. **Model-format/streaming research.** SOG/streamed splats or hierarchical LOD may be valuable when multiple/larger sites justify the complexity. This is an experiment, not a reason to rewrite the current app.
 6. **Measure satellite/other texture GPU memory.** The WebP reduces transfer bytes but not decoded texture dimensions/GPU memory. If physical memory pressure remains high, test a separate lower-resolution texture for low-tier devices.
@@ -173,18 +175,36 @@ Filtering through alpha 96 did not materially change the raw XYZ extent in this 
 
 ### Three-run constrained comparison
 
-The table below reports medians from three synthetic `low-4g` runs (4× CPU slowdown, 80 ms synthetic latency, 8 Mbps), using the real viewer and the same scripted gesture. These numbers are regression evidence only, not physical-phone FPS.
+The table below reports medians from three synthetic `low-4g` runs (4× CPU slowdown, 80 ms synthetic latency, 8 Mbps), using the real viewer and the same scripted gesture. These runs were captured **before progressive base-guide reveal was implemented**, when `visualReady` still waited for the full splat. These numbers are regression evidence only, not physical-phone FPS.
 
 | Metric | Baseline 8.74 MB | alpha ≥80 5.01 MB | alpha ≥96 4.55 MB |
 | --- | ---: | ---: | ---: |
 | Splat transfer | 8.87 s | 5.24 s | 4.80 s |
 | `addSplatScene` | 2.52 s | 1.72 s | 1.59 s |
-| Visual ready | **13.32 s** | **8.79 s** | **8.14 s** |
+| Pre-progressive full-model ready (then `visualReady`) | **13.32 s** | **8.79 s** | **8.14 s** |
 | Moving rendered FPS | 10.3 | 14.6 | 15.3 |
 | Moving p95 | 48.1 ms | 39.0 ms | 39.2 ms |
 | Long-task total | 3.77 s | 2.47 s | 2.24 s |
 
 The alpha-96 candidate therefore currently leads the **synthetic** startup/size trade-off. It is not yet the preferred production asset.
+
+
+### Requalification after progressive base-guide reveal
+
+After the vanilla public route gained progressive base-guide reveal, the same low-4G synthetic comparison was repeated on development head `f0b70fb` with the updated harness. Three-run medians are below. `visualReady` is intentionally **not** the full-model metric anymore; `splatReady` is.
+
+| Metric | Baseline 8.74 MB | alpha ≥80 5.01 MB | alpha ≥96 4.55 MB |
+| --- | ---: | ---: | ---: |
+| Base guide ready | 0.78 s | 0.70 s | 0.70 s |
+| `visualReady` (base guide) | 2.23 s | 2.15 s | 2.14 s |
+| **`splatReady` (full model)** | **12.22 s** | **7.45 s** | **6.84 s** |
+| Splat transfer | 8.92 s | 5.27 s | 4.84 s |
+| `addSplatScene` | 2.65 s | 1.77 s | 1.58 s |
+| Moving rendered FPS | 5.1 | 7.4 | 7.6 |
+| Moving p95 | 35.1 ms | 35.7 ms | 37.4 ms |
+| Long-task total | 3.53 s | 2.50 s | 2.41 s |
+
+These remain **headless/SwiftShader regression measurements**, not phone FPS. Browser memory was not exposed. A repeat baseline fixed-camera capture itself varied at the exit preset by about 0.44% of pixels above an absolute RGB difference of 16, roughly the same scale as the candidate-vs-baseline exit differences. That makes the headless pixel comparison a gross-regression check, not evidence that alpha-80 or alpha-96 is visually indistinguishable on a phone. The default asset therefore remains unchanged; alpha-80 is the conservative first physical-device comparison and alpha-96 remains the smaller synthetic-performance candidate.
 
 ### Fixed-camera visual comparison
 
