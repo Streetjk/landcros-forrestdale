@@ -50,6 +50,11 @@ async def run_profile(browser,name,p):
     context=await browser.new_context(viewport={'width':390,'height':844},device_scale_factor=p['dpr'])
     await context.add_init_script(init_script(p))
     page=await context.new_page();errors=[];requests=[]
+    async def suppress_visit_write(route):
+      # Keep the local performance harness read-only: preview-server persists
+      # /api/visit into fixture analytics otherwise.
+      await route.fulfill(status=200,content_type='application/json',body='{"ok":true}')
+    await page.route('**/api/visit',suppress_visit_write)
     if args.splat_asset:
       async def config_override(route):
         cfg=json.loads(json.dumps(CONFIG));cfg.setdefault('assets',{})['splat']=[args.splat_asset]
@@ -73,6 +78,14 @@ async def run_profile(browser,name,p):
       await page.goto(args.base_url+query,wait_until='domcontentloaded',timeout=30000)
       await page.wait_for_function("window.__sitenavPerf && typeof window.__sitenavPerf.snapshot==='function'",timeout=15000)
       await page.wait_for_selector('#app.scene-ready',timeout=65000)
+      if p['expect_splat']:
+        # Progressive public reveal can make the base guide usable before the
+        # Gaussian splat is complete. Full-splat measurements must still wait
+        # for the true splatReady perf mark.
+        await page.wait_for_function(
+          "window.__sitenavPerf.snapshot().events.some(e => e.name === 'splatReady')",
+          timeout=65000,
+        )
       await page.wait_for_timeout(1200)
       if args.capture_presets:
         asset_tag=(pathlib.PurePosixPath(args.splat_asset).name if args.splat_asset else 'baseline').replace('.splat','')

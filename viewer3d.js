@@ -171,6 +171,19 @@ function _modelById(id) { return (_cfg.models || []).find(m => m.id === id); }
 function _isComparisonOnly() {
   return _cfg.scene?.type === 'comparison-only' || _cfg.comparison?.mode === 'only';
 }
+
+// Progressive base-guide reveal is deliberately limited to the plain public
+// viewer. Any unknown/special query capability fails closed; only the local
+// performance probe parameters are allowed through.
+function _isVanillaProgressiveRoute() {
+  if (_Q.skipSplat || _debugMode || _isComparisonOnly() || _cfg.comparison?.enabled) return false;
+  const allowedParams = new Set(['perf', 'perfHud', 'dragDpr']);
+  for (const key of _params.keys()) {
+    if (!allowedParams.has(key)) return false;
+  }
+  const hash = window.location.hash || '';
+  return hash === '' || hash === '#map';
+}
 function _resolveModels(route) {
   const ids = route.models.length ? route.models
     : _cfg.comparison?.defaultModelIds || [];
@@ -459,6 +472,7 @@ function _updateCamHud() {
 
 let _splatViewer = null;
 let _introPlayed = false;
+let _suppressLateSplatIntro = false;
 
 // Idle throttle: render at full rate when active, drop to ~10 fps when still.
 const _prevCamPos = new THREE.Vector3();
@@ -3107,8 +3121,19 @@ function _doIntroAnimation() {
 }
 
 async function loadSplatBackground(opts = {}) {
-  const { onProgress } = opts;
-  if (_Q.skipSplat) return; // save-data / 2G: skip the large splat download entirely
+  const { onProgress, onStatus } = opts;
+  let terminalSent = false;
+  const sendStatus = (status) => {
+    if (terminalSent) return;
+    terminalSent = true;
+    if (typeof onStatus === 'function') {
+      try { onStatus(status); } catch { /* status observers must not break loading */ }
+    }
+  };
+  if (_Q.skipSplat) {
+    sendStatus('unavailable');
+    return 'unavailable'; // save-data / 2G: intentionally skip the large splat download
+  }
   const _splatAsset = _cfg.assets?.splat;
   const candidates = Array.isArray(_splatAsset) ? _splatAsset
                    : typeof _splatAsset === 'string' ? [_splatAsset]
@@ -3120,7 +3145,10 @@ async function loadSplatBackground(opts = {}) {
       if (r.ok) { splatPath = path; _perf.asset({ path, phase: 'select', status: 'ok' }); break; }
     } catch {}
   }
-  if (!splatPath) return;
+  if (!splatPath) {
+    sendStatus('unavailable');
+    return 'unavailable';
+  }
 
   const ext  = splatPath.split('.').pop().toUpperCase();
   const bar  = document.getElementById('splat-bar');
@@ -3138,7 +3166,10 @@ async function loadSplatBackground(opts = {}) {
     if (!onProgress && msg) msg.textContent = `Scanning ${ext}…`;
     let _endSplatFetch = null;
     if (ext === 'SPLAT') _endSplatFetch = _perf.begin('splatFetch', { asset: splatPath.split('/').pop() });
-    rawBuf = ext === 'SPLAT' ? await fetch(splatPath).then(r => r.arrayBuffer()) : null;
+    rawBuf = ext === 'SPLAT' ? await fetch(splatPath).then(r => {
+      if (!r.ok) throw new Error('3D model fetch failed');
+      return r.arrayBuffer();
+    }) : null;
     if (_endSplatFetch) {
       _endSplatFetch({ bytes: rawBuf?.byteLength ?? 0 });
       _perf.asset({ path: splatPath, bytes: rawBuf?.byteLength ?? null, phase: 'fetched', status: 'ok' });
@@ -3271,15 +3302,11 @@ async function loadSplatBackground(opts = {}) {
     controls.minDistance = 1;
     controls.maxDistance = 100;
 
-    if (onProgress) {
-      onProgress(100);
-      if (!_introPlayed) _doIntroAnimation();
-    } else {
-      _doIntroAnimation();
-    }
+    if (onProgress) onProgress(100);
+    if (!_suppressLateSplatIntro) _doIntroAnimation();
 
     if (!onProgress) {
-      if (msg) msg.textContent = 'Splat ready';
+      if (msg) msg.textContent = '3D model ready';
       if (bar) bar.style.width = '100%';
       setTimeout(() => { if (wrap) wrap.style.display = 'none'; }, 1200);
     }
@@ -3294,13 +3321,16 @@ async function loadSplatBackground(opts = {}) {
         if (_planeGroup) _planeGroup.visible = true;
       });
     }
-    return;
+    sendStatus('ready');
+    return 'ready';
   } catch (err) {
     console.warn('Splat load failed:', err);
     if (!onProgress) {
-      if (msg) msg.textContent = `Splat error: ${err.message}`;
+      if (msg) msg.textContent = '3D model unavailable';
       setTimeout(() => { if (wrap) wrap.style.display = 'none'; }, 3000);
     }
+    sendStatus('error');
+    return 'error';
   }
 }
 
@@ -3353,19 +3383,56 @@ async function boot() {
   const _route = _parseRoute();
   const _compOnly = _isComparisonOnly();
   const _showOverlays = _cfg.scene?.showSiteOverlays !== false && !_compOnly;
+  const _progressivePublic = !_compOnly && _isVanillaProgressiveRoute();
 
-  // Start splat download in parallel while scene loads.
-  // onProgress only writes to the bar once scene has advanced it to ≥55%.
+  let _splatStatus = null;
+  let _splatPct = 0;
+  let _progressiveRevealed = false;
+  let _loadingPhaseActive = true;
+  let _splatPillTimer = null;
+  const _showSplatPill = (message, pct = _splatPct, hideAfter = 0) => {
+    const wrap = document.getElementById('splat-progress');
+    const bar = document.getElementById('splat-bar');
+    const msg = document.getElementById('splat-msg');
+    if (!wrap) return;
+    if (_splatPillTimer) { clearTimeout(_splatPillTimer); _splatPillTimer = null; }
+    wrap.style.display = 'flex';
+    if (bar) bar.style.width = `${Math.max(0, Math.min(100, pct))}%`;
+    if (msg) msg.textContent = message;
+    if (hideAfter > 0) {
+      _splatPillTimer = setTimeout(() => { wrap.style.display = 'none'; }, hideAfter);
+    }
+  };
+  const _showSplatTerminal = (status) => {
+    if (!_progressiveRevealed) return;
+    if (status === 'ready') _showSplatPill('3D model ready', 100, 1200);
+    else if (status === 'error' || status === 'unavailable') _showSplatPill('3D model unavailable', _splatPct, 3000);
+  };
+
+  // Start splat download in parallel while scene loads. Progressive public
+  // reveal may hand later progress to the small in-view pill.
   _perf.mark('coreSceneBuildStart');
   const splatPromise = (!_Q.skipSplat && !_compOnly) ? loadSplatBackground({
     onProgress: (pct) => {
-      const current = parseFloat(document.getElementById('load-fill').style.width) || 0;
+      _splatPct = Math.max(_splatPct, Math.min(100, Math.round(pct)));
+      if (_progressiveRevealed) {
+        _showSplatPill(`Loading 3D model… ${_splatPct}%`, _splatPct);
+        return;
+      }
+      if (!_loadingPhaseActive) return;
+      const fill = document.getElementById('load-fill');
+      const current = parseFloat(fill?.style.width) || 0;
       if (current >= 55) {
-        document.getElementById('load-fill').style.width = (55 + Math.round(pct * 0.44)) + '%';
-        document.getElementById('load-msg').textContent = `Loading 3D model… ${pct}%`;
+        if (fill) fill.style.width = (55 + Math.round(_splatPct * 0.44)) + '%';
+        const msg = document.getElementById('load-msg');
+        if (msg) msg.textContent = `Loading 3D model… ${_splatPct}%`;
       }
     },
-  }) : Promise.resolve();
+    onStatus: (status) => {
+      _splatStatus = status;
+      _showSplatTerminal(status);
+    },
+  }) : Promise.resolve('unavailable');
 
   document.getElementById('load-msg').textContent = 'Loading site data…';
 
@@ -3391,11 +3458,31 @@ async function boot() {
   _redrawTraffic();
   if (_debugMode) _initEditorUI();
 
-  // Hand bar to splat/comparison phase (55–99%) then wait up to 30 s.
+  _perf.mark('baseGuideReady');
+  _perf.sampleMemory('base-guide-ready');
+
+  // Hand bar to splat/comparison phase (55–99%). Plain public visits can now
+  // reveal the usable base guide while the 3D model continues in background.
   if (!_Q.skipSplat && !_compOnly) {
     document.getElementById('load-fill').style.width = '55%';
     document.getElementById('load-msg').textContent = 'Loading 3D model…';
-    await Promise.race([splatPromise, new Promise(r => setTimeout(r, 30000))]);
+    if (_progressivePublic && _splatStatus !== 'ready') {
+      _progressiveRevealed = true;
+      _loadingPhaseActive = false;
+      _suppressLateSplatIntro = true;
+      if (_splatStatus === 'error' || _splatStatus === 'unavailable') {
+        _showSplatTerminal(_splatStatus);
+      } else {
+        _showSplatPill(`Loading 3D model… ${_splatPct}%`, _splatPct);
+      }
+    } else {
+      const waitResult = await Promise.race([
+        splatPromise.then(() => 'settled'),
+        new Promise(r => setTimeout(() => r('timeout'), 30000)),
+      ]);
+      if (waitResult === 'timeout') _suppressLateSplatIntro = true;
+      _loadingPhaseActive = false;
+    }
   } else if (_compOnly) {
     document.getElementById('load-fill').style.width = '55%';
     document.getElementById('load-msg').textContent = 'Loading comparison…';
@@ -3422,10 +3509,12 @@ async function boot() {
   document.getElementById('loading').classList.add('done');
   setTimeout(() => {
     document.getElementById('app')?.classList.add('scene-ready');
+    // visualReady is the visible/usable guide milestone. Full 3D readiness
+    // remains the separate splatReady mark used by the performance harness.
     _perf.mark('visualReady');
     _perf.sampleMemory('visual-ready');
     _perf.refreshHud();
-    _doIntroAnimation();
+    if (!_suppressLateSplatIntro) _doIntroAnimation();
     window._updateCamPresetsBottom?.();
   }, 700);
 
