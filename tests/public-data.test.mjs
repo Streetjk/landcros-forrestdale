@@ -174,3 +174,40 @@ test('viewer wires render validators into public arrays and scene pin merge', as
   assert.match(viewer, /_publicMyPinMode[\s\S]*?scenePins\.find\(p => p\.id === _deepId\)/);
   assert.doesNotMatch(viewer, /_sceneBundle\?\.pins\?\.find\(p => p\.id === _deepId\)/);
 });
+
+test('renderPublicDataNotice accepts a generic scoped-guide message without duplicating notices', () => {
+  class FakeElement {
+    constructor(tagName, ownerDocument) {
+      this.tagName = tagName;
+      this.ownerDocument = ownerDocument;
+      this.attributes = new Map();
+      this.children = [];
+      this.className = '';
+      this.textContent = '';
+    }
+    setAttribute(name, val) { this.attributes.set(name, String(val)); }
+    appendChild(child) { this.children.push(child); child.parentElement = this; return child; }
+    querySelector(selector) {
+      if (selector === '[data-public-data-notice]') {
+        return this.children.find(c => c.attributes.has('data-public-data-notice')) || null;
+      }
+      return null;
+    }
+    remove() {
+      if (!this.parentElement) return;
+      const i = this.parentElement.children.indexOf(this);
+      if (i !== -1) this.parentElement.children.splice(i, 1);
+    }
+  }
+  const fakeDoc = { createElement: tag => new FakeElement(tag, fakeDoc) };
+  const container = new FakeElement('div', fakeDoc);
+  const message = 'This shared guide is temporarily unavailable. The site map is still available.';
+
+  renderPublicDataNotice(container, true, message);
+  assert.equal(container.children.length, 1);
+  assert.equal(container.children[0].textContent, message);
+
+  renderPublicDataNotice(container, true, message);
+  assert.equal(container.children.length, 1);
+  assert.equal(container.children[0].textContent, message);
+});

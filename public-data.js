@@ -34,7 +34,7 @@ export async function loadPublicArray(url, fetchFn = globalThis.fetch, itemValid
   }
 }
 
-export function renderPublicDataNotice(container, unavailable) {
+export function renderPublicDataNotice(container, unavailable, message = null) {
   if (!container) {
     return;
   }
@@ -57,6 +57,8 @@ export function renderPublicDataNotice(container, unavailable) {
   notice.className = 'public-data-notice';
   notice.setAttribute('role', 'status');
   notice.setAttribute('data-public-data-notice', '');
-  notice.textContent = 'Some shared locations or contacts are temporarily unavailable. The site map is still available.';
+  notice.textContent = typeof message === 'string' && message.trim()
+    ? message.trim()
+    : 'Some shared locations or contacts are temporarily unavailable. The site map is still available.';
   container.appendChild(notice);
 }

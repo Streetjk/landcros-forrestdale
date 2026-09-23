@@ -3675,20 +3675,43 @@ async function boot() {
   let _sceneBundle = null;
   const _sceneCode = _params.get('scene');
   const _deepId = _params.get('id');
+  // A scoped share must never silently look like a successful vanilla guide.
+  // Keep the base site usable, but remember resolution failure so the public
+  // panel can say the requested shared guide is unavailable. Invalid My Pin
+  // fragments fail closed without making a capability request.
+  let _scopedGuideUnavailable = _publicMyPinMode && !_publicMyPinActive;
   if (_publicMyPinActive && _deepId && !document.getElementById('add-label-btn')) {
-    _sceneBundle = await fetch(`/api/my-pins/points/${encodeURIComponent(_deepId)}`, {
-      headers: { Authorization: `Bearer ${_publicMyPinToken}` },
-      cache: 'no-store', referrerPolicy: 'no-referrer'
-    }).then(r => r.ok ? r.json() : null).catch(() => null);
+    try {
+      const response = await fetch(`/api/my-pins/points/${encodeURIComponent(_deepId)}`, {
+        headers: { Authorization: `Bearer ${_publicMyPinToken}` },
+        cache: 'no-store', referrerPolicy: 'no-referrer'
+      });
+      if (response.ok) {
+        _sceneBundle = await response.json().catch(() => null);
+        _scopedGuideUnavailable = !_sceneBundle || typeof _sceneBundle !== 'object' || Array.isArray(_sceneBundle);
+      } else {
+        _scopedGuideUnavailable = true;
+      }
+    } catch {
+      _scopedGuideUnavailable = true;
+    }
   } else if (_sceneCode && !_publicMyPinMode && !document.getElementById('add-label-btn')) {
-    _sceneBundle = await fetch(`/api/scenes/by-code/${encodeURIComponent(_sceneCode)}`)
-      .then(async r => {
-        if (r.ok) return r.json();
+    try {
+      const response = await fetch(`/api/scenes/by-code/${encodeURIComponent(_sceneCode)}`);
+      if (response.ok) {
+        _sceneBundle = await response.json().catch(() => null);
+        _scopedGuideUnavailable = !_sceneBundle || typeof _sceneBundle !== 'object' || Array.isArray(_sceneBundle);
+      } else if (response.status === 401) {
         // Hazard report links need an @hcma.com.au session: hand off to the
         // page's login gate (index.html), which reloads once signed in.
-        if (r.status === 401) { const d = await r.json().catch(() => ({})); window._snHazardLoginRequired?.(d); }
-        return null;
-      }).catch(() => null);
+        const d = await response.json().catch(() => ({}));
+        window._snHazardLoginRequired?.(d);
+      } else {
+        _scopedGuideUnavailable = true;
+      }
+    } catch {
+      _scopedGuideUnavailable = true;
+    }
   }
   _scenePhotos = _sceneBundle?.photos ?? [];
   if (_sceneBundle?.objects) renderSceneWidgets(_sceneBundle.objects);
@@ -3709,8 +3732,13 @@ async function boot() {
   const sceneContacts = rawSceneContacts.filter(isRenderableContact);
   const sceneDataUnavailable = scenePins.length !== rawScenePins.length
     || sceneContacts.length !== rawSceneContacts.length;
-  renderPublicDataNotice(document.getElementById('point-list'),
-    pointResult.unavailable || contactResult.unavailable || sceneDataUnavailable);
+  renderPublicDataNotice(
+    document.getElementById('point-list'),
+    _scopedGuideUnavailable || pointResult.unavailable || contactResult.unavailable || sceneDataUnavailable,
+    _scopedGuideUnavailable
+      ? 'This shared guide is temporarily unavailable. The site map is still available.'
+      : null
+  );
   // Overlay only render-safe scene rows on the vanilla base. Accepted objects
   // stay unchanged so ownership/scope metadata remains available downstream.
   points.push(...scenePins);
