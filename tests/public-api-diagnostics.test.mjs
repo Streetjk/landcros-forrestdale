@@ -138,3 +138,45 @@ test('actual HTTP point/contact GET failures expose matching correlation IDs and
   assert.match(output, /\[public-data\].*"route":"GET-api-points"/);
   assert.match(output, /\[public-data\].*"route":"GET-api-contacts"/);
 });
+
+
+test('unconfigured public point/contact GETs use the same generic correlated failure contract', async (t) => {
+  const port = await getFreePort();
+  const origin = `http://127.0.0.1:${port}`;
+  const env = {
+    ...process.env,
+    PORT: String(port),
+    SITE: 'landcros',
+    PUBLIC_BASE_URL: origin,
+  };
+  delete env.SUPABASE_DB_URL;
+  const child = spawn(process.execPath, ['server.js'], {
+    cwd: new URL('..', import.meta.url),
+    env,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  let output = '';
+  child.stdout.setEncoding('utf8');
+  child.stderr.setEncoding('utf8');
+  child.stdout.on('data', chunk => { output += chunk; });
+  child.stderr.on('data', chunk => { output += chunk; });
+  t.after(() => { if (child.exitCode === null) child.kill('SIGTERM'); });
+
+  await waitUntilReady(origin, child);
+  const ids = [];
+  for (const path of ['/api/points', '/api/contacts']) {
+    const response = await fetch(`${origin}${path}`, { signal: AbortSignal.timeout(3000) });
+    const body = await response.json();
+    assert.equal(response.status, 500);
+    assert.equal(response.headers.get('access-control-allow-origin'), '*');
+    assert.equal(response.headers.get('x-request-id'), body.requestId);
+    assert.equal(body.error, 'PUBLIC_DATA_UNAVAILABLE');
+    assert.equal(JSON.stringify(body).includes('SUPABASE_DB_URL'), false);
+    ids.push(body.requestId);
+  }
+  assert.notEqual(ids[0], ids[1]);
+  await new Promise(resolve => setTimeout(resolve, 50));
+  assert.equal(output.includes('SUPABASE_DB_URL'), false);
+  assert.match(output, /\[public-data\].*"route":"GET-api-points".*"errorKind":"database-configuration"/);
+  assert.match(output, /\[public-data\].*"route":"GET-api-contacts".*"errorKind":"database-configuration"/);
+});

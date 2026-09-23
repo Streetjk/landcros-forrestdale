@@ -1494,11 +1494,16 @@ const server = http.createServer((req, res) => {
   // data/contacts.json files); writes require an editor+ session on SITE
   // (see _requireRole) — replaces the old shared-secret write gate.
   if (pathname === '/api/points' && (req.method === 'GET' || req.method === 'POST')) {
-    if (!sdb.isConfigured()) {
-      res.writeHead(503, { 'Content-Type': 'application/json' });
-      return res.end(JSON.stringify({ error: 'Supabase not configured: set SUPABASE_DB_URL' }));
-    }
     if (req.method === 'GET') {
+      if (!sdb.isConfigured()) {
+        writePublicDataUnavailable(res, {
+          requestId,
+          route: 'GET-api-points',
+          site: SITE,
+          error: { code: 'DB_NOT_CONFIGURED' },
+        });
+        return;
+      }
       // Public read → base pins only (scene_id IS NULL). Scene-scoped pins
       // never surface here; they load via a scene's share-code bundle.
       sdb.getPoints(SITE, { baseOnly: true }).then(points => {
@@ -1508,6 +1513,10 @@ const server = http.createServer((req, res) => {
         writePublicDataUnavailable(res, { requestId, route: 'GET-api-points', site: SITE, error: e });
       });
       return;
+    }
+    if (!sdb.isConfigured()) {
+      res.writeHead(503, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ error: 'Supabase not configured: set SUPABASE_DB_URL' }));
     }
     _requireRole(req, res, 'editor', (s) => {
       _readJsonBody(req, async (err, point) => {
@@ -1543,11 +1552,16 @@ const server = http.createServer((req, res) => {
   }
 
   if (pathname === '/api/contacts' && (req.method === 'GET' || req.method === 'POST')) {
-    if (!sdb.isConfigured()) {
-      res.writeHead(503, { 'Content-Type': 'application/json' });
-      return res.end(JSON.stringify({ error: 'Supabase not configured: set SUPABASE_DB_URL' }));
-    }
     if (req.method === 'GET') {
+      if (!sdb.isConfigured()) {
+        writePublicDataUnavailable(res, {
+          requestId,
+          route: 'GET-api-contacts',
+          site: SITE,
+          error: { code: 'DB_NOT_CONFIGURED' },
+        });
+        return;
+      }
       // Public read → exclude scene-only contacts (referenced solely by
       // scene-scoped pins), keeping scene-created PII off the public route.
       sdb.getContacts(SITE, { baseOnly: true }).then(contacts => {
@@ -1557,6 +1571,10 @@ const server = http.createServer((req, res) => {
         writePublicDataUnavailable(res, { requestId, route: 'GET-api-contacts', site: SITE, error: e });
       });
       return;
+    }
+    if (!sdb.isConfigured()) {
+      res.writeHead(503, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ error: 'Supabase not configured: set SUPABASE_DB_URL' }));
     }
     _requireRole(req, res, 'editor', (s) => {
       let body = '';

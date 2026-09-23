@@ -12,6 +12,7 @@ function safeToken(value, fallback, maxLength = 64) {
 
 function classifyError(error) {
   const code = typeof error?.code === 'string' ? error.code.toUpperCase() : '';
+  if (code === 'DB_NOT_CONFIGURED') return 'database-configuration';
   if (code === '28P01') return 'database-authentication';
   if (code.startsWith('42')) return 'database-schema';
   if (code.startsWith('08') || ['ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT', 'ENOTFOUND'].includes(code)) {
