@@ -10,6 +10,7 @@ import { initComparison, updateComparison, comparisonNeedsRender } from './splat
 import { buildPinUrl, clearPinUrl, buildMyPinShareUrl, buildMyPinPhotoUrl } from './guide-url.js';
 import { showBuildingDetail, sanitizePhone } from './location-details.js';
 import { loadPublicArray, renderPublicDataNotice, isRenderablePoint, isRenderableContact } from './public-data.js';
+import { loadPublicSiteMetadata, resolveSiteBranding } from './public-site.js';
 import { getBasePublicVisitPointId } from './visit-analytics.js';
 
 // ── Site config (loaded from data/config.json in boot()) ──────────────────
@@ -717,8 +718,8 @@ function _buildCamButtons(cfg) {
 
 }
 
-function _applyBranding(cfg) {
-  const s = cfg.site ?? {};
+function _applyBranding(cfg, publicSite = null) {
+  const s = resolveSiteBranding(cfg?.site, publicSite);
   if (s.name)    { const el = document.getElementById('panel-site');   if (el) el.textContent = s.name; }
   if (s.title)   { const el = document.getElementById('panel-title');  if (el) el.textContent = s.title; }
   if (s.address) {
@@ -3487,6 +3488,10 @@ async function boot() {
   // Perf instrumentation is dynamically loaded only in ?perf=1 sessions.
   await _perfReady;
   document.getElementById('load-msg').textContent = 'Loading config…';
+  // Public shell metadata is optional and must never gate 3D startup. Start it
+  // alongside the existing local config, apply the local fallback immediately,
+  // then overlay the stable allowlisted /api/site fields when available.
+  const _publicSitePromise = loadPublicSiteMetadata(globalThis.fetch);
   _cfg = await fetch('./data/config.json').then(r => r.json()).catch((err) => {
     console.error('Config load failed:', err);
     return {};
@@ -3526,6 +3531,9 @@ async function boot() {
   _buildPresets(_cfg);
   _buildCamButtons(_cfg);
   _applyBranding(_cfg);
+  _publicSitePromise.then(({ data }) => {
+    if (data) _applyBranding(_cfg, data);
+  });
 
   const _route = _parseRoute();
   const _compOnly = _isComparisonOnly();
