@@ -1298,24 +1298,42 @@ function _runWidgetScript(source, obj) {
 // than a separate widget panel — same open/close chrome, contacts hidden.
 // No-ops on pages without that panel (e.g. admin3d.html has no #point-detail).
 // Shared "open the detail panel" chrome for the two non-pin panel uses below
-// (widget show-panel, submit-report form). selectPoint() has its own copy —
-// it interleaves this with history.pushState + the camera fly-to tween, so
-// isn't a clean fit for this helper.
+// (widget show-panel, submit-report form). Page-specific CSS state vocabulary
+// stays behind SiteNavPanelState; the fallback preserves admin/legacy pages.
+function _openCompactPanelDetail({ full = false } = {}) {
+  if (window.SiteNavPanelState) {
+    if (full) window.SiteNavPanelState.expandFull();
+    else window.SiteNavPanelState.openDetail();
+    return;
+  }
+  if (window.innerWidth > 1024) return;
+  const panel = document.getElementById('side-panel');
+  panel?.classList.remove('panel-folded');
+  if (panel) {
+    if (full) {
+      panel.classList.remove('sheet-mid');
+      panel.classList.add('sheet-full');
+    } else if (!panel.classList.contains('sheet-mid') && !panel.classList.contains('sheet-full')) {
+      panel.classList.add('sheet-mid');
+    }
+  }
+  window._updateCamPresetsBottom?.();
+}
+
+function _collapseCompactPanelList() {
+  if (window.SiteNavPanelState) {
+    window.SiteNavPanelState.collapseList();
+    return;
+  }
+  if (window.innerWidth > 1024) return;
+  document.getElementById('side-panel')?.classList.remove('sheet-mid', 'sheet-full');
+  window._updateCamPresetsBottom?.();
+}
+
 function _openDetailPanel() {
   document.getElementById('point-list').style.display = 'none';
   document.getElementById('point-detail').classList.add('visible');
-  if (window.innerWidth <= 1024) {
-    const _panelEl = document.getElementById('side-panel');
-    _panelEl?.classList.remove('panel-folded');
-    // Pages using the sheet-mid/sheet-full vocabulary (index.html) never get
-    // opened by the panel-folded removal above — add sheet-mid too so the
-    // sheet actually becomes visible there. No-op on pages that only use
-    // panel-folded (viewer3d.html/admin3d.html define no rules for these).
-    if (_panelEl && !_panelEl.classList.contains('sheet-mid') && !_panelEl.classList.contains('sheet-full')) {
-      _panelEl.classList.add('sheet-mid');
-    }
-    window._updateCamPresetsBottom?.();
-  }
+  if (window.innerWidth <= 1024) _openCompactPanelDetail();
   if (window.innerWidth > 1024) document.getElementById('app')?.classList.add('panel-open');
 }
 
@@ -1722,16 +1740,7 @@ async function selectPoint(pt, options = {}) {
   document.getElementById('point-detail').classList.add('visible');
 
   // On mobile + tablet — expand panel so detail is visible
-  if (window.innerWidth <= 1024) {
-    const _panelEl = document.getElementById('side-panel');
-    _panelEl?.classList.remove('panel-folded');
-    // See _openDetailPanel() above — index.html's sheet only responds to
-    // sheet-mid/sheet-full, not panel-folded, so add it here too.
-    if (_panelEl && !_panelEl.classList.contains('sheet-mid') && !_panelEl.classList.contains('sheet-full')) {
-      _panelEl.classList.add('sheet-mid');
-    }
-    window._updateCamPresetsBottom?.();
-  }
+  if (window.innerWidth <= 1024) _openCompactPanelDetail();
 
   // On desktop — open the overlay panel
   if (window.innerWidth > 1024) {
@@ -1839,11 +1848,10 @@ window.showPointList = function(options = {}) {
   if (contactsEl) contactsEl.replaceChildren();
   document.getElementById('point-list').style.display = '';
   document.getElementById('point-detail').classList.remove('visible');
-  // Collapse panel on mobile and desktop
-  const panel = document.getElementById('side-panel');
-  if (panel) panel.classList.remove('sheet-mid', 'sheet-full');
+  // Collapse the public sheet back to its list/peek state. Fold-mode viewers
+  // intentionally preserve their current unfolded list behavior.
+  _collapseCompactPanelList();
   if (window.innerWidth > 1024) document.getElementById('app')?.classList.remove('panel-open');
-  window._updateCamPresetsBottom?.();
   if (historyMode !== 'none') {
     const nextUrl = _publicMyPinActive && _publicMyPinPointId
       ? _publicMyPinShareUrl()
@@ -2146,12 +2154,7 @@ async function renderBuildings(geoData) {
         history.pushState(null, '', clearPinUrl(window.location.href));
         showBuildingDetail(f, _openDetailPanel);
         // Rich cards need readable space, not the compact pin-list peek.
-        if (window.innerWidth <= 1024 && p.details) {
-          const panel = document.getElementById('side-panel');
-          panel?.classList.remove('sheet-mid');
-          panel?.classList.add('sheet-full');
-          window._updateCamPresetsBottom?.();
-        }
+        if (window.innerWidth <= 1024 && p.details) _openCompactPanelDetail({ full: true });
       };
       label._scaleEl.addEventListener('click', onOpenBuilding);
       label._scaleEl.addEventListener('keydown', (e) => {

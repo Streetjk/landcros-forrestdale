@@ -872,20 +872,13 @@
 
 </div>
 
-<script src="panel-mobile.js"></script>
+<script src="./panel-state.js"></script>
 <script>
-  function _isBottomSheet() { return window.innerWidth < 1025; }
-
-  window.togglePanel = function() {
-    if (_isBottomSheet()) {
-      const panel = document.getElementById('side-panel');
-      panel.classList.toggle('panel-folded');
-      window._updateCamPresetsBottom();
-    } else {
-      document.getElementById('app').classList.toggle('panel-open');
-    }
-  };
-
+  // Shared semantic panel controller. This page keeps panel-folded as its
+  // existing compact geometry state; the adapter owns only transitions.
+  window.SiteNavPanelState.init({ mode: 'fold' });
+  window._updateCamPresetsBottom = () => window.SiteNavPanelState.sync();
+  window.togglePanel = () => window.SiteNavPanelState.toggle();
   window.togglePanelOpen = window.togglePanel;
 
   window.addEventListener('error', e => {

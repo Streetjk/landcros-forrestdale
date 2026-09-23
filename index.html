@@ -940,60 +940,14 @@
   };
 </script>
 
+<script src="./panel-state.js"></script>
 <script>
-  // Single breakpoint shared with the CSS above, style.css and viewer3d.js's
-  // own `innerWidth <= 1024` test: ≤1024px is the bottom sheet (phone AND
-  // tablet), ≥1025px is the desktop side drawer.
-  const SHEET_BP = 1024;
-  const isSheet = () => window.innerWidth <= SHEET_BP;
-
-  // Mirrors the sheet's open state onto #app so CSS can position #cam-presets
-  // and #nav-progress. Writing element.style.bottom here does not work: the
-  // shared style.css rules for this range are !important and beat an inline
-  // declaration. Named for the viewer3d.js callers that already invoke it.
-  function _updateCamPresetsBottom() {
-    const panel = document.getElementById('side-panel');
-    const app = document.getElementById('app');
-    if (!panel || !app) return;
-    const open = isSheet() &&
-      (panel.classList.contains('sheet-mid') || panel.classList.contains('sheet-full'));
-    app.classList.toggle('sheet-open', open);
-  }
-  window._updateCamPresetsBottom = _updateCamPresetsBottom;
-
-  window.togglePanel = function() {
-    const panel = document.getElementById('side-panel');
-    if (!isSheet()) { window.togglePanelOpen(); return; }
-    if (panel.classList.contains('sheet-mid') || panel.classList.contains('sheet-full')) {
-      panel.classList.remove('sheet-full', 'sheet-mid');
-    } else {
-      panel.classList.add('sheet-mid');
-    }
-    _updateCamPresetsBottom();
-  };
-
-  // Desktop slide-in panel
-  window.togglePanelOpen = function() {
-    document.getElementById('app').classList.toggle('panel-open');
-  };
-
-  // #panel-toggle button handles collapse via its own onclick — no header listener needed
-
-  // Crossing the breakpoint (tablet rotation, desktop window resize) must clear
-  // whichever open-state belongs to the layout we just left, or the panel stays
-  // stuck open/offscreen with no control that can close it.
-  let _wasSheet = isSheet();
-  window.addEventListener('resize', () => {
-    const nowSheet = isSheet();
-    if (nowSheet !== _wasSheet) {
-      _wasSheet = nowSheet;
-      const app = document.getElementById('app');
-      const panel = document.getElementById('side-panel');
-      if (nowSheet) app?.classList.remove('panel-open');
-      else panel?.classList.remove('sheet-mid', 'sheet-full');
-    }
-    _updateCamPresetsBottom();
-  });
+  // Shared semantic panel controller. This page keeps its existing
+  // sheet-mid/sheet-full CSS geometry; the adapter owns only state transitions.
+  window.SiteNavPanelState.init({ mode: 'sheet' });
+  window._updateCamPresetsBottom = () => window.SiteNavPanelState.sync();
+  window.togglePanel = () => window.SiteNavPanelState.toggle();
+  window.togglePanelOpen = () => window.SiteNavPanelState.toggleDesktop();
 
   window.addEventListener('error', e => {
     const el = document.getElementById('load-msg');
