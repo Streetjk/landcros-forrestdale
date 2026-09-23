@@ -190,6 +190,38 @@ describe('Data Projections Unit Tests', () => {
     assert.equal(rawIds.length, 2);
   });
 
+  it('deeply detaches nested point JSON for public and staff projections', () => {
+    const source = {
+      ...samplePointRow,
+      position3d: { x: 1, nested: { floor: 2 } },
+      route_waypoints: [[1, 2], [3, 4]],
+      route_waypoints3d: [{ x: 1, meta: { speed: 2 } }],
+      camera_preset3d: { target: [1, 2, 3], lens: { fov: 55 } }
+    };
+    const original = structuredClone(source);
+
+    for (const project of [publicBasePoint, staffPoint]) {
+      const point = project(source);
+      point.position3d.nested.floor = 99;
+      point.routeWaypoints[0][0] = 99;
+      point.routeWaypoints3d[0].meta.speed = 99;
+      point.cameraPreset3d.target[0] = 99;
+      point.cameraPreset3d.lens.fov = 99;
+      assert.deepEqual(source, original);
+    }
+  });
+
+  it('deep clone preserves JSON __proto__ keys without prototype mutation', () => {
+    const source = JSON.parse('{"__proto__":{"polluted":true},"constructor":{"nested":1}}');
+    const point = publicBasePoint({ ...samplePointRow, position3d: source });
+
+    assert.equal(Object.prototype.hasOwnProperty.call(point.position3d, '__proto__'), true);
+    assert.deepEqual(point.position3d.__proto__, { polluted: true });
+    assert.deepEqual(point.position3d.constructor, { nested: 1 });
+    assert.equal(Object.getPrototypeOf(point.position3d), Object.prototype);
+    assert.equal({}.polluted, undefined);
+  });
+
   it('static source assertions on supabase-db.js and scenes-db.js', () => {
     const supabaseSrc = fs.readFileSync(path.resolve('supabase-db.js'), 'utf8');
     const scenesSrc = fs.readFileSync(path.resolve('scenes-db.js'), 'utf8');

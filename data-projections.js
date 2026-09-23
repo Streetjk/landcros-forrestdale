@@ -1,12 +1,11 @@
 'use strict';
 
-function cloneMaybeArray(value) {
-  return Array.isArray(value) ? [...value] : value;
-}
-
-function cloneMaybeObject(value) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
-  return { ...value };
+function cloneJsonValue(value) {
+  if (Array.isArray(value)) return value.map(cloneJsonValue);
+  if (!value || typeof value !== 'object') return value;
+  return Object.fromEntries(
+    Object.entries(value).map(([key, item]) => [key, cloneJsonValue(item)])
+  );
 }
 
 function from(row, camel, db = camel) {
@@ -21,13 +20,13 @@ function staffPoint(row) {
     label: row.label,
     type: row.type,
     scope: row.scope,
-    latlng: cloneMaybeArray(row.latlng),
-    position3d: cloneMaybeObject(row.position3d),
+    latlng: cloneJsonValue(row.latlng),
+    position3d: cloneJsonValue(row.position3d),
     notes: row.notes,
-    contactIds: cloneMaybeArray(from(row, 'contactIds', 'contact_ids')),
-    routeWaypoints: cloneMaybeArray(from(row, 'routeWaypoints', 'route_waypoints')),
-    routeWaypoints3d: cloneMaybeArray(from(row, 'routeWaypoints3d', 'route_waypoints3d')),
-    cameraPreset3d: cloneMaybeObject(from(row, 'cameraPreset3d', 'camera_preset3d')),
+    contactIds: cloneJsonValue(from(row, 'contactIds', 'contact_ids')),
+    routeWaypoints: cloneJsonValue(from(row, 'routeWaypoints', 'route_waypoints')),
+    routeWaypoints3d: cloneJsonValue(from(row, 'routeWaypoints3d', 'route_waypoints3d')),
+    cameraPreset3d: cloneJsonValue(from(row, 'cameraPreset3d', 'camera_preset3d')),
     buildingRef: from(row, 'buildingRef', 'building_ref'),
     createdBy: from(row, 'createdBy', 'created_by'),
     createdAt: from(row, 'createdAt', 'created_at'),
@@ -42,13 +41,13 @@ function publicPointCore(row) {
     label: row.label,
     type: row.type,
     scope: row.scope,
-    latlng: cloneMaybeArray(row.latlng),
-    position3d: cloneMaybeObject(row.position3d),
+    latlng: cloneJsonValue(row.latlng),
+    position3d: cloneJsonValue(row.position3d),
     notes: row.notes,
-    contactIds: cloneMaybeArray(from(row, 'contactIds', 'contact_ids')),
-    routeWaypoints: cloneMaybeArray(from(row, 'routeWaypoints', 'route_waypoints')),
-    routeWaypoints3d: cloneMaybeArray(from(row, 'routeWaypoints3d', 'route_waypoints3d')),
-    cameraPreset3d: cloneMaybeObject(from(row, 'cameraPreset3d', 'camera_preset3d')),
+    contactIds: cloneJsonValue(from(row, 'contactIds', 'contact_ids')),
+    routeWaypoints: cloneJsonValue(from(row, 'routeWaypoints', 'route_waypoints')),
+    routeWaypoints3d: cloneJsonValue(from(row, 'routeWaypoints3d', 'route_waypoints3d')),
+    cameraPreset3d: cloneJsonValue(from(row, 'cameraPreset3d', 'camera_preset3d')),
     buildingRef: from(row, 'buildingRef', 'building_ref'),
   };
 }
