@@ -36,6 +36,7 @@ const pointPhotosDb = require('./point-photos-db');
 const { canManageScene } = require('./resource-ownership');
 const { createScenePointHandler } = require('./scene-points-routes');
 const { createScenePointPhotoHandler } = require('./scene-point-photos-routes');
+const { createRequestId, writePublicDataUnavailable } = require('./public-api-diagnostics');
 
 // Generic client error body — logs the real error server-side, never leaks
 // DB/schema/config detail (e.message) to the client.
@@ -394,6 +395,7 @@ function addHeaders(res, extra = {}) {
 }
 
 const server = http.createServer((req, res) => {
+  const requestId = createRequestId();
   const url  = new URL(req.url, `http://localhost`);
   const pathname = url.pathname;
 
@@ -1482,8 +1484,7 @@ const server = http.createServer((req, res) => {
         res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
         res.end(JSON.stringify(points));
       }).catch(e => {
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(_errBody(e));
+        writePublicDataUnavailable(res, { requestId, route: 'GET-api-points', site: SITE, error: e });
       });
       return;
     }
@@ -1532,8 +1533,7 @@ const server = http.createServer((req, res) => {
         res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
         res.end(JSON.stringify(contacts));
       }).catch(e => {
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(_errBody(e));
+        writePublicDataUnavailable(res, { requestId, route: 'GET-api-contacts', site: SITE, error: e });
       });
       return;
     }
