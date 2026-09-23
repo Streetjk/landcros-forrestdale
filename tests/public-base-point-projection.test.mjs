@@ -29,7 +29,7 @@ const sharedBase = {
 const personalBase = { ...sharedBase, id: '10000000-0000-0000-0000-000000000002', label: 'Private note', scope: 'personal' };
 const sharedScene = { ...sharedBase, id: '10000000-0000-0000-0000-000000000003', scene_id: '30000000-0000-0000-0000-000000000001', label: 'Scoped guide pin' };
 
-async function withFakeDb(run) {
+async function withFakeDb(run, { published = true } = {}) {
   const OriginalPool = pg.Pool;
   const originalUrl = process.env.SUPABASE_DB_URL;
   const queries = [];
@@ -41,7 +41,10 @@ async function withFakeDb(run) {
       if (/from points/i.test(sql)) {
         const all = [sharedBase, personalBase, sharedScene];
         if (/scene_id is null/i.test(sql) && /scope = 'shared'/i.test(sql)) {
-          return { rows: all.filter((row) => row.scene_id === null && row.scope === 'shared') };
+          const hasPublicationGate = /exists\s*\(select 1 from sites s where s\.id = \$1 and s\.published = true\)/i.test(sql);
+          return { rows: hasPublicationGate && published
+            ? all.filter((row) => row.scene_id === null && row.scope === 'shared')
+            : [] };
         }
         return { rows: all };
       }
@@ -70,8 +73,18 @@ test('public base-point read requires both base scope and explicit sharing', asy
     }
 
     const sql = queries.at(-1).sql.replace(/\s+/g, ' ').trim();
-    assert.match(sql, /where site_id = \$1 and scene_id is null and scope = 'shared'/i);
+    assert.match(sql, /where p\.site_id = \$1 and p\.scene_id is null and p\.scope = 'shared'/i);
+    assert.match(sql, /exists \(select 1 from sites s where s\.id = \$1 and s\.published = true\)/i);
   });
+});
+
+test('unpublished site returns no public base points', async () => {
+  await withFakeDb(async (db, queries) => {
+    const result = await db.getPoints('synthetic-public', { baseOnly: true });
+    assert.deepEqual(result, []);
+    const sql = queries.at(-1).sql.replace(/\s+/g, ' ').trim();
+    assert.match(sql, /exists \(select 1 from sites s where s\.id = \$1 and s\.published = true\)/i);
+  }, { published: false });
 });
 
 test('staff point read retains the existing all-scope/all-scene contract', async () => {

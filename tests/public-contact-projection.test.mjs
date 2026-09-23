@@ -6,7 +6,7 @@ const require = createRequire(import.meta.url);
 const pg = require('pg');
 const dbPath = require.resolve('../supabase-db.js');
 
-async function withFakeDb(rows, run) {
+async function withFakeDb(rows, run, { published = true } = {}) {
   const OriginalPool = pg.Pool;
   const originalUrl = process.env.SUPABASE_DB_URL;
   const queries = [];
@@ -17,8 +17,12 @@ async function withFakeDb(rows, run) {
         return { rows: [{ id: '00000000-0000-0000-0000-000000000001' }] };
       }
       if (/from contacts/i.test(sql)) {
-        const resultRows = /c\.active = true/i.test(sql) ? rows.filter(row => row.active === true) : rows;
-        return { rows: resultRows };
+        const isPublicRead = /c\.active = true/i.test(sql);
+        if (isPublicRead) {
+          const hasPublicationGate = /exists\s*\(select 1 from sites s where s\.id = \$1 and s\.published = true\)/i.test(sql);
+          return { rows: hasPublicationGate && published ? rows.filter(row => row.active === true) : [] };
+        }
+        return { rows };
       }
       throw new Error(`Unexpected query: ${sql}`);
     }
@@ -71,9 +75,19 @@ test('public contacts are active and referenced by a shared base pin only, with 
 
     const sql = queries.at(-1).sql.replace(/\s+/g, ' ').trim();
     assert.match(sql, /c\.active = true/i);
+    assert.match(sql, /exists \(select 1 from sites s where s\.id = \$1 and s\.published = true\)/i);
     assert.match(sql, /exists \( select 1 from points p where p\.site_id = \$1 and p\.scene_id is null and p\.scope = 'shared' and c\.id = any\(p\.contact_ids\) \)/i);
     assert.doesNotMatch(sql, /or\s+not\s+exists/i);
   });
+});
+
+test('unpublished site returns no public contacts', async () => {
+  await withFakeDb([contactRow], async (db, queries) => {
+    const result = await db.getContacts('synthetic-public', { baseOnly: true });
+    assert.deepEqual(result, []);
+    const sql = queries.at(-1).sql.replace(/\s+/g, ' ').trim();
+    assert.match(sql, /exists \(select 1 from sites s where s\.id = \$1 and s\.published = true\)/i);
+  }, { published: false });
 });
 
 test('staff contacts retain the existing full contact projection', async () => {

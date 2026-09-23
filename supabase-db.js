@@ -95,7 +95,10 @@ function publicContactToJson(r) { return publicContact(r); }
 async function getPoints(slug, { baseOnly = false } = {}) {
   const siteId = await getSiteId(slug);
   const sql = baseOnly
-    ? "select * from points where site_id = $1 and scene_id is null and scope = 'shared' order by created_at"
+    ? `select p.* from points p
+         where p.site_id = $1 and p.scene_id is null and p.scope = 'shared'
+           and exists (select 1 from sites s where s.id = $1 and s.published = true)
+         order by p.created_at`
     : 'select * from points where site_id = $1 order by created_at';
   const { rows } = await _getPool().query(sql, [siteId]);
   return rows.map(baseOnly ? publicBasePoint : pointToJson);
@@ -160,6 +163,7 @@ async function getContacts(slug, { baseOnly = false } = {}) {
   const sql = baseOnly
     ? `select c.* from contacts c where c.site_id = $1
          and c.active = true
+         and exists (select 1 from sites s where s.id = $1 and s.published = true)
          and exists (
            select 1 from points p
             where p.site_id = $1 and p.scene_id is null and p.scope = 'shared'
