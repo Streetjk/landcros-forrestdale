@@ -536,7 +536,13 @@ const server = http.createServer((req, res) => {
   // Which site this deployment serves — lets static pages (start.html) build
   // links without hardcoding a slug.
   if (req.method === 'GET' && pathname === '/api/site') {
-    return _json(res, 200, readPublicSiteMetadata(SITE_DIR, SITE));
+    res.writeHead(200, {
+      'Content-Type': 'application/json; charset=utf-8',
+      'Cache-Control': 'public, max-age=60, stale-while-revalidate=300',
+      'X-Content-Type-Options': 'nosniff',
+      'Referrer-Policy': 'no-referrer',
+    });
+    return res.end(JSON.stringify(readPublicSiteMetadata(SITE_DIR, SITE)));
   }
 
   if (req.method === 'GET' && pathname === '/api/auth/me') {
