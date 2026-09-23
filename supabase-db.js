@@ -87,14 +87,15 @@ function contactToJson(r) { return staffContact(r); }
 function publicContactToJson(r) { return publicContact(r); }
 
 // ── Points ──────────────────────────────────────────────────────────────────
-// baseOnly (public path): return only vanilla base pins (scene_id IS NULL).
-// Scene-scoped pins never reach the public /api/points route — they load
-// only through a scene's share-code bundle. The editor passes baseOnly:false
-// to see everything.
+// baseOnly (public path): return only explicitly shared vanilla base pins
+// (scene_id IS NULL AND scope = 'shared'). The server pool bypasses RLS, so
+// this filter is an application-layer privacy boundary, not just a convenience.
+// Scene-scoped and personal pins never reach the public /api/points route; the
+// editor passes baseOnly:false to see the existing full staff set.
 async function getPoints(slug, { baseOnly = false } = {}) {
   const siteId = await getSiteId(slug);
   const sql = baseOnly
-    ? 'select * from points where site_id = $1 and scene_id is null order by created_at'
+    ? "select * from points where site_id = $1 and scene_id is null and scope = 'shared' order by created_at"
     : 'select * from points where site_id = $1 order by created_at';
   const { rows } = await _getPool().query(sql, [siteId]);
   return rows.map(baseOnly ? publicBasePoint : pointToJson);
@@ -149,8 +150,9 @@ async function deletePoint(slug, id, changedBy = null) {
 
 // ── Contacts ──────────────────────────────────────────────────────────────
 // baseOnly is the anonymous public-contact path. A contact is public only when
-// an existing base pin (scene_id IS NULL) explicitly references it. Unreferenced
-// staff-directory rows and scene-only contacts remain staff-only. The public
+// an explicitly shared base pin (scene_id IS NULL AND scope = 'shared') references
+// it. Personal-base, unreferenced staff-directory, and scene-only contacts remain
+// staff-only. The public
 // projection also strips email/audit metadata; the editor passes baseOnly:false
 // and receives the existing full staff shape.
 async function getContacts(slug, { baseOnly = false } = {}) {
@@ -160,7 +162,7 @@ async function getContacts(slug, { baseOnly = false } = {}) {
          and c.active = true
          and exists (
            select 1 from points p
-            where p.site_id = $1 and p.scene_id is null
+            where p.site_id = $1 and p.scene_id is null and p.scope = 'shared'
               and c.id = any(p.contact_ids)
          )
        order by c.created_at`

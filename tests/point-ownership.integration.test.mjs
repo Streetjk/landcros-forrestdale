@@ -10,7 +10,7 @@ const { Client } = require('pg');
 const uid = n => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 const SITE_A = uid(1), SITE_B = uid(2), OWNER = uid(11), OTHER = uid(12), VIEWER = uid(13), ADMIN = uid(14), OUTSIDER = uid(15);
 const SCENE_A = uid(21), SCENE_A2 = uid(22), SCENE_B = uid(23), SCENE_FOREIGN = uid(24), SCENE_LEGACY = uid(25);
-const CONTACT_A = uid(31), CONTACT_B = uid(32), CONTACT_PUBLIC = uid(33), CONTACT_SCENE_ONLY = uid(34), CONTACT_UNREFERENCED = uid(35), POINT_A = uid(41), POINT_B = uid(42), POINT_BASE = uid(43), PHOTO = uid(51);
+const CONTACT_A = uid(31), CONTACT_B = uid(32), CONTACT_PUBLIC = uid(33), CONTACT_SCENE_ONLY = uid(34), CONTACT_UNREFERENCED = uid(35), CONTACT_PERSONAL = uid(36), POINT_A = uid(41), POINT_B = uid(42), POINT_BASE = uid(43), PHOTO = uid(51);
 const payload = (id = POINT_A, extra = {}) => ({ id, label: 'Synthetic fixture pin', position3d: { x: 1, y: 2, z: 3 }, ...extra });
 
 test('scene point ownership: actual PostgreSQL and HTTP server', { skip: !process.env.SITENAV_TEST_DATABASE_URL, timeout: 45000 }, async t => {
@@ -140,20 +140,22 @@ test('scene point ownership: actual PostgreSQL and HTTP server', { skip: !proces
       assert.equal((await request('/api/sites/beta/contacts')).status,403);
     });
     await t.test('anonymous public contacts expose only base-pin references and strip staff metadata', async () => {
-      const publicPoint = uid(44), sceneOnlyPoint = uid(45);
+      const publicPoint = uid(44), sceneOnlyPoint = uid(45), personalPoint = uid(46);
       try {
         await sql.query(
           `insert into contacts(id,site_id,name,role,phone,email,created_by) values
-             ($1,$4,'Synthetic public','Reception','0000 0000','public@example.invalid','fixture'),
-             ($2,$4,'Synthetic scene only','Workshop','1111 1111','scene@example.invalid','fixture'),
-             ($3,$4,'Synthetic unreferenced','Office','2222 2222','unreferenced@example.invalid','fixture')`,
-          [CONTACT_PUBLIC, CONTACT_SCENE_ONLY, CONTACT_UNREFERENCED, SITE_A]
+             ($1,$5,'Synthetic public','Reception','0000 0000','public@example.invalid','fixture'),
+             ($2,$5,'Synthetic scene only','Workshop','1111 1111','scene@example.invalid','fixture'),
+             ($3,$5,'Synthetic unreferenced','Office','2222 2222','unreferenced@example.invalid','fixture'),
+             ($4,$5,'Synthetic personal only','Staff','3333 3333','personal@example.invalid','fixture')`,
+          [CONTACT_PUBLIC, CONTACT_SCENE_ONLY, CONTACT_UNREFERENCED, CONTACT_PERSONAL, SITE_A]
         );
         await sql.query(
-          `insert into points(id,site_id,scene_id,label,position3d,contact_ids) values
-             ($1,$3,null,'Synthetic base contact pin','{"x":0,"y":0,"z":0}',array[$4]::uuid[]),
-             ($2,$3,$5,'Synthetic scene contact pin','{"x":0,"y":0,"z":0}',array[$6]::uuid[])`,
-          [publicPoint, sceneOnlyPoint, SITE_A, CONTACT_PUBLIC, SCENE_A, CONTACT_SCENE_ONLY]
+          `insert into points(id,site_id,scene_id,label,scope,position3d,contact_ids) values
+             ($1,$4,null,'Synthetic public base contact pin','shared','{"x":0,"y":0,"z":0}',array[$5]::uuid[]),
+             ($2,$4,$6,'Synthetic scene contact pin','shared','{"x":0,"y":0,"z":0}',array[$7]::uuid[]),
+             ($3,$4,null,'Synthetic personal base contact pin','personal','{"x":0,"y":0,"z":0}',array[$8]::uuid[])`,
+          [publicPoint, sceneOnlyPoint, personalPoint, SITE_A, CONTACT_PUBLIC, SCENE_A, CONTACT_SCENE_ONLY, CONTACT_PERSONAL]
         );
 
         const publicContacts = await request('/api/contacts', { actor: null });
@@ -164,7 +166,7 @@ test('scene point ownership: actual PostgreSQL and HTTP server', { skip: !proces
 
         const staffContacts = await request('/api/sites/alpha/contacts');
         assert.equal(staffContacts.status, 200);
-        for (const id of [CONTACT_PUBLIC, CONTACT_SCENE_ONLY, CONTACT_UNREFERENCED]) {
+        for (const id of [CONTACT_PUBLIC, CONTACT_SCENE_ONLY, CONTACT_UNREFERENCED, CONTACT_PERSONAL]) {
           const contact = staffContacts.body.find(c => c.id === id);
           assert.ok(contact);
           assert.equal(typeof contact.email, 'string');
@@ -172,8 +174,8 @@ test('scene point ownership: actual PostgreSQL and HTTP server', { skip: !proces
           assert.ok(Object.hasOwn(contact, 'createdAt'));
         }
       } finally {
-        await sql.query('delete from points where id = any($1::uuid[])', [[publicPoint, sceneOnlyPoint]]);
-        await sql.query('delete from contacts where id = any($1::uuid[])', [[CONTACT_PUBLIC, CONTACT_SCENE_ONLY, CONTACT_UNREFERENCED]]);
+        await sql.query('delete from points where id = any($1::uuid[])', [[publicPoint, sceneOnlyPoint, personalPoint]]);
+        await sql.query('delete from contacts where id = any($1::uuid[])', [[CONTACT_PUBLIC, CONTACT_SCENE_ONLY, CONTACT_UNREFERENCED, CONTACT_PERSONAL]]);
       }
     });
 

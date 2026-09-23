@@ -55,7 +55,7 @@ const inactiveContactRow = {
   active: false,
 };
 
-test('public contacts are base-pin referenced only and project no staff PII/audit fields', async () => {
+test('public contacts are active and referenced by a shared base pin only, with no staff PII/audit fields', async () => {
   await withFakeDb([contactRow, inactiveContactRow], async (db, queries) => {
     const result = await db.getContacts('synthetic-public', { baseOnly: true });
     assert.deepEqual(result, [{
@@ -71,7 +71,7 @@ test('public contacts are base-pin referenced only and project no staff PII/audi
 
     const sql = queries.at(-1).sql.replace(/\s+/g, ' ').trim();
     assert.match(sql, /c\.active = true/i);
-    assert.match(sql, /exists \( select 1 from points p where p\.site_id = \$1 and p\.scene_id is null and c\.id = any\(p\.contact_ids\) \)/i);
+    assert.match(sql, /exists \( select 1 from points p where p\.site_id = \$1 and p\.scene_id is null and p\.scope = 'shared' and c\.id = any\(p\.contact_ids\) \)/i);
     assert.doesNotMatch(sql, /or\s+not\s+exists/i);
   });
 });
