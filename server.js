@@ -37,6 +37,7 @@ const { canManageScene } = require('./resource-ownership');
 const { createScenePointHandler } = require('./scene-points-routes');
 const { createScenePointPhotoHandler } = require('./scene-point-photos-routes');
 const { createRequestId, writePublicDataUnavailable } = require('./public-api-diagnostics');
+const { NotificationStatusPartialError, notifyThenPersistStatus, partialCompletionBody } = require('./hazard-status-workflow');
 
 // Generic client error body — logs the real error server-side, never leaks
 // DB/schema/config detail (e.message) to the client.
@@ -759,16 +760,29 @@ const server = http.createServer((req, res) => {
   async function _changeStatus(scene, body, s) {
     const status = String(body.status || '');
     if (!scenesDb.STATUSES.has(status)) return _json(res, 400, { error: 'status must be open, escalated or resolved' });
-    const result = await scenesDb.setSceneStatus(scene.id, status, s.profileId);
+
+    let result;
     let notified = null;
     if (status === 'escalated' && Array.isArray(body.recipients) && body.recipients.length) {
       const shareUrl = `${_publicBase(req)}/s/${scene.shareCode}`;
-      notified = await hazardDb.notifyScene(scene.slug, scene.id, { recipients: body.recipients, message: body.message ?? null, shareUrl }, s.profileId);
+      const outcome = await notifyThenPersistStatus({
+        notify: () => hazardDb.notifyScene(scene.slug, scene.id, { recipients: body.recipients, message: body.message ?? null, shareUrl }, s.profileId),
+        persist: () => scenesDb.setSceneStatus(scene.id, status, s.profileId),
+      });
+      notified = outcome.notification;
+      result = outcome.statusResult;
+    } else {
+      result = await scenesDb.setSceneStatus(scene.id, status, s.profileId);
     }
     console.log(`[scenes] ${scene.slug}/${scene.id} status → ${status} by ${s.profileId}${notified ? ` (emailed ${notified.recipients.length})` : ''}`);
     _json(res, 200, { ...result, notified });
   }
+  function _partialStatusError(e, scope) {
+    console.error(`[hazard-status] ${scope} persistence failed after notification ${e.notificationId || 'unknown'} (${e.cause?.name || 'Error'})`);
+    return _json(res, 500, partialCompletionBody(e));
+  }
   function _statusError(e) {
+    if (e instanceof NotificationStatusPartialError) return _partialStatusError(e, 'scene-status');
     if (e instanceof hazardDb.HazardError) return _json(res, e.code === 'mail-unconfigured' ? 503 : 400, { error: e.message, code: e.code });
     _json(res, 500, JSON.parse(_errBody(e)));
   }
@@ -1348,12 +1362,16 @@ const server = http.createServer((req, res) => {
             const meta = await scenesDb.getSceneMeta(slug, sceneId);
             if (!meta) return _json(res, 404, { error: 'not found' });
             const shareUrl = `${_publicBase(req)}/s/${meta.shareCode}`;
-            const result = await hazardDb.notifyScene(slug, sceneId, { recipients, message, shareUrl }, s.profileId);
-            // Passing a report on to other people is the escalation step.
-            const st = await scenesDb.setSceneStatus(sceneId, 'escalated', s.profileId);
+            const outcome = await notifyThenPersistStatus({
+              notify: () => hazardDb.notifyScene(slug, sceneId, { recipients, message, shareUrl }, s.profileId),
+              persist: () => scenesDb.setSceneStatus(sceneId, 'escalated', s.profileId),
+            });
+            const result = outcome.notification;
+            const st = outcome.statusResult;
             console.log(`[hazard] ${slug}/${sceneId} report emailed to ${result.recipients.length} by ${s.profileId}`);
             _json(res, 200, { ...result, status: st.status, statusChangedAt: st.statusChangedAt });
           } catch (e) {
+            if (e instanceof NotificationStatusPartialError) return _partialStatusError(e, 'direct-notify');
             if (e instanceof hazardDb.HazardError) {
               return _json(res, e.code === 'not-found' ? 404 : e.code === 'mail-unconfigured' ? 503 : 400, { error: e.message, code: e.code });
             }
