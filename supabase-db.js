@@ -16,6 +16,12 @@
 // fall back to the legacy file-based behaviour for /api/visits + /api/visit.
 
 const { Pool } = require('pg');
+const {
+  staffPoint,
+  publicBasePoint,
+  staffContact,
+  publicContact,
+} = require('./data-projections');
 
 // Read lazily (not captured at module-load time): server.js loads .env into
 // process.env *after* its top-level requires run, so a module-scope const
@@ -74,49 +80,11 @@ function j(value) {
 }
 
 // ── Row <-> client JSON shape (DB is snake_case, client JSON is camelCase) ──
-function pointToJson(r) {
-  return {
-    id: r.id,
-    sceneId: r.scene_id ?? null,
-    label: r.label,
-    type: r.type,
-    scope: r.scope,
-    latlng: r.latlng,
-    position3d: r.position3d,
-    notes: r.notes,
-    contactIds: r.contact_ids,
-    routeWaypoints: r.route_waypoints,
-    routeWaypoints3d: r.route_waypoints3d,
-    cameraPreset3d: r.camera_preset3d,
-    buildingRef: r.building_ref,
-    createdBy: r.created_by,
-    createdAt: r.created_at,
-    updatedAt: r.updated_at,
-  };
-}
-
-function contactToJson(r) {
-  return {
-    id: r.id,
-    name: r.name,
-    role: r.role,
-    phone: r.phone,
-    email: r.email,
-    active: r.active,
-    createdBy: r.created_by,
-    createdAt: r.created_at,
-  };
-}
-
-function publicContactToJson(r) {
-  return {
-    id: r.id,
-    name: r.name,
-    role: r.role,
-    phone: r.phone,
-    active: r.active,
-  };
-}
+// Compatibility wrappers keep the established staff/editor contract while
+// centralising the allowlists in data-projections.js.
+function pointToJson(r) { return staffPoint(r); }
+function contactToJson(r) { return staffContact(r); }
+function publicContactToJson(r) { return publicContact(r); }
 
 // ── Points ──────────────────────────────────────────────────────────────────
 // baseOnly (public path): return only vanilla base pins (scene_id IS NULL).
@@ -129,7 +97,7 @@ async function getPoints(slug, { baseOnly = false } = {}) {
     ? 'select * from points where site_id = $1 and scene_id is null order by created_at'
     : 'select * from points where site_id = $1 order by created_at';
   const { rows } = await _getPool().query(sql, [siteId]);
-  return rows.map(pointToJson);
+  return rows.map(baseOnly ? publicBasePoint : pointToJson);
 }
 
 // Legacy endpoint: base rows only. Scene pins use scene-points-db.js.

@@ -9,7 +9,8 @@
 
 const crypto = require('crypto');
 const supabaseDb = require('./supabase-db');
-const { j, pointToJson, publicContactToJson } = supabaseDb;
+const { j } = supabaseDb;
+const { publicSharedPoint, publicContact, publicPointPhoto } = require('./data-projections');
 const { sceneObjectToJson } = require('./scene-db');
 const hazardDb = require('./hazard-db');
 const myPinCapabilities = require('./my-pin-capabilities-db');
@@ -259,8 +260,8 @@ async function getSceneBundleByCode(code, viewerProfileId = null) {
     // Present only for signed-in viewers (server fills it in).
     viewer: viewerProfileId ? { signedIn: true, isMine: scene.created_by === viewerProfileId } : { signedIn: false, isMine: false },
     objects: objectsRes.rows.map(sceneObjectToJson),
-    pins: pinsRes.rows.map(pointToJson),
-    contacts: contactsRes.rows.map(publicContactToJson),
+    pins: pinsRes.rows.map(publicSharedPoint),
+    contacts: contactsRes.rows.map(row => publicContact(row)),
     photos,
   };
 }
@@ -294,33 +295,11 @@ async function getSharedMyPinByCapability(token, pointId) {
     [siteId, pointIdBound]
   );
 
-  const point = pointToJson(binding);
-  delete point.createdBy;
-  delete point.createdAt;
-  delete point.updatedAt;
-  delete point.sceneId;
-
-  const phoneOverride = binding.phone_override ? String(binding.phone_override).trim() : null;
-  if (phoneOverride) point.phoneOverride = phoneOverride;
-
-  const contacts = contactsRes.rows.map(row => ({
-    id: row.id,
-    name: row.name,
-    role: row.role,
-    phone: phoneOverride || row.phone,
-    active: row.active,
-  }));
+  const point = publicSharedPoint(binding);
+  const phoneOverride = point.phoneOverride || null;
+  const contacts = contactsRes.rows.map(row => publicContact(row, { phoneOverride }));
   point.contactIds = contacts.map(contact => contact.id);
-
-  const photos = photosRes.rows.map(row => ({
-    id: row.id,
-    pointId: row.point_id,
-    contentType: 'image/jpeg',
-    bytes: row.bytes,
-    width: row.width,
-    height: row.height,
-    expiresAt: row.expires_at,
-  }));
+  const photos = photosRes.rows.map(publicPointPhoto);
 
   return {
     scene: { name: binding.scene_name, kind: 'admin' },
