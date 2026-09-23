@@ -16,7 +16,10 @@ async function withFakeDb(rows, run) {
       if (/select id from sites where slug = \$1/i.test(sql)) {
         return { rows: [{ id: '00000000-0000-0000-0000-000000000001' }] };
       }
-      if (/from contacts/i.test(sql)) return { rows };
+      if (/from contacts/i.test(sql)) {
+        const resultRows = /c\.active = true/i.test(sql) ? rows.filter(row => row.active === true) : rows;
+        return { rows: resultRows };
+      }
       throw new Error(`Unexpected query: ${sql}`);
     }
   }
@@ -45,8 +48,15 @@ const contactRow = {
   created_at: '2026-01-01T00:00:00Z',
 };
 
+const inactiveContactRow = {
+  ...contactRow,
+  id: '10000000-0000-0000-0000-000000000002',
+  name: 'Inactive Synthetic Contact',
+  active: false,
+};
+
 test('public contacts are base-pin referenced only and project no staff PII/audit fields', async () => {
-  await withFakeDb([contactRow], async (db, queries) => {
+  await withFakeDb([contactRow, inactiveContactRow], async (db, queries) => {
     const result = await db.getContacts('synthetic-public', { baseOnly: true });
     assert.deepEqual(result, [{
       id: contactRow.id,
@@ -60,6 +70,7 @@ test('public contacts are base-pin referenced only and project no staff PII/audi
     assert.equal('createdAt' in result[0], false);
 
     const sql = queries.at(-1).sql.replace(/\s+/g, ' ').trim();
+    assert.match(sql, /c\.active = true/i);
     assert.match(sql, /exists \( select 1 from points p where p\.site_id = \$1 and p\.scene_id is null and c\.id = any\(p\.contact_ids\) \)/i);
     assert.doesNotMatch(sql, /or\s+not\s+exists/i);
   });

@@ -189,6 +189,7 @@ async function getContacts(slug, { baseOnly = false } = {}) {
   const siteId = await getSiteId(slug);
   const sql = baseOnly
     ? `select c.* from contacts c where c.site_id = $1
+         and c.active = true
          and exists (
            select 1 from points p
             where p.site_id = $1 and p.scene_id is null
