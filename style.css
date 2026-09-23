@@ -295,3 +295,106 @@ textarea.form-input      { resize: vertical; min-height: 68px; }
     pointer-events: none !important;
   }
 }
+
+/* ── SiteNav shared shell visual primitives ────────────────────────────────
+   Public + staff viewer pages opt in with .sitenav-shell. Keep interaction
+   geometry/state in each page; this block owns only reusable visual language. */
+.sitenav-shell {
+  --sn-surface: rgba(8, 10, 16, 0.94);
+  --sn-surface-control: rgba(8, 10, 16, 0.82);
+  --sn-surface-hover: rgba(36, 44, 58, 0.75);
+  --sn-border: rgba(255, 255, 255, 0.08);
+  --sn-border-strong: rgba(255, 255, 255, 0.16);
+  --sn-text: #eef0f4;
+  --sn-text-muted: rgba(238, 240, 244, 0.55);
+  --sn-text-subtle: rgba(238, 240, 244, 0.38);
+  --sn-primary: #3b82f6;
+  --sn-success: #10b981;
+  --sn-amber: #f59e0b;
+  --sn-landcros-orange: #e6500a;
+  --sn-orange-soft: rgba(230, 80, 10, 0.18);
+  --sn-radius-sm: 10px;
+  --sn-radius-md: 14px;
+  --sn-radius-lg: 18px;
+  --sn-radius-sheet: 28px;
+  --sn-radius-pill: 999px;
+  --sn-touch: 44px;
+  --sn-shadow-control: 0 4px 14px rgba(0,0,0,0.28);
+  --sn-shadow-sheet: 0 16px 44px rgba(0,0,0,0.52);
+  --sn-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.sitenav-shell :is(button, [role="button"], a, input, select, textarea):focus-visible {
+  outline: 2px solid var(--sn-landcros-orange);
+  outline-offset: 2px;
+}
+
+.sitenav-shell #side-panel {
+  background: var(--sn-surface) !important;
+  border-color: var(--sn-border) !important;
+  backdrop-filter: blur(20px) saturate(145%) !important;
+  -webkit-backdrop-filter: blur(20px) saturate(145%) !important;
+  box-shadow: var(--sn-shadow-sheet) !important;
+  color: var(--sn-text);
+}
+
+.sitenav-shell .panel-handle {
+  background: var(--sn-border-strong);
+  opacity: .82;
+  border-radius: var(--sn-radius-pill);
+}
+
+.sitenav-shell .panel-site { color: var(--sn-text-subtle); }
+.sitenav-shell .panel-title { color: var(--sn-text); letter-spacing: -.01em; }
+
+.sitenav-shell .cam-preset-btn {
+  min-width: var(--sn-touch);
+  min-height: var(--sn-touch);
+  background: var(--sn-surface-control) !important;
+  border-color: var(--sn-border-strong) !important;
+  color: rgba(255,255,255,.86) !important;
+  backdrop-filter: blur(12px) !important;
+  -webkit-backdrop-filter: blur(12px) !important;
+  box-shadow: var(--sn-shadow-control) !important;
+}
+
+.sitenav-shell .cam-preset-btn:hover {
+  background: var(--sn-surface-hover) !important;
+  color: #fff !important;
+}
+
+.sitenav-shell .cam-preset-btn.active,
+.sitenav-shell .cam-preset-btn[aria-pressed="true"] {
+  background: var(--sn-landcros-orange) !important;
+  border-color: var(--sn-landcros-orange) !important;
+  color: #fff !important;
+  box-shadow: 0 0 16px rgba(230,80,10,.35) !important;
+}
+
+.sitenav-shell .cam-preset-btn:active { scale: .97; }
+
+.sitenav-shell .detail-hero { border-bottom-color: var(--sn-border) !important; }
+.sitenav-shell .detail-section { border-bottom-color: rgba(255,255,255,.06) !important; }
+.sitenav-shell .detail-section-title { letter-spacing: .1em; }
+
+.sitenav-shell .btn-primary {
+  border-radius: var(--sn-radius-md) !important;
+  min-height: var(--sn-touch);
+  box-shadow: 0 4px 16px rgba(59,130,246,.28) !important;
+}
+
+.sitenav-shell .btn-secondary {
+  border-radius: var(--sn-radius-md) !important;
+  min-height: var(--sn-touch);
+  border-color: var(--sn-border-strong) !important;
+}
+
+.sitenav-shell #splat-progress {
+  background: rgba(8,10,16,.88) !important;
+  border-color: var(--sn-border) !important;
+  border-radius: var(--sn-radius-md) !important;
+  backdrop-filter: blur(12px) !important;
+  -webkit-backdrop-filter: blur(12px) !important;
+  box-shadow: var(--sn-shadow-control);
+}
+/* ── End SiteNav shared shell visual primitives ─────────────────────────── */
