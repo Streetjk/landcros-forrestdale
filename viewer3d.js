@@ -1616,6 +1616,7 @@ async function _renderPointPhotos(pt) {
 }
 
 async function selectPoint(pt, options = {}) {
+  _cancelActiveTour();
   const historyMode = options?.historyMode === 'none' ? 'none'
     : options?.historyMode === 'replace' ? 'replace' : 'push';
   // A direct second click is a user toggle. History restoration must be able
@@ -1823,6 +1824,7 @@ async function selectPoint(pt, options = {}) {
 }
 
 window.showPointList = function(options = {}) {
+  _cancelActiveTour();
   const historyMode = options?.historyMode === 'none' ? 'none'
     : options?.historyMode === 'replace' ? 'replace' : 'push';
   _leavePinDetail();
@@ -1896,50 +1898,90 @@ function _armPublicGuideHistory() {
   window.addEventListener('popstate', _restorePublicGuideHistory);
 }
 
+let _activeTour = null;
+
+function _resetTourHud() {
+  const navBar = document.getElementById('nav-bar-fill');
+  const navLabel = document.getElementById('nav-pos-label');
+  const navProgress = document.getElementById('nav-progress');
+  if (navProgress) navProgress.classList.remove('visible');
+  if (navBar) navBar.style.width = '0%';
+  if (navLabel) navLabel.textContent = '—';
+}
+
+function _cancelActiveTour(expectedTour = null) {
+  const tour = _activeTour;
+  // Completion/timer callbacks from an older tour must not tear down a newer tour.
+  if (expectedTour && tour !== expectedTour) return false;
+  if (tour?.hudTimeout != null) {
+    clearTimeout(tour.hudTimeout);
+    tour.hudTimeout = null;
+  }
+  if (tour?.interrupt) {
+    controls.removeEventListener('start', tour.interrupt);
+    tour.interrupt = null;
+  }
+  if (tour?.timeline) {
+    tour.timeline.kill();
+    tour.timeline = null;
+  }
+  _activeTour = null;
+  controls.enabled = true;
+  _camAnimating = false;
+  _resetTourHud();
+  return Boolean(tour);
+}
+
 window.startNav = function(pt) {
-  // pt is the currently selected point (passed from the "Start Tour" button)
+  // A tour owns camera animation until it completes or is explicitly interrupted.
+  _cancelActiveTour();
+  stopAutoOrbit();
+
+  // Tour startup also supersedes an in-flight selectPoint fly-to.
+  if (_camTween) { _camTween.kill(); _camTween = null; }
+  if (window._interruptFlyTo) {
+    controls.removeEventListener('start', window._interruptFlyTo);
+    window._interruptFlyTo = null;
+  }
+
   const waypoints = pt?.routeWaypoints3d || [];
   const navBar = document.getElementById('nav-bar-fill');
   const navLabel = document.getElementById('nav-pos-label');
   const navProgress = document.getElementById('nav-progress');
 
-  // If no waypoints, just fly to the pin (which selectPoint already did)
+  const tour = { timeline: null, interrupt: null, hudTimeout: null };
+  _activeTour = tour;
+  const interruptTour = () => _cancelActiveTour(tour);
+  tour.interrupt = interruptTour;
+  controls.addEventListener('start', interruptTour);
+
+  // If no waypoints, keep the short destination acknowledgement. The timeout
+  // is bound to this exact tour so it cannot hide a later tour's progress HUD.
   if (!waypoints.length) {
     if (navLabel) navLabel.textContent = pt?.label || 'Destination';
     if (navProgress) navProgress.classList.add('visible');
     if (navBar) navBar.style.width = '100%';
-    setTimeout(() => navProgress?.classList.remove('visible'), 2500);
+    tour.hudTimeout = setTimeout(() => {
+      if (_activeTour === tour) _cancelActiveTour(tour);
+    }, 2500);
     return;
   }
-
-  // Kill any existing camera tween and clear its stale interrupt listener
-  if (_camTween) { _camTween.kill(); _camTween = null; }
-  // Remove any selectPoint interrupt listener that may be registered
-  if (window._interruptFlyTo) { controls.removeEventListener('start', window._interruptFlyTo); window._interruptFlyTo = null; }
 
   if (navProgress) navProgress.classList.add('visible');
   if (navLabel) navLabel.textContent = 'Starting tour…';
 
-  // Build a GSAP timeline that visits each waypoint in sequence
-  const tl = gsap.timeline({
-    onComplete() {
-      _camAnimating = false;
-      if (navProgress) navProgress.classList.remove('visible');
-      controls.removeEventListener('start', interruptTour);
-    },
-  });
-
-  const interruptTour = () => {
-    tl.kill();
-    controls.removeEventListener('start', interruptTour);
-    _camAnimating = false;
-    if (navProgress) navProgress.classList.remove('visible');
-  };
-
   // Keep controls enabled so user drag fires 'start' and interrupts the tour.
   // _camAnimating = true prevents other camera code from racing.
   _camAnimating = true;
-  controls.addEventListener('start', interruptTour);
+
+  // Completion uses the same cleanup path as Back, selection, and drag.
+  const tl = gsap.timeline({
+    onComplete() {
+      if (_activeTour === tour) tour.timeline = null;
+      _cancelActiveTour(tour);
+    },
+  });
+  tour.timeline = tl;
 
   const total = waypoints.length;
   waypoints.forEach((wp, i) => {
