@@ -656,7 +656,11 @@
   }
   </script>
 
-<script src="panel-mobile.js"></script>
+<script src="./panel-state.js"></script>
+<script>
+  window.SiteNavPanelState.init({ mode: 'fold' });
+  window._updateCamPresetsBottom = () => window.SiteNavPanelState.sync();
+</script>
 <script type="module" src="./viewer3d.js"></script>
 <script type="module" src="./admin3d.js"></script>
 </body>

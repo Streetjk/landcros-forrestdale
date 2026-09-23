@@ -40,11 +40,30 @@ document.addEventListener('keydown', e => {
 });
 
 // ── Init (fires after viewer3d boot completes) ────────────────────────────────
+function _syncPanelFoldButton(state = null) {
+  const btn = document.getElementById('panel-fold-btn');
+  const snapshot = state || window.SiteNavPanelState?.sync?.();
+  const folded = snapshot?.mode === 'fold'
+    ? snapshot.folded
+    : document.getElementById('side-panel')?.classList.contains('panel-folded');
+  if (btn) btn.classList.toggle('folded', !!folded);
+  return snapshot;
+}
+
 function _setEditorPanel(active) {
   const panel = document.getElementById('side-panel');
   panel?.classList.toggle('staff-editing', active);
   document.getElementById('app')?.classList.toggle('staff-editing', active);
-  if (active) panel?.classList.remove('panel-folded');
+  if (active) {
+    if (window.SiteNavPanelState?.openDetail) {
+      _syncPanelFoldButton(window.SiteNavPanelState.openDetail());
+    } else {
+      panel?.classList.remove('panel-folded');
+      _syncPanelFoldButton();
+    }
+  } else {
+    _syncPanelFoldButton();
+  }
   window._updateCamPresetsBottom?.();
 }
 function _safeStorage() { try { return window.localStorage; } catch { return null; } }
@@ -1116,13 +1135,15 @@ window._adminCopyShareUrl = () => {
 };
 
 window._toggleInfoBar = () => {
+  if (window.SiteNavPanelState?.toggle) {
+    _syncPanelFoldButton(window.SiteNavPanelState.toggle());
+    return;
+  }
   const panel = document.getElementById('side-panel');
-  const btn = document.getElementById('panel-fold-btn');
-  const folded = panel.classList.toggle('panel-folded');
-  if (btn) btn.classList.toggle('folded', folded);
-  // Sync immediately — the CSS transition does the animating, and a delayed
-  // call left the buttons 290ms behind the panel on browsers without :has().
-  window._updateCamPresetsBottom();
+  const folded = panel?.classList.toggle('panel-folded') ?? false;
+  _syncPanelFoldButton({ mode: 'fold', folded });
+  // Legacy fallback for pages that do not load the shared controller.
+  window._updateCamPresetsBottom?.();
 };
 
 // ── QR / link ─────────────────────────────────────────────────────────────────
