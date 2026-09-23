@@ -71,7 +71,8 @@ test('server wires only public GET point/contact failures to the correlation hel
   assert.match(source, /getPoints\(SITE, \{ baseOnly: true \}\)[\s\S]*?writePublicDataUnavailable\(res, \{ requestId, route: 'GET-api-points', site: SITE, error: e \}\)/);
   assert.match(source, /getContacts\(SITE, \{ baseOnly: true \}\)[\s\S]*?writePublicDataUnavailable\(res, \{ requestId, route: 'GET-api-contacts', site: SITE, error: e \}\)/);
   assert.match(source, /savePoint\(SITE, point, s\.profileId\)[\s\S]*?_errBody\(e\)/);
-  assert.match(source, /saveContact\(SITE, contact, s\.profileId\)[\s\S]*?_errBody\(e\)/);
+  assert.match(source, /sdb\.saveContact\(slug, contact, session\.profileId\)[\s\S]*?_errBody\(e\)/);
+  assert.match(source, /pathname === '\/api\/contacts' && req\.method === 'POST'[\s\S]*?req\.resume\(\);[\s\S]*?setHeader\('Allow', 'GET'\)[\s\S]*?405/);
 });
 
 async function getFreePort() {

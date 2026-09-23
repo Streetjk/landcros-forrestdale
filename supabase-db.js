@@ -188,7 +188,7 @@ async function saveContact(slug, contact, changedBy = null) {
      returning *`,
     [
       contact.id, siteId, contact.name, contact.role ?? null, contact.phone ?? null,
-      contact.email ?? null, contact.active ?? true, contact.createdBy ?? 'browser',
+      contact.email ?? null, contact.active ?? true, changedBy,
     ]
   );
   if (!rows.length) throw new Error(`Contact ${contact.id} belongs to a different site`);

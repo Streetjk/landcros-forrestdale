@@ -11,9 +11,10 @@ async function _fetch(path) {
 }
 
 // Write helper — points/contacts are now backed by Supabase (see
-// supabase-db.js); server.js's /api/points and /api/contacts routes handle
-// the upsert, gated by the caller's session cookie (sent automatically on
-// same-origin requests). SharePoint migration note below still applies.
+// supabase-db.js). Base points still write through /api/points; staff contacts
+// write through the site-scoped /api/sites/:slug/contacts contract. Both are
+// gated by the caller's session cookie (sent automatically on same-origin
+// requests). SharePoint migration note below still applies.
 async function _write(path, method, data) {
   if (USE_SHAREPOINT) {
     // TODO: swap with SP REST — /_api/web/lists/getbytitle('SiteMap...')/items
@@ -46,8 +47,9 @@ export async function getContact(id) {
   return all.find(c => c.id === id) ?? null;
 }
 
-export async function saveContact(contact) {
-  return _write('/api/contacts', 'POST', contact);
+export async function saveContact(slug, contact) {
+  if (typeof slug !== 'string' || !slug.trim()) throw new Error('Site slug is required');
+  return _write('/api/sites/' + encodeURIComponent(slug.trim()) + '/contacts', 'POST', contact);
 }
 
 export async function searchContacts(query) {

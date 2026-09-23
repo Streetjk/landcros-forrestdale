@@ -1205,8 +1205,12 @@ window.renderContactTable = (filter = '') => {
 window._adminToggleActive = async (id, active) => {
   const c = _contactsAll.find(x => x.id === id);
   if (!c) return;
-  c.active = active;
-  await saveContact(c);
+  const saved = await saveContact(_slug, { ...c, active });
+  const allIndex = _contactsAll.findIndex(x => x.id === id);
+  if (allIndex >= 0) _contactsAll[allIndex] = saved;
+  const contactIndex = _contacts.findIndex(x => x.id === id);
+  if (contactIndex >= 0) _contacts[contactIndex] = saved;
+  window.renderContactTable(document.getElementById('contact-search').value);
 };
 
 window.addNewContact = () => {
@@ -1227,13 +1231,10 @@ window._adminSaveNewContact = async () => {
   const role  = document.getElementById('nc-role').value.trim();
   const phone = document.getElementById('nc-phone').value.trim();
   if (!name || !phone) { showToast('Name and phone are required'); return; }
-  const contact = {
-    id: _uuid(), name, role, phone, email: '',
-    active: true, createdBy: 'browser', createdAt: new Date().toISOString(),
-  };
-  await saveContact(contact);
-  _contactsAll.push(contact);
-  _contacts.push(contact);
+  const contact = { id: _uuid(), name, role, phone, email: '', active: true };
+  const saved = await saveContact(_slug, contact);
+  _contactsAll.push(saved);
+  _contacts.push(saved);
   window.renderContactTable(document.getElementById('contact-search').value);
   showToast('Contact saved');
 };

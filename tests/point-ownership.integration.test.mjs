@@ -141,6 +141,32 @@ test('scene point ownership: actual PostgreSQL and HTTP server', { skip: !proces
       assert.deepEqual(otherSite.body.map(c=>c.id),[CONTACT_B]);
       assert.equal((await request('/api/sites/beta/contacts')).status,403);
     });
+    await t.test('staff contact writes are site-scoped and actor-owned', async () => {
+      const contactWriteA = uid(37), contactWriteB = uid(38);
+      const draft = { id: contactWriteA, name: 'Scoped contact', role: 'Visitor desk', phone: '0000 0000', createdBy: OTHER };
+      try {
+        for (const actor of [null, VIEWER, OUTSIDER]) {
+          const denied = await request('/api/sites/alpha/contacts', { method: 'POST', actor, body: draft });
+          assert.equal(denied.status, actor ? 403 : 401);
+        }
+        assert.equal((await request('/api/sites/alpha/contacts', { method: 'POST', raw: '{' })).status, 400);
+        const legacyPost = await request('/api/contacts', { method: 'POST', body: draft });
+        assert.equal(legacyPost.status, 405); assert.equal(legacyPost.headers.get('allow'), 'GET');
+
+        const created = await request('/api/sites/alpha/contacts', { method: 'POST', body: draft });
+        assert.equal(created.status, 200); assert.equal(created.body.createdBy, OWNER);
+        const alphaRow = (await sql.query('select site_id,created_by from contacts where id=$1', [contactWriteA])).rows[0];
+        assert.equal(alphaRow.site_id, SITE_A); assert.equal(alphaRow.created_by, OWNER);
+        assert.equal((await request('/api/sites/beta/contacts', { method: 'POST', body: { ...draft, id: contactWriteB } })).status, 403);
+
+        const beta = await request('/api/sites/beta/contacts', { method: 'POST', actor: OTHER, body: { ...draft, id: contactWriteB, createdBy: OWNER } });
+        assert.equal(beta.status, 200); assert.equal(beta.body.createdBy, OTHER);
+        const betaRow = (await sql.query('select site_id,created_by from contacts where id=$1', [contactWriteB])).rows[0];
+        assert.equal(betaRow.site_id, SITE_B); assert.equal(betaRow.created_by, OTHER);
+      } finally {
+        await sql.query('delete from contacts where id = any($1::uuid[])', [[contactWriteA, contactWriteB]]);
+      }
+    });
     await t.test('anonymous public contacts expose only base-pin references and strip staff metadata', async () => {
       const publicPoint = uid(44), sceneOnlyPoint = uid(45), personalPoint = uid(46);
       try {

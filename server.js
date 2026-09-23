@@ -842,16 +842,30 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  // Staff-only contact dropdown; do not widen the existing public projection.
+  // Staff-only contact contract; do not widen the existing public projection.
+  // Reads and writes are both site-scoped so an authenticated editor cannot
+  // accidentally persist through the deployment-global public route.
   const staffContactsMatch = /^\/api\/sites\/([^/]+)\/contacts$/.exec(pathname);
-  if (staffContactsMatch && req.method === 'GET') {
+  if (staffContactsMatch && (req.method === 'GET' || req.method === 'POST')) {
     const slug = staffContactsMatch[1];
     if (!SLUG_RE.test(slug)) return _json(res, 404, { error: 'not found' });
     res.setHeader('Cache-Control', 'no-store');
-    _requireSiteEditor(req, res, slug, () => {
-      sdb.getContacts(slug, { baseOnly: false })
-        .then(contacts => _json(res, 200, contacts))
-        .catch(e => _json(res, 500, JSON.parse(_errBody(e))));
+    _requireSiteEditor(req, res, slug, (session) => {
+      if (req.method === 'GET') {
+        sdb.getContacts(slug, { baseOnly: false })
+          .then(contacts => _json(res, 200, contacts))
+          .catch(e => _json(res, 500, JSON.parse(_errBody(e))));
+        return;
+      }
+      _readJsonBody(req, async (err, contact) => {
+        if (err) return _json(res, 400, { error: 'INVALID_JSON_BODY' });
+        try {
+          const saved = await sdb.saveContact(slug, contact, session.profileId);
+          _json(res, 200, saved);
+        } catch (e) {
+          _json(res, 500, JSON.parse(_errBody(e)));
+        }
+      });
     });
     return;
   }
@@ -1496,10 +1510,10 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  // ── Points/contacts — Supabase-backed admin data path (see supabase-db.js) ─
-  // Reads are public (parity with the old static data/points.json &
-  // data/contacts.json files); writes require an editor+ session on SITE
-  // (see _requireRole) — replaces the old shared-secret write gate.
+  // ── Public/base data path (see supabase-db.js) ───────────────────────────
+  // Base point/contact reads stay deployment-site public projections. Base
+  // point writes remain editor-gated on SITE; staff contact writes use the
+  // explicit /api/sites/:slug/contacts contract above.
   if (pathname === '/api/points' && (req.method === 'GET' || req.method === 'POST')) {
     if (req.method === 'GET') {
       if (!sdb.isConfigured()) {
@@ -1558,51 +1572,32 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  if (pathname === '/api/contacts' && (req.method === 'GET' || req.method === 'POST')) {
-    if (req.method === 'GET') {
-      if (!sdb.isConfigured()) {
-        writePublicDataUnavailable(res, {
-          requestId,
-          route: 'GET-api-contacts',
-          site: SITE,
-          error: { code: 'DB_NOT_CONFIGURED' },
-        });
-        return;
-      }
-      // Public read → exclude scene-only contacts (referenced solely by
-      // scene-scoped pins), keeping scene-created PII off the public route.
-      sdb.getContacts(SITE, { baseOnly: true }).then(contacts => {
-        res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
-        res.end(JSON.stringify(contacts));
-      }).catch(e => {
-        writePublicDataUnavailable(res, { requestId, route: 'GET-api-contacts', site: SITE, error: e });
+  if (pathname === '/api/contacts' && req.method === 'GET') {
+    if (!sdb.isConfigured()) {
+      writePublicDataUnavailable(res, {
+        requestId,
+        route: 'GET-api-contacts',
+        site: SITE,
+        error: { code: 'DB_NOT_CONFIGURED' },
       });
       return;
     }
-    if (!sdb.isConfigured()) {
-      res.writeHead(503, { 'Content-Type': 'application/json' });
-      return res.end(JSON.stringify({ error: 'Supabase not configured: set SUPABASE_DB_URL' }));
-    }
-    _requireRole(req, res, 'editor', (s) => {
-      let body = '';
-      let bodySize = 0;
-      req.on('data', c => { bodySize += c.length; if (bodySize > POST_BODY_LIMIT) { req.destroy(); return; } body += c; });
-      req.on('end', () => {
-        (async () => {
-          try {
-            const contact = JSON.parse(body);
-            const saved = await sdb.saveContact(SITE, contact, s.profileId);
-            console.log(`[contacts] ${SITE}/${saved.id} saved by ${s.profileId}`);
-            res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
-            res.end(JSON.stringify(saved));
-          } catch (e) {
-            res.writeHead(500, { 'Content-Type': 'application/json' });
-            res.end(_errBody(e));
-          }
-        })();
-      });
+    // Public read → exclude scene-only contacts (referenced solely by
+    // scene-scoped pins), keeping scene-created PII off the public route.
+    sdb.getContacts(SITE, { baseOnly: true }).then(contacts => {
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+      res.end(JSON.stringify(contacts));
+    }).catch(e => {
+      writePublicDataUnavailable(res, { requestId, route: 'GET-api-contacts', site: SITE, error: e });
     });
     return;
+  }
+  if (pathname === '/api/contacts' && req.method === 'POST') {
+    // Drain the rejected body so keep-alive connections remain reusable, and
+    // advertise the only supported method for this public route.
+    req.resume();
+    res.setHeader('Allow', 'GET');
+    return _json(res, 405, { error: 'METHOD_NOT_ALLOWED' });
   }
 
   // ── Scene permanent short-link: /s/<code> → /?scene=<code> ────────────
