@@ -9,7 +9,7 @@ import { Sky } from 'three/addons/objects/Sky.js';
 import { initComparison, updateComparison, comparisonNeedsRender } from './splat-compare.js';
 import { buildPinUrl, clearPinUrl, buildMyPinShareUrl, buildMyPinPhotoUrl } from './guide-url.js';
 import { hasSiteDetail, showBuildingDetail, showSiteDetail, sanitizePhone } from './location-details.js';
-import { loadPublicArray, renderPublicDataNotice, isRenderablePoint, isRenderableContact } from './public-data.js';
+import { loadPublicArray, renderPublicDataNotice, isRenderablePoint, isRenderableContact, projectPublicPoint, projectPublicContact } from './public-data.js';
 import { loadPublicSiteMetadata, resolveSiteBranding, sanitizePublicLogoUrl } from './public-site.js';
 import { getBasePublicVisitPointId } from './visit-analytics.js';
 
@@ -3755,8 +3755,8 @@ async function boot() {
   // viewer3d.html: load pins/contacts
   if (!document.getElementById('admin-controls') && _showOverlays) {
   const [pointResult, contactResult] = await Promise.all([
-    loadPublicArray('./data/points.json', globalThis.fetch, isRenderablePoint),
-    loadPublicArray('./data/contacts.json', globalThis.fetch, isRenderableContact),
+    loadPublicArray('/api/points', globalThis.fetch, isRenderablePoint, projectPublicPoint),
+    loadPublicArray('/api/contacts', globalThis.fetch, isRenderableContact, projectPublicContact),
   ]);
   const points = pointResult.data;
   const contacts = contactResult.data;

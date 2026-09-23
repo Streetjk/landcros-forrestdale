@@ -5,7 +5,10 @@ import { readFile } from 'node:fs/promises';
 const fileUrl = new URL('../public-data.js', import.meta.url);
 const code = await readFile(fileUrl, 'utf8');
 const dataUri = `data:text/javascript;base64,${Buffer.from(code).toString('base64')}`;
-const { loadPublicArray, renderPublicDataNotice, isRenderablePoint, isRenderableContact } = await import(dataUri);
+const {
+  loadPublicArray, renderPublicDataNotice, isRenderablePoint, isRenderableContact,
+  projectPublicPoint, projectPublicContact,
+} = await import(dataUri);
 
 test('loadPublicArray - 200 array success', async () => {
   const payload = [{ id: 1, name: 'Main Lobby' }, { id: 2, name: 'North Exit' }];
@@ -130,33 +133,47 @@ test('renderPublicDataNotice - DOM behaviors', () => {
   assert.equal(container.children.length, 0);
 });
 
-test('render validators filter malformed rows and preserve accepted objects unchanged', async () => {
+test('public base projectors strip private/unknown fields and clone structured values', async () => {
   const validPoint = {
-    id: 'point-1', label: 'Gate 1', type: 'drop-off',
-    position3d: { x: 1, y: 2, z: 3 }, sceneId: 'scene-1', createdBy: 'profile-1', contactIds: ['contact-1']
+    id: 'point-1', label: 'Gate 1', type: 'drop-off', scope: 'shared',
+    latlng: [-32.1, 115.9], position3d: { x: 1, y: 2, z: 3 }, notes: 'Use gate',
+    contactIds: ['contact-1'], routeWaypoints: [[1, 2]], routeWaypoints3d: [{ x: 1, y: 2, z: 3 }],
+    cameraPreset3d: { position: { x: 4, y: 5, z: 6 } }, buildingRef: 'B1',
+    sceneId: 'scene-private', createdBy: 'profile-private', secret: 'never',
   };
-  const invalidPoints = [
-    null, [], {},
-    { ...validPoint, id: '   ' },
-    { ...validPoint, label: '' },
-    { ...validPoint, type: null },
-    { ...validPoint, position3d: null },
-    { ...validPoint, position3d: { x: 1, y: 2, z: Number.NaN } },
-  ];
-  const pointPayload = [validPoint, ...invalidPoints];
-  const pointResult = await loadPublicArray('/points', async () => ({ ok: true, json: async () => pointPayload }), isRenderablePoint);
-  assert.deepEqual(pointResult, { data: [validPoint], unavailable: true });
-  assert.equal(pointResult.data[0], validPoint);
-  assert.equal(pointResult.data[0].sceneId, 'scene-1');
-  assert.equal(pointResult.data[0].createdBy, 'profile-1');
-  assert.deepEqual(pointResult.data[0].contactIds, ['contact-1']);
+  const projectedPoint = projectPublicPoint(validPoint);
+  assert.deepEqual(Object.keys(projectedPoint).sort(), [
+    'buildingRef', 'cameraPreset3d', 'contactIds', 'id', 'label', 'latlng', 'notes',
+    'position3d', 'routeWaypoints', 'routeWaypoints3d', 'scope', 'type',
+  ]);
+  assert.equal('sceneId' in projectedPoint, false);
+  assert.equal('createdBy' in projectedPoint, false);
+  assert.equal('secret' in projectedPoint, false);
+  assert.deepEqual(projectedPoint.position3d, validPoint.position3d);
+  assert.notEqual(projectedPoint.position3d, validPoint.position3d);
+  assert.deepEqual(projectedPoint.contactIds, validPoint.contactIds);
+  assert.notEqual(projectedPoint.contactIds, validPoint.contactIds);
 
-  const validContact = { id: 'contact-1', name: 'Reception', phone: '0000', createdBy: 'profile-1' };
-  const contactPayload = [validContact, null, [], {}, { id: '', name: 'Bad' }, { id: 'c2', name: '   ' }];
-  const contactResult = await loadPublicArray('/contacts', async () => ({ ok: true, json: async () => contactPayload }), isRenderableContact);
-  assert.deepEqual(contactResult, { data: [validContact], unavailable: true });
-  assert.equal(contactResult.data[0], validContact);
-  assert.equal(contactResult.data[0].createdBy, 'profile-1');
+  const validContact = {
+    id: 'contact-1', name: 'Reception', role: 'Reception', phone: '0000', active: true,
+    email: 'private@example.invalid', createdBy: 'profile-private', createdAt: 'never', secret: 'never',
+  };
+  const projectedContact = projectPublicContact(validContact);
+  assert.deepEqual(Object.keys(projectedContact).sort(), ['active', 'id', 'name', 'phone', 'role']);
+  assert.equal('email' in projectedContact, false);
+  assert.equal('createdBy' in projectedContact, false);
+  assert.equal('createdAt' in projectedContact, false);
+  assert.equal('secret' in projectedContact, false);
+
+  const pointPayload = [validPoint, null, { ...validPoint, id: '   ' }];
+  const pointResult = await loadPublicArray('/api/points', async () => ({ ok: true, json: async () => pointPayload }), isRenderablePoint, projectPublicPoint);
+  assert.equal(pointResult.unavailable, true);
+  assert.deepEqual(pointResult.data, [projectedPoint]);
+
+  const contactPayload = [validContact, [], { id: 'c2', name: '   ' }];
+  const contactResult = await loadPublicArray('/api/contacts', async () => ({ ok: true, json: async () => contactPayload }), isRenderableContact, projectPublicContact);
+  assert.equal(contactResult.unavailable, true);
+  assert.deepEqual(contactResult.data, [projectedContact]);
 });
 
 test('render validators accept the minimum required contracts', () => {
@@ -166,8 +183,10 @@ test('render validators accept the minimum required contracts', () => {
 
 test('viewer wires render validators into public arrays and scene pin merge', async () => {
   const viewer = await readFile(new URL('../viewer3d.js', import.meta.url), 'utf8');
-  assert.match(viewer, /loadPublicArray\('\.\/data\/points\.json', globalThis\.fetch, isRenderablePoint\)/);
-  assert.match(viewer, /loadPublicArray\('\.\/data\/contacts\.json', globalThis\.fetch, isRenderableContact\)/);
+  assert.match(viewer, /loadPublicArray\('\/api\/points', globalThis\.fetch, isRenderablePoint, projectPublicPoint\)/);
+  assert.match(viewer, /loadPublicArray\('\/api\/contacts', globalThis\.fetch, isRenderableContact, projectPublicContact\)/);
+  assert.doesNotMatch(viewer, /loadPublicArray\('\.\/data\/(points|contacts)\.json/);
+  assert.doesNotMatch(viewer, /fetch\('\.\/data\/contacts\.json/);
   assert.match(viewer, /rawScenePins\.filter\(isRenderablePoint\)/);
   assert.match(viewer, /rawSceneContacts\.filter\(isRenderableContact\)/);
   assert.match(viewer, /sceneDataUnavailable/);

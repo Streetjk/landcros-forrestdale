@@ -14,7 +14,44 @@ export function isRenderableContact(value) {
     && typeof value.name === 'string' && value.name.trim() !== '';
 }
 
-export async function loadPublicArray(url, fetchFn = globalThis.fetch, itemValidator = null) {
+function clonePublicValue(value) {
+  if (Array.isArray(value)) return value.map(clonePublicValue);
+  if (!value || typeof value !== 'object') return value;
+  return Object.fromEntries(
+    Object.entries(value).map(([key, item]) => [key, clonePublicValue(item)])
+  );
+}
+
+export function projectPublicPoint(value) {
+  if (!isRenderablePoint(value)) return null;
+  return {
+    id: value.id,
+    label: value.label,
+    type: value.type,
+    scope: value.scope,
+    latlng: clonePublicValue(value.latlng),
+    position3d: clonePublicValue(value.position3d),
+    notes: value.notes,
+    contactIds: clonePublicValue(value.contactIds),
+    routeWaypoints: clonePublicValue(value.routeWaypoints),
+    routeWaypoints3d: clonePublicValue(value.routeWaypoints3d),
+    cameraPreset3d: clonePublicValue(value.cameraPreset3d),
+    buildingRef: value.buildingRef,
+  };
+}
+
+export function projectPublicContact(value) {
+  if (!isRenderableContact(value)) return null;
+  return {
+    id: value.id,
+    name: value.name,
+    role: value.role,
+    phone: value.phone,
+    active: value.active,
+  };
+}
+
+export async function loadPublicArray(url, fetchFn = globalThis.fetch, itemValidator = null, itemProjector = null) {
   try {
     const response = await fetchFn(url);
     if (!response || !response.ok) {
@@ -24,11 +61,29 @@ export async function loadPublicArray(url, fetchFn = globalThis.fetch, itemValid
     if (!Array.isArray(parsed)) {
       return { data: [], unavailable: true };
     }
-    if (typeof itemValidator !== 'function') {
+    if (typeof itemValidator !== 'function' && typeof itemProjector !== 'function') {
       return { data: parsed, unavailable: false };
     }
-    const data = parsed.filter(itemValidator);
-    return { data, unavailable: data.length !== parsed.length };
+
+    const data = [];
+    let unavailable = false;
+    for (const item of parsed) {
+      if (typeof itemValidator === 'function' && !itemValidator(item)) {
+        unavailable = true;
+        continue;
+      }
+      if (typeof itemProjector === 'function') {
+        const projected = itemProjector(item);
+        if (!projected) {
+          unavailable = true;
+          continue;
+        }
+        data.push(projected);
+      } else {
+        data.push(item);
+      }
+    }
+    return { data, unavailable };
   } catch {
     return { data: [], unavailable: true };
   }
