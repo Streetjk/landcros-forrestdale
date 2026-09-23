@@ -65,7 +65,9 @@ test('scene point ownership: actual PostgreSQL and HTTP server', { skip: !proces
         foreign key(site_id,scene_id) references scenes(site_id,id) on delete cascade);
       create unique index fixture_one_active_my_pin_capability on my_pin_capabilities(point_id) where revoked_at is null;
     `);
-    await sql.query('insert into sites(id,slug) values ($1,\'alpha\'),($2,\'beta\')', [SITE_A,SITE_B]);
+    // Public base-read assertions below use alpha; keep beta unpublished so the
+    // fixture still contains both publication states.
+    await sql.query("insert into sites(id,slug,published) values ($1,'alpha',true),($2,'beta',false)", [SITE_A,SITE_B]);
     for (const [id,email] of [[OWNER,'owner@example.test'],[OTHER,'other@example.test'],[VIEWER,'viewer@example.test'],[ADMIN,'platform@example.test'],[OUTSIDER,'outsider@example.test']]) {
       await sql.query('insert into profiles(id,email) values($1,$2)',[id,email]);
     }
