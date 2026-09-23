@@ -139,6 +139,7 @@
   </div>
 
 <script src="auth-gate.js"></script>
+<script src="staff-nav.js"></script>
 <script>
 (function() {
   const gate = document.getElementById('sn-auth-gate');
@@ -179,6 +180,7 @@
     gate.style.display = 'none';
     app.classList.add('visible');
     document.getElementById('whoami').textContent = email || '';
+    SiteNavStaffNav.mount({ currentPage: 'more' });
     renderSites(sites);
   }
 

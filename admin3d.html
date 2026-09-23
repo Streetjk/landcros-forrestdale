@@ -559,6 +559,7 @@
   </div>
 
   <script src="auth-gate.js"></script>
+  <script src="staff-nav.js"></script>
 
   <script>
   (function() {
@@ -611,6 +612,7 @@
     bar.style.display = 'flex';
     document.getElementById('sn-auth-email-label').textContent = (info && info.email) || '';
     SnAuthGate.decorateAuthBar();
+    SiteNavStaffNav.mount({ currentPage: 'pins' });
     document.getElementById('sn-signout-btn').onclick = async () => {
       window._snAdminIdentity = null;
       window.dispatchEvent(new CustomEvent('sitenav:auth-cleared'));
