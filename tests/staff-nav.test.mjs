@@ -47,7 +47,7 @@ test('site-scoped reports link is omitted and safe destinations preserved for in
 });
 
 test('staff nav is local, accessible and mobile-touch-safe by contract', () => {
-  assert.doesNotMatch(source, /\bfetch\s*\(|XMLHttpRequest|\/api\//);
+  assert.doesNotMatch(source, /fetch\s*\(|XMLHttpRequest|\/api\//);
   assert.match(source, /aria-label", "Staff navigation"/);
   assert.match(source, /aria-current", "page"/);
   assert.match(source, /min-height:44px/);
