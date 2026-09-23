@@ -37,6 +37,7 @@ const { canManageScene } = require('./resource-ownership');
 const { createScenePointHandler } = require('./scene-points-routes');
 const { createScenePointPhotoHandler } = require('./scene-point-photos-routes');
 const { createRequestId, writePublicDataUnavailable } = require('./public-api-diagnostics');
+const { readPublicSiteMetadata } = require('./site-metadata');
 const { NotificationStatusPartialError, notifyThenPersistStatus, partialCompletionBody } = require('./hazard-status-workflow');
 
 // Generic client error body — logs the real error server-side, never leaks
@@ -535,7 +536,7 @@ const server = http.createServer((req, res) => {
   // Which site this deployment serves — lets static pages (start.html) build
   // links without hardcoding a slug.
   if (req.method === 'GET' && pathname === '/api/site') {
-    return _json(res, 200, { slug: SITE });
+    return _json(res, 200, readPublicSiteMetadata(SITE_DIR, SITE));
   }
 
   if (req.method === 'GET' && pathname === '/api/auth/me') {
