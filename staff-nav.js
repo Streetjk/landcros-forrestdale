@@ -19,11 +19,6 @@
     const slug = normalizeSiteSlug(siteSlug);
     if (slug) {
       items.push({
-        id: "editor",
-        label: "Editor",
-        href: `/editor.html?site=${encodeURIComponent(slug)}`,
-      });
-      items.push({
         id: "reports",
         label: "Reports",
         href: `/editor.html?site=${encodeURIComponent(slug)}&mode=hazard`,

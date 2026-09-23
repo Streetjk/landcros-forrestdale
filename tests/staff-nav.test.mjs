@@ -20,16 +20,26 @@ test('staff nav exposes only same-origin existing staff destinations', () => {
   assert.deepEqual(nav.buildItems({ siteSlug: 'landcros' }), [
     { id: 'map', label: 'Map', href: '/index.html' },
     { id: 'pins', label: 'My Pins', href: '/admin3d.html' },
-    { id: 'editor', label: 'Editor', href: '/editor.html?site=landcros' },
     { id: 'reports', label: 'Reports', href: '/editor.html?site=landcros&mode=hazard' },
     { id: 'more', label: 'More', href: '/portal.html' },
   ]);
+  assert.deepEqual(
+    nav.buildItems({ siteSlug: 'landcros' }).map((item) => item.label),
+    ['Map', 'My Pins', 'Reports', 'More'],
+  );
+  assert.equal(nav.buildItems({ siteSlug: 'landcros' }).some((item) => item.id === 'editor'), false);
   for (const item of nav.buildItems({ siteSlug: 'landcros' })) assert.match(item.href, /^\//);
 });
 
-test('site-scoped editor and reports links are omitted for invalid or hostile site slugs', () => {
+test('site-scoped reports link is omitted and safe destinations preserved for invalid or hostile site slugs', () => {
   for (const slug of ['', ' ../x ', 'https://evil.invalid', 'landcros?next=https://evil.invalid', 'A']) {
-    const ids = nav.buildItems({ siteSlug: slug }).map((item) => item.id);
+    const items = nav.buildItems({ siteSlug: slug });
+    assert.deepEqual(items, [
+      { id: 'map', label: 'Map', href: '/index.html' },
+      { id: 'pins', label: 'My Pins', href: '/admin3d.html' },
+      { id: 'more', label: 'More', href: '/portal.html' },
+    ], slug);
+    const ids = items.map((item) => item.id);
     assert.equal(ids.includes('editor'), false, slug);
     assert.equal(ids.includes('reports'), false, slug);
   }
@@ -37,7 +47,7 @@ test('site-scoped editor and reports links are omitted for invalid or hostile si
 });
 
 test('staff nav is local, accessible and mobile-touch-safe by contract', () => {
-  assert.doesNotMatch(source, /fetch\s*\(|XMLHttpRequest|\/api\//);
+  assert.doesNotMatch(source, /\bfetch\s*\(|XMLHttpRequest|\/api\//);
   assert.match(source, /aria-label", "Staff navigation"/);
   assert.match(source, /aria-current", "page"/);
   assert.match(source, /min-height:44px/);
@@ -69,9 +79,17 @@ test('mount marks exactly the requested staff destination current', () => {
   let mounted = nav.mount({ currentPage: 'reports', siteSlug: 'landcros', document: doc });
   assert.equal(mounted.children.filter((el) => el.getAttribute('aria-current') === 'page').length, 1);
   assert.equal(mounted.children.find((el) => el.getAttribute('aria-current') === 'page').dataset.staffNav, 'reports');
-  mounted = nav.mount({ currentPage: 'editor', siteSlug: 'landcros', document: doc });
+
+  mounted = nav.mount({ currentPage: 'more', siteSlug: 'landcros', document: doc });
   assert.equal(mounted.children.filter((el) => el.getAttribute('aria-current') === 'page').length, 1);
-  assert.equal(mounted.children.find((el) => el.getAttribute('aria-current') === 'page').dataset.staffNav, 'editor');
+  assert.equal(mounted.children.find((el) => el.getAttribute('aria-current') === 'page').dataset.staffNav, 'more');
+
+  mounted = nav.mount({ currentPage: 'more', document: doc });
+  assert.equal(mounted.children.filter((el) => el.getAttribute('aria-current') === 'page').length, 1);
+  assert.equal(mounted.children.find((el) => el.getAttribute('aria-current') === 'page').dataset.staffNav, 'more');
+
+  mounted = nav.mount({ currentPage: 'editor', siteSlug: 'landcros', document: doc });
+  assert.equal(mounted.children.filter((el) => el.getAttribute('aria-current') === 'page').length, 0);
 });
 
 test('staff pages load and mount the shared nav only in authenticated entry paths', () => {
@@ -80,9 +98,9 @@ test('staff pages load and mount the shared nav only in authenticated entry path
   const portal = read('portal.html');
   for (const html of [admin, editor, portal]) assert.match(html, /<script src="staff-nav\.js"><\/script>/);
   assert.match(admin, /SiteNavStaffNav\.mount\(\{ currentPage: 'pins' \}\);/);
-  assert.match(editor, /if \(info && info\.email\) \{\s*const navParams = new URLSearchParams\(location\.search\);\s*SiteNavStaffNav\.mount\(\{\s*currentPage: navParams\.get\('mode'\) === 'hazard' \? 'reports' : 'editor',\s*siteSlug: navParams\.get\('site'\),\s*\}\);\s*\}/s);
+  assert.match(editor, /if \(info && info\.email\) \{\s*const navParams = new URLSearchParams\(location\.search\);\s*SiteNavStaffNav\.mount\(\{\s*currentPage: navParams\.get\('mode'\) === 'hazard' \? 'reports' : 'more',\s*siteSlug: navParams\.get\('site'\),\s*\}\);\s*\}/s);
   assert.match(portal, /SiteNavStaffNav\.mount\(\{ currentPage: 'more' \}\);/);
   assert.ok(admin.indexOf("SiteNavStaffNav.mount({ currentPage: 'pins' })") > admin.indexOf('function showAuthBar(info)'));
-  assert.ok(editor.indexOf("currentPage: navParams.get('mode') === 'hazard' ? 'reports' : 'editor'") > editor.indexOf('function showAuthBar(info)'));
+  assert.ok(editor.indexOf("currentPage: navParams.get('mode') === 'hazard' ? 'reports' : 'more'") > editor.indexOf('function showAuthBar(info)'));
   assert.ok(portal.indexOf("SiteNavStaffNav.mount({ currentPage: 'more' })") > portal.indexOf('async function checkPlatformAdminAndEnter(email)'));
 });

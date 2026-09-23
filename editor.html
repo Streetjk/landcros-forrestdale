@@ -428,7 +428,7 @@
     if (info && info.email) {
       const navParams = new URLSearchParams(location.search);
       SiteNavStaffNav.mount({
-        currentPage: navParams.get('mode') === 'hazard' ? 'reports' : 'editor',
+        currentPage: navParams.get('mode') === 'hazard' ? 'reports' : 'more',
         siteSlug: navParams.get('site'),
       });
     }
