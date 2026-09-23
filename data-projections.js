@@ -12,6 +12,53 @@ function from(row, camel, db = camel) {
   return row[camel] !== undefined ? row[camel] : row[db];
 }
 
+
+function staffScene(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    name: row.name,
+    shareCode: from(row, 'shareCode', 'share_code'),
+    camera: cloneJsonValue(row.camera),
+    kind: row.kind || 'admin',
+    status: row.status || 'open',
+    statusChangedAt: from(row, 'statusChangedAt', 'status_changed_at') ?? null,
+    statusChangedByEmail: from(row, 'statusChangedByEmail', 'status_changed_by_email') ?? null,
+    createdBy: from(row, 'createdBy', 'created_by') ?? null,
+    createdByEmail: from(row, 'createdByEmail', 'created_by_email') ?? null,
+    isMine: from(row, 'isMine', 'is_mine') ?? null,
+    subscribed: row.subscribed ?? null,
+    createdAt: from(row, 'createdAt', 'created_at'),
+    updatedAt: from(row, 'updatedAt', 'updated_at'),
+  };
+}
+
+function publicSharedScene(row, { includeAuditEmails = false } = {}) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    name: row.name,
+    camera: cloneJsonValue(row.camera),
+    kind: row.kind || 'admin',
+    status: row.status || 'open',
+    statusChangedAt: from(row, 'statusChangedAt', 'status_changed_at'),
+    statusChangedByEmail: includeAuditEmails
+      ? from(row, 'statusChangedByEmail', 'status_changed_by_email')
+      : null,
+    createdByEmail: includeAuditEmails
+      ? from(row, 'createdByEmail', 'created_by_email')
+      : null,
+  };
+}
+
+function publicMyPinScene(row) {
+  if (!row) return null;
+  return {
+    name: row.name,
+    kind: row.kind || 'admin',
+  };
+}
+
 function staffPoint(row) {
   if (!row) return null;
   return {
@@ -104,6 +151,9 @@ function publicPointPhoto(row) {
 }
 
 module.exports = {
+  staffScene,
+  publicSharedScene,
+  publicMyPinScene,
   staffPoint,
   publicBasePoint,
   publicSharedPoint,

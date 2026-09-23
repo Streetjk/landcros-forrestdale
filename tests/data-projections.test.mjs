@@ -7,6 +7,9 @@ import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 const projections = require('../data-projections.js');
 const {
+  staffScene,
+  publicSharedScene,
+  publicMyPinScene,
   staffPoint,
   publicBasePoint,
   publicSharedPoint,
@@ -16,6 +19,24 @@ const {
 } = projections;
 
 describe('Data Projections Unit Tests', () => {
+  const sampleSceneRow = {
+    id: 's-1',
+    name: 'Visitor guide',
+    share_code: 'abcde23456',
+    camera: { purpose: 'guide', nested: { zoom: 2 } },
+    kind: 'admin',
+    status: 'escalated',
+    status_changed_at: '2026-01-03T00:00:00Z',
+    status_changed_by_email: 'operator@internal.corp',
+    created_by: 'profile-1',
+    created_by_email: 'creator@internal.corp',
+    is_mine: true,
+    subscribed: false,
+    created_at: '2026-01-01T00:00:00Z',
+    updated_at: '2026-01-02T00:00:00Z',
+    internal_secret: 'do-not-expose'
+  };
+
   const samplePointRow = {
     id: 'p-1',
     scene_id: 's-100',
@@ -57,6 +78,48 @@ describe('Data Projections Unit Tests', () => {
     expires_at: '2026-03-01T00:00:00Z',
     source_bucket: 'private-bucket'
   };
+
+
+  it('defines exact staff and public scene contracts without widening public data', () => {
+    const staff = staffScene(sampleSceneRow);
+    assert.deepEqual(Object.keys(staff).sort(), [
+      'camera','createdAt','createdBy','createdByEmail','id','isMine','kind','name',
+      'shareCode','status','statusChangedAt','statusChangedByEmail','subscribed','updatedAt'
+    ].sort());
+    assert.equal(staff.shareCode, 'abcde23456');
+    assert.equal(staff.createdByEmail, 'creator@internal.corp');
+    assert.equal(staff.internal_secret, undefined);
+
+    const anon = publicSharedScene(sampleSceneRow);
+    assert.deepEqual(Object.keys(anon).sort(), [
+      'camera','createdByEmail','id','kind','name','status','statusChangedAt','statusChangedByEmail'
+    ].sort());
+    assert.equal(anon.createdByEmail, null);
+    assert.equal(anon.statusChangedByEmail, null);
+    for (const forbidden of ['shareCode','createdBy','createdAt','updatedAt','isMine','subscribed','internal_secret']) {
+      assert.equal(anon[forbidden], undefined);
+    }
+
+    const signedIn = publicSharedScene(sampleSceneRow, { includeAuditEmails: true });
+    assert.equal(signedIn.createdByEmail, 'creator@internal.corp');
+    assert.equal(signedIn.statusChangedByEmail, 'operator@internal.corp');
+
+    const sparse = publicSharedScene({ id: 's-2', name: 'Sparse', kind: 'admin' }, { includeAuditEmails: true });
+    assert.equal(sparse.statusChangedAt, undefined);
+    assert.equal(sparse.statusChangedByEmail, undefined);
+    assert.equal(sparse.createdByEmail, undefined);
+
+    assert.deepEqual(publicMyPinScene(sampleSceneRow), { name: 'Visitor guide', kind: 'admin' });
+  });
+
+  it('deeply detaches scene camera JSON across staff and public projections', () => {
+    const source = structuredClone(sampleSceneRow);
+    for (const project of [staffScene, publicSharedScene]) {
+      const projected = project(source);
+      projected.camera.nested.zoom = 99;
+      assert.equal(source.camera.nested.zoom, 2);
+    }
+  });
 
   it('verifies exact sorted Object.keys for staffPoint', () => {
     const res = staffPoint(samplePointRow);
@@ -227,7 +290,10 @@ describe('Data Projections Unit Tests', () => {
     const scenesSrc = fs.readFileSync(path.resolve('scenes-db.js'), 'utf8');
 
     assert.match(supabaseSrc, /publicBasePoint/);
+    assert.match(scenesSrc, /publicSharedScene/);
+    assert.match(scenesSrc, /publicMyPinScene/);
     assert.match(scenesSrc, /publicSharedPoint/);
+    assert.doesNotMatch(scenesSrc, /function\s+sceneToJson/);
     assert.match(scenesSrc, /publicContact/);
     assert.doesNotMatch(scenesSrc, /delete\s+\w+\.created/);
   });

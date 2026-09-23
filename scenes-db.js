@@ -10,7 +10,7 @@
 const crypto = require('crypto');
 const supabaseDb = require('./supabase-db');
 const { j } = supabaseDb;
-const { publicSharedPoint, publicContact, publicPointPhoto } = require('./data-projections');
+const { staffScene, publicSharedScene, publicMyPinScene, publicSharedPoint, publicContact, publicPointPhoto } = require('./data-projections');
 const { sceneObjectToJson } = require('./scene-db');
 const hazardDb = require('./hazard-db');
 const myPinCapabilities = require('./my-pin-capabilities-db');
@@ -43,24 +43,7 @@ function _genCode() {
   return out;
 }
 
-function sceneToJson(r) {
-  return {
-    id: r.id,
-    name: r.name,
-    shareCode: r.share_code,
-    camera: r.camera,
-    kind: r.kind || 'admin',
-    status: r.status || 'open',
-    statusChangedAt: r.status_changed_at ?? null,
-    statusChangedByEmail: r.status_changed_by_email ?? null,
-    createdBy: r.created_by ?? null,
-    createdByEmail: r.created_by_email ?? null,
-    isMine: r.is_mine ?? null,
-    subscribed: r.subscribed ?? null,
-    createdAt: r.created_at,
-    updatedAt: r.updated_at,
-  };
-}
+
 
 function _validateName(name) {
   if (typeof name !== 'string' || !name.trim() || name.length > MAX_NAME_LEN) {
@@ -90,7 +73,7 @@ async function listScenes(slug, { kind = 'admin', profileId = null } = {}) {
      order by s.created_at`,
     [siteId, kind, profileId]
   );
-  return rows.map(sceneToJson);
+  return rows.map(staffScene);
 }
 
 async function setSceneStatus(sceneId, status, changedBy) {
@@ -158,7 +141,7 @@ async function createScene(slug, { name, camera, kind = 'admin' } = {}, changedB
         [siteId, name, code, j(camera ?? null), changedBy, kind]
       );
       await appendAudit(siteId, changedBy, 'create', 'scene', rows[0].id, name);
-      return sceneToJson(rows[0]);
+      return staffScene(rows[0]);
     } catch (e) {
       if (e.code === '23505' && /share_code/.test(e.detail || e.message || '')) continue; // unique violation on code → retry
       throw e;
@@ -178,7 +161,7 @@ async function updateScene(slug, id, { name, camera } = {}, changedBy = null) {
   );
   if (!rows.length) throw new Error(`Scene ${id} belongs to a different site`);
   await appendAudit(siteId, changedBy, 'update', 'scene', id, rows[0].name);
-  return sceneToJson(rows[0]);
+  return staffScene(rows[0]);
 }
 
 // ── Public read-by-code (Scenes feature, Slice 3) — SECURITY-CRITICAL ─────
@@ -251,12 +234,7 @@ async function getSceneBundleByCode(code, viewerProfileId = null) {
   const photos = scene.kind === 'hazard' ? await hazardDb.listPhotosForScene(siteId, sceneId) : [];
 
   return {
-    scene: {
-      id: scene.id, name: scene.name, camera: scene.camera, kind: scene.kind || 'admin',
-      status: scene.status || 'open', statusChangedAt: scene.status_changed_at,
-      statusChangedByEmail: viewerProfileId ? scene.status_changed_by_email : null,
-      createdByEmail: viewerProfileId ? scene.created_by_email : null,
-    },
+    scene: publicSharedScene(scene, { includeAuditEmails: Boolean(viewerProfileId) }),
     // Present only for signed-in viewers (server fills it in).
     viewer: viewerProfileId ? { signedIn: true, isMine: scene.created_by === viewerProfileId } : { signedIn: false, isMine: false },
     objects: objectsRes.rows.map(sceneObjectToJson),
@@ -302,7 +280,7 @@ async function getSharedMyPinByCapability(token, pointId) {
   const photos = photosRes.rows.map(publicPointPhoto);
 
   return {
-    scene: { name: binding.scene_name, kind: 'admin' },
+    scene: publicMyPinScene({ name: binding.scene_name, kind: 'admin' }),
     viewer: { signedIn: false, isMine: false },
     objects: [],
     pins: [point],
