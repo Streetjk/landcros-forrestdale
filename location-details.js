@@ -94,6 +94,36 @@ export function validateBuildingDetails(details) {
   };
 }
 
+function cleanDisplayText(value) {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed || null;
+}
+
+/** Maps the allowlisted public-site contract onto the shared location card model. */
+export function buildSiteDetailModel(site) {
+  const value = site && typeof site === 'object' && !Array.isArray(site) ? site : {};
+  const name = cleanDisplayText(value.name);
+  const title = cleanDisplayText(value.title);
+  const buildingPhoto = cleanDisplayText(value.buildingPhoto);
+  return {
+    name: name || title || 'Site information',
+    detailKind: 'Site',
+    details: {
+      description: cleanDisplayText(value.address),
+      visitorInfo: cleanDisplayText(value.visitorInfo),
+      phone: cleanDisplayText(value.mainPhone),
+      image: buildingPhoto,
+      imageAlt: buildingPhoto ? `${name || title || 'Site'} building photo` : null,
+    },
+  };
+}
+
+export function hasSiteDetail(site) {
+  const details = validateBuildingDetails(buildSiteDetailModel(site).details);
+  return Boolean(details.visitorInfo || details.phone || details.image);
+}
+
 /**
  * Renders validated building details safely into the existing detail panel DOM.
  * Reuses #detail-chip, #detail-label, #detail-notes, #detail-photos, and #detail-contacts.
@@ -110,11 +140,12 @@ export function showBuildingDetail(building, openDetailPanel) {
   const p = building?.properties || building || {};
   const details = validateBuildingDetails(p.details);
   const title = p.name || p.labelText || 'Building';
+  const detailKind = p.detailKind === 'Site' ? 'Site' : 'Building';
 
   const chip = document.getElementById('detail-chip');
   if (chip) {
     chip.className = 'chip';
-    chip.textContent = 'Building';
+    chip.textContent = detailKind;
   }
 
   const label = document.getElementById('detail-label');
@@ -202,4 +233,9 @@ export function showBuildingDetail(building, openDetailPanel) {
   if (typeof openDetailPanel === 'function') {
     openDetailPanel();
   }
+}
+
+/** Renders optional public site contact/visitor/photo metadata in the shared card. */
+export function showSiteDetail(site, openDetailPanel) {
+  showBuildingDetail(buildSiteDetailModel(site), openDetailPanel);
 }

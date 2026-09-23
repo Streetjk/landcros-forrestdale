@@ -373,6 +373,10 @@ textarea.form-input      { resize: vertical; min-height: 68px; }
 
 .sitenav-shell .cam-preset-btn:active { scale: .97; }
 
+.sitenav-shell .site-info-item { min-height: var(--sn-touch); }
+.sitenav-shell .site-info-item[hidden] { display: none !important; }
+.sitenav-shell .site-info-dot { color: var(--sn-landcros-orange); background: currentColor; }
+
 .sitenav-shell .detail-hero { border-bottom-color: var(--sn-border) !important; }
 .sitenav-shell .detail-section { border-bottom-color: rgba(255,255,255,.06) !important; }
 .sitenav-shell .detail-section-title { letter-spacing: .1em; }

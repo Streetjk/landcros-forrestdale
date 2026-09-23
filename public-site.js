@@ -16,6 +16,23 @@ function cleanString(value) {
   return trimmed || null;
 }
 
+export function sanitizePublicLogoUrl(value) {
+  const trimmed = cleanString(value);
+  if (!trimmed || /[\x00-\x1F\x7F\\]/.test(trimmed) || /\s/.test(trimmed)) return null;
+  if (trimmed.startsWith('//')) return null;
+  if (/^[a-zA-Z][a-zA-Z\d+\-.]*:/i.test(trimmed)) {
+    if (!/^https:/i.test(trimmed)) return null;
+    try {
+      const parsed = new URL(trimmed);
+      if (parsed.protocol !== 'https:' || parsed.username || parsed.password) return null;
+      return parsed.href;
+    } catch {
+      return null;
+    }
+  }
+  return trimmed;
+}
+
 export function validatePublicSiteMetadata(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const slug = cleanString(value.slug);
@@ -23,7 +40,7 @@ export function validatePublicSiteMetadata(value) {
 
   const out = { slug };
   for (const field of PUBLIC_SITE_FIELDS) {
-    const cleaned = cleanString(value[field]);
+    const cleaned = field === 'logo' ? sanitizePublicLogoUrl(value[field]) : cleanString(value[field]);
     if (cleaned) out[field] = cleaned;
   }
   return out;
@@ -54,7 +71,9 @@ export function resolveSiteBranding(localSite, publicSite) {
     : {};
   const out = {};
   for (const field of BRAND_FIELDS) {
-    const value = cleanString(remote[field]) ?? cleanString(local[field]);
+    const value = field === 'logo'
+      ? sanitizePublicLogoUrl(remote[field]) ?? sanitizePublicLogoUrl(local[field])
+      : cleanString(remote[field]) ?? cleanString(local[field]);
     if (value) out[field] = value;
   }
   return out;

@@ -8,13 +8,15 @@ import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer
 import { Sky } from 'three/addons/objects/Sky.js';
 import { initComparison, updateComparison, comparisonNeedsRender } from './splat-compare.js';
 import { buildPinUrl, clearPinUrl, buildMyPinShareUrl, buildMyPinPhotoUrl } from './guide-url.js';
-import { showBuildingDetail, sanitizePhone } from './location-details.js';
+import { hasSiteDetail, showBuildingDetail, showSiteDetail, sanitizePhone } from './location-details.js';
 import { loadPublicArray, renderPublicDataNotice, isRenderablePoint, isRenderableContact } from './public-data.js';
-import { loadPublicSiteMetadata, resolveSiteBranding } from './public-site.js';
+import { loadPublicSiteMetadata, resolveSiteBranding, sanitizePublicLogoUrl } from './public-site.js';
 import { getBasePublicVisitPointId } from './visit-analytics.js';
 
 // ── Site config (loaded from data/config.json in boot()) ──────────────────
 let _cfg = {};
+let _publicSiteMetadata = null;
+let _siteInfoDetailOpen = false;
 
 // ── Coord conversion ───────────────────────────────────────────────────────
 // Maps lat/lng to Three.js scene coords using site bounds.
@@ -716,6 +718,21 @@ function _buildCamButtons(cfg) {
     wrap.appendChild(speedBtn);
   }
 
+}
+
+function _syncSiteInfoAction(publicSite) {
+  const button = document.getElementById('site-info-item');
+  if (!button) return;
+  const available = hasSiteDetail(publicSite);
+  button.hidden = !available;
+  button.onclick = available ? () => {
+    _cancelActiveTour();
+    _leavePinDetail();
+    _siteInfoDetailOpen = true;
+    updatePinHighlight(null);
+    showSiteDetail(publicSite, _openDetailPanel);
+    if (window.innerWidth <= 1024) _openCompactPanelDetail({ full: true });
+  } : null;
 }
 
 function _applyBranding(cfg, publicSite = null) {
@@ -1636,6 +1653,7 @@ async function _renderPointPhotos(pt) {
 
 async function selectPoint(pt, options = {}) {
   _cancelActiveTour();
+  _siteInfoDetailOpen = false;
   const historyMode = options?.historyMode === 'none' ? 'none'
     : options?.historyMode === 'replace' ? 'replace' : 'push';
   // A direct second click is a user toggle. History restoration must be able
@@ -1835,8 +1853,11 @@ async function selectPoint(pt, options = {}) {
 
 window.showPointList = function(options = {}) {
   _cancelActiveTour();
+  const fromSiteInfo = _siteInfoDetailOpen;
+  _siteInfoDetailOpen = false;
   const historyMode = options?.historyMode === 'none' ? 'none'
-    : options?.historyMode === 'replace' ? 'replace' : 'push';
+    : options?.historyMode === 'replace' ? 'replace'
+    : fromSiteInfo ? 'none' : 'push';
   _leavePinDetail();
   if (_camTween) { _camTween.kill(); _camTween = null; }
   stopAutoOrbit();
@@ -3498,7 +3519,7 @@ async function boot() {
   });
 
   // Set logo src immediately so the image starts loading while the rest of boot runs
-  const _earlyLogo = _cfg.site?.logo;
+  const _earlyLogo = sanitizePublicLogoUrl(_cfg.site?.logo);
   if (_earlyLogo) {
     const _ll = document.getElementById('load-logo');
     if (_ll) _ll.src = _earlyLogo;
@@ -3532,7 +3553,9 @@ async function boot() {
   _buildCamButtons(_cfg);
   _applyBranding(_cfg);
   _publicSitePromise.then(({ data }) => {
+    _publicSiteMetadata = data;
     if (data) _applyBranding(_cfg, data);
+    _syncSiteInfoAction(_publicSiteMetadata);
   });
 
   const _route = _parseRoute();

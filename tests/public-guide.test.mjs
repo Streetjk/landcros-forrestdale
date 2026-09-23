@@ -19,6 +19,8 @@ const {
   sanitizePhone,
   sanitizeImageUrl,
   validateBuildingDetails,
+  buildSiteDetailModel,
+  hasSiteDetail,
 } = await importHelper('./location-details.js');
 
 test('guide-url: buildPinUrl preserves pathname, query scene/s/d, and hash while setting id', () => {
@@ -183,6 +185,31 @@ test('location-details: visitorInfo is trimmed plain text and rejects non-string
   assert.equal(validateBuildingDetails({ visitorInfo: '   ' }).visitorInfo, null);
   assert.equal(validateBuildingDetails({ visitorInfo: ['not', 'text'] }).visitorInfo, null);
   assert.equal(validateBuildingDetails({ visitorInfo: 123 }).visitorInfo, null);
+});
+
+test('site detail model reuses the public location contract without inventing optional data', () => {
+  const model = buildSiteDetailModel({
+    name: ' LANDCROS ', title: 'Site Navigator', address: ' 107 Allen Rd ',
+    mainPhone: ' 08 9000 0000 ', visitorInfo: ' Report to reception. ', buildingPhoto: '/building.webp',
+  });
+  assert.equal(model.name, 'LANDCROS');
+  assert.equal(model.detailKind, 'Site');
+  assert.deepEqual(model.details, {
+    description: '107 Allen Rd',
+    visitorInfo: 'Report to reception.',
+    phone: '08 9000 0000',
+    image: '/building.webp',
+    imageAlt: 'LANDCROS building photo',
+  });
+  assert.equal(hasSiteDetail(model), false, 'model shape itself is not mistaken for API site metadata');
+});
+
+test('site detail availability requires a sanitized optional public detail', () => {
+  assert.equal(hasSiteDetail({ slug: 'landcros', name: 'LANDCROS', address: '107 Allen Rd' }), false);
+  assert.equal(hasSiteDetail({ slug: 'landcros', mainPhone: '08 9000 0000' }), true);
+  assert.equal(hasSiteDetail({ slug: 'landcros', visitorInfo: 'Reception first.' }), true);
+  assert.equal(hasSiteDetail({ slug: 'landcros', buildingPhoto: '/building.webp' }), true);
+  assert.equal(hasSiteDetail({ slug: 'landcros', mainPhone: 'javascript:alert(1)', buildingPhoto: 'data:image/png;base64,no' }), false);
 });
 
 test('raw controls and backslashes never become image or phone URLs', () => {
