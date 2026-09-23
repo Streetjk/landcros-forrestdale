@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>SiteNav — 3D Viewer</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 100 100%27%3E%3Crect width=%27100%27 height=%27100%27 rx=%2718%27 fill=%27%23F97316%27/%3E%3Ctext x=%2750%27 y=%2768%27 font-size=%2760%27 font-family=%27Arial,sans-serif%27 font-weight=%27700%27 fill=%27%23fff%27 text-anchor=%27middle%27%3ES%3C/text%3E%3C/svg%3E">
   <script src="coi-serviceworker.js"></script>
@@ -713,7 +713,9 @@
         position: fixed !important;
         bottom: 0 !important; left: 0 !important; right: 0 !important; top: auto !important;
         width: 100% !important;
-        height: 85vh !important;
+        height: calc(85vh + var(--safe-bottom)) !important;
+        box-sizing: border-box;
+        padding-bottom: var(--safe-bottom);
         border-radius: 28px 28px 0 0 !important;
         border-left: none !important;
         border-top: 1px solid rgba(255,255,255,0.1) !important;
@@ -723,7 +725,7 @@
         backdrop-filter: blur(24px) saturate(160%) !important;
         -webkit-backdrop-filter: blur(24px) saturate(160%) !important;
         /* default: peek state — show only 36px */
-        transform: translateY(calc(100% - 36px));
+        transform: translateY(calc(100% - 36px - var(--safe-bottom)));
         transition: transform 420ms cubic-bezier(0.2, 0.8, 0.2, 1);
         will-change: transform;
         overflow: hidden;
@@ -731,7 +733,7 @@
         order: unset !important;
       }
       /* Mid snap — ~22% visible */
-      #side-panel.sheet-mid  { transform: translateY(calc(100% - 22vh)); }
+      #side-panel.sheet-mid  { transform: translateY(calc(100% - 22vh - var(--safe-bottom))); }
       /* Full snap — fully open */
       #side-panel.sheet-full { transform: translateY(0); }
 
@@ -761,13 +763,13 @@
       #cam-presets {
         position: fixed !important;
         top: auto !important;
-        bottom: 44px !important;
+        bottom: calc(44px + var(--safe-bottom)) !important;
         left: 16px !important;
         flex-direction: row !important;
         gap: 10px;
         transition: opacity 0.4s ease, bottom 420ms cubic-bezier(0.2, 0.8, 0.2, 1) !important;
       }
-      #app.sheet-open #cam-presets { bottom: calc(22vh + 8px) !important; }
+      #app.sheet-open #cam-presets { bottom: calc(22vh + var(--safe-bottom) + 8px) !important; }
 
       /* 44px keeps the tap target at the accessible minimum and matches
          viewer3d.html, which already forces 44px across this range. */
@@ -780,13 +782,13 @@
       .cam-preset-btn .label-wrap {
         display: none !important;
       }
-      #nav-progress { bottom: 44px; }
-      #app.sheet-open #nav-progress { bottom: calc(22vh + 12px); }
+      #nav-progress { bottom: calc(44px + var(--safe-bottom)); }
+      #app.sheet-open #nav-progress { bottom: calc(22vh + var(--safe-bottom) + 12px); }
 
       /* Brand: top-right, fixed over canvas */
       #site-brand {
         position: fixed !important;
-        top: 16px !important; right: 16px !important;
+        top: calc(16px + var(--safe-top)) !important; right: 16px !important;
         display: flex !important;
       }
       #site-brand img { height: 28px !important; }
