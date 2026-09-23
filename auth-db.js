@@ -29,6 +29,10 @@ const { pool: sharedPool } = require('./supabase-db');
 
 const ALLOWED_DOMAIN = 'hcma.com.au';
 
+function normalizeEmail(email) {
+  return typeof email === 'string' ? email.trim().toLowerCase() : '';
+}
+
 // Stage 2a login/profiles apply to ONE site only. Sites can share contact
 // lists (e.g. greenfields' is byte-identical to landcros' today), so contact
 // matching and default approval scope must be pinned to this slug, not "any
@@ -44,19 +48,19 @@ const AUTH_SITE_SLUG = process.env.AUTH_SITE_SLUG || 'landcros';
 // Keep this list minimal regardless.
 const PLATFORM_ADMIN_EMAILS = new Set(
   (process.env.PLATFORM_ADMIN_EMAILS || '')
-    .split(',').map((s) => s.trim().toLowerCase()).filter(Boolean)
+    .split(',').map(normalizeEmail).filter(Boolean)
 );
 function isPlatformAdmin(email) {
-  return typeof email === 'string' && PLATFORM_ADMIN_EMAILS.has(email.trim().toLowerCase());
+  return PLATFORM_ADMIN_EMAILS.has(normalizeEmail(email));
 }
 
 function emailAllowed(email) {
-  if (!email || typeof email !== 'string') return false;
-  email = email.trim();
-  if (isPlatformAdmin(email)) return true;
-  const at = email.lastIndexOf('@');
+  const canonicalEmail = normalizeEmail(email);
+  if (!canonicalEmail) return false;
+  if (isPlatformAdmin(canonicalEmail)) return true;
+  const at = canonicalEmail.lastIndexOf('@');
   if (at === -1) return false;
-  return email.slice(at + 1).toLowerCase() === ALLOWED_DOMAIN;
+  return canonicalEmail.slice(at + 1) === ALLOWED_DOMAIN;
 }
 
 // Service-role Supabase client — admin API only (createUser/getUserByEmail).
@@ -88,16 +92,20 @@ async function _getAuthSiteId(client) {
 // ── Profiles ─────────────────────────────────────────────────────────────
 
 async function checkProfile(email) {
+  const canonicalEmail = normalizeEmail(email);
+  if (!canonicalEmail) return { status: 'none' };
   const { rows } = await _getPool().query(
-    'select id, status from profiles where lower(email) = lower($1)',
-    [email]
+    'select id, status from profiles where lower(btrim(email)) = $1 limit 2',
+    [canonicalEmail]
   );
   if (!rows.length) return { status: 'none' };
+  if (rows.length > 1) throw new Error('Ambiguous canonical email identity');
   return { status: rows[0].status, profileId: rows[0].id };
 }
 
 async function createProfile(email) {
-  if (!emailAllowed(email)) throw new Error(`Email domain not allowed: ${email}`);
+  const canonicalEmail = normalizeEmail(email);
+  if (!emailAllowed(canonicalEmail)) throw new Error('Email domain not allowed');
 
   // 1. Create (or reuse) the auth.users identity. We never use the password
   // — internal login is email-only; this exists purely so an auth.users row
@@ -106,7 +114,7 @@ async function createProfile(email) {
   let userId;
   const randomPassword = crypto.randomBytes(24).toString('hex');
   const { data: created, error: createErr } = await admin.auth.admin.createUser({
-    email,
+    email: canonicalEmail,
     email_confirm: true,
     password: randomPassword,
   });
@@ -115,11 +123,18 @@ async function createProfile(email) {
     // (e.g. a prior createProfile call failed after the auth user was made).
     const alreadyExists = /already been registered|already exists/i.test(createErr.message || '');
     if (!alreadyExists) throw new Error(`createUser failed: ${createErr.message}`);
-    const { data: list, error: listErr } = await admin.auth.admin.listUsers();
-    if (listErr) throw new Error(`listUsers failed (while resolving existing user): ${listErr.message}`);
-    const existing = list.users.find((u) => (u.email || '').toLowerCase() === email.toLowerCase());
-    if (!existing) throw new Error(`createUser reported "already exists" but no matching auth user found: ${email}`);
-    userId = existing.id;
+    const matches = [];
+    const perPage = 1000;
+    for (let page = 1; ; page += 1) {
+      const { data: list, error: listErr } = await admin.auth.admin.listUsers({ page, perPage });
+      if (listErr) throw new Error(`listUsers failed (while resolving existing user): ${listErr.message}`);
+      const users = Array.isArray(list?.users) ? list.users : [];
+      matches.push(...users.filter((u) => normalizeEmail(u.email) === canonicalEmail));
+      if (matches.length > 1) throw new Error('Existing auth identity is missing or ambiguous');
+      if (users.length < perPage) break;
+    }
+    if (matches.length !== 1) throw new Error('Existing auth identity is missing or ambiguous');
+    userId = matches[0].id;
   } else {
     userId = created.user.id;
   }
@@ -132,17 +147,24 @@ async function createProfile(email) {
   try {
     await client.query('BEGIN');
     const authSiteId = await _getAuthSiteId(client);
+    const { rows: existingProfiles } = await client.query(
+      'select id from profiles where lower(btrim(email)) = $1 limit 2',
+      [canonicalEmail]
+    );
+    if (existingProfiles.length > 1 || (existingProfiles.length === 1 && existingProfiles[0].id !== userId)) {
+      throw new Error('Ambiguous canonical email identity');
+    }
     // Platform admins (override list) → active + owner on the auth site.
     // Otherwise contact-match on the pinned site → active + editor, else pending.
     let status, memberships, upgradeRole;
-    if (isPlatformAdmin(email)) {
+    if (isPlatformAdmin(canonicalEmail)) {
       status = 'active';
       memberships = [authSiteId];
       upgradeRole = 'owner';
     } else {
       const { rows: contactRows } = await client.query(
-        'select distinct site_id from contacts where lower(email) = lower($1) and site_id = $2',
-        [email, authSiteId]
+        'select distinct site_id from contacts where lower(btrim(email)) = $1 and site_id = $2',
+        [canonicalEmail, authSiteId]
       );
       status = contactRows.length ? 'active' : 'pending';
       memberships = contactRows.map((r) => r.site_id);
@@ -152,7 +174,7 @@ async function createProfile(email) {
       `insert into profiles (id, email, status) values ($1, $2, $3)
        on conflict (id) do update set email = excluded.email, status = excluded.status
        returning id`,
-      [userId, email, status]
+      [userId, canonicalEmail, status]
     );
     for (const siteId of memberships) {
       await client.query(
@@ -399,7 +421,7 @@ async function consumePinToken(rawToken, newPin) {
     if (!rows.length) throw new PinError('token-invalid');
     await setPin(rows[0].profile_id, newPin, client);
     await client.query('COMMIT');
-    return { profileId: rows[0].profile_id, email: rows[0].email };
+    return { profileId: rows[0].profile_id, email: normalizeEmail(rows[0].email) };
   } catch (err) {
     await client.query('ROLLBACK');
     throw err;
@@ -432,7 +454,7 @@ function _sign(payloadB64) {
 }
 
 function signSession({ profileId, email }) {
-  const payload = { profileId, email, exp: Date.now() + SESSION_TTL_MS };
+  const payload = { profileId, email: normalizeEmail(email), exp: Date.now() + SESSION_TTL_MS };
   const payloadB64 = _b64urlEncode(Buffer.from(JSON.stringify(payload), 'utf8'));
   const sig = _sign(payloadB64);
   return `${payloadB64}.${sig}`;
@@ -463,12 +485,13 @@ function verifySession(token) {
     return null;
   }
   if (!payload || typeof payload.exp !== 'number' || Date.now() > payload.exp) return null;
-  return { profileId: payload.profileId, email: payload.email };
+  return { profileId: payload.profileId, email: normalizeEmail(payload.email) };
 }
 
 module.exports = {
   ALLOWED_DOMAIN,
   AUTH_SITE_SLUG,
+  normalizeEmail,
   isPlatformAdmin,
   emailAllowed,
   checkProfile,

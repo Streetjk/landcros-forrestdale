@@ -419,23 +419,24 @@ const server = http.createServer((req, res) => {
     if (_rateLimited(req, res, 'auth-login', 30, 3600000)) return;
     _readJsonBody(req, async (err, { email, pin, next } = {}) => {
       if (err) return _json(res, 400, { error: 'Invalid JSON' });
-      if (!auth.emailAllowed(email)) return _json(res, 400, { status: 'denied' });
+      const canonicalEmail = auth.normalizeEmail(email);
+      if (!auth.emailAllowed(canonicalEmail)) return _json(res, 400, { status: 'denied' });
       try {
-        const st = await auth.checkProfile(email);
-        if (st.status !== 'active') return _json(res, 200, { status: st.status, email });
+        const st = await auth.checkProfile(canonicalEmail);
+        if (st.status !== 'active') return _json(res, 200, { status: st.status, email: canonicalEmail });
 
         const pinState = await auth.getPinState(st.profileId);
         if (!pinState.hasPin) {
-          return _json(res, 200, await _sendPinLink(req, { profileId: st.profileId, email, mode: 'setup', next }));
+          return _json(res, 200, await _sendPinLink(req, { profileId: st.profileId, email: canonicalEmail, mode: 'setup', next }));
         }
-        if (pin == null || pin === '') return _json(res, 200, { status: 'pin-required', email });
+        if (pin == null || pin === '') return _json(res, 200, { status: 'pin-required', email: canonicalEmail });
 
         // Tighter budget for actual guesses than for the email step above.
         if (_rateLimited(req, res, 'auth-pin', 20, 900000)) return;
         const v = await auth.verifyPin(st.profileId, String(pin));
         if (v.ok) {
-          _setSessionCookie(req, res, auth.signSession({ profileId: st.profileId, email }));
-          return _json(res, 200, { status: 'active', email });
+          _setSessionCookie(req, res, auth.signSession({ profileId: st.profileId, email: canonicalEmail }));
+          return _json(res, 200, { status: 'active', email: canonicalEmail });
         }
         if (v.reason === 'locked') return _json(res, 423, { status: 'locked', lockedUntil: v.lockedUntil });
         return _json(res, 401, { status: 'pin-invalid', remaining: v.remaining });
@@ -452,12 +453,13 @@ const server = http.createServer((req, res) => {
     if (_rateLimited(req, res, 'auth-pin-reset', 5, 3600000)) return;
     _readJsonBody(req, async (err, { email, next } = {}) => {
       if (err) return _json(res, 400, { error: 'Invalid JSON' });
-      if (!auth.emailAllowed(email)) return _json(res, 400, { status: 'denied' });
+      const canonicalEmail = auth.normalizeEmail(email);
+      if (!auth.emailAllowed(canonicalEmail)) return _json(res, 400, { status: 'denied' });
       try {
-        const st = await auth.checkProfile(email);
+        const st = await auth.checkProfile(canonicalEmail);
         if (st.status !== 'active') return _json(res, 200, { ok: true, emailSent: false });
         const { hasPin } = await auth.getPinState(st.profileId);
-        const body = await _sendPinLink(req, { profileId: st.profileId, email, mode: hasPin ? 'reset' : 'setup', next });
+        const body = await _sendPinLink(req, { profileId: st.profileId, email: canonicalEmail, mode: hasPin ? 'reset' : 'setup', next });
         return _json(res, 200, { ok: true, emailSent: body.emailSent, devLink: body.devLink });
       } catch (e) {
         _json(res, 500, JSON.parse(_errBody(e)));
@@ -510,15 +512,16 @@ const server = http.createServer((req, res) => {
     if (_rateLimited(req, res, 'auth-create', 10, 3600000)) return;
     _readJsonBody(req, (err, { email } = {}) => {
       if (err) { res.writeHead(400, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ error: 'Invalid JSON' })); }
-      if (!auth.emailAllowed(email)) {
+      const canonicalEmail = auth.normalizeEmail(email);
+      if (!auth.emailAllowed(canonicalEmail)) {
         res.writeHead(400, { 'Content-Type': 'application/json' });
         return res.end(JSON.stringify({ status: 'denied' }));
       }
-      auth.createProfile(email).then(async ({ status, profileId }) => {
+      auth.createProfile(canonicalEmail).then(async ({ status, profileId }) => {
         // Never sign in straight from an unverified email address: an active
         // profile gets its PIN-setup link emailed, and logs in via that.
         if (status === 'active') {
-          return _json(res, 200, await _sendPinLink(req, { profileId, email, mode: 'setup', next: undefined }));
+          return _json(res, 200, await _sendPinLink(req, { profileId, email: canonicalEmail, mode: 'setup', next: undefined }));
         }
         _json(res, 200, { status });
       }).catch(e => {
