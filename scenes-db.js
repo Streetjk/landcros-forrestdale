@@ -9,7 +9,7 @@
 
 const crypto = require('crypto');
 const supabaseDb = require('./supabase-db');
-const { j, pointToJson, contactToJson } = supabaseDb;
+const { j, pointToJson, publicContactToJson } = supabaseDb;
 const { sceneObjectToJson } = require('./scene-db');
 const hazardDb = require('./hazard-db');
 const myPinCapabilities = require('./my-pin-capabilities-db');
@@ -240,7 +240,7 @@ async function getSceneBundleByCode(code, viewerProfileId = null) {
 
   const contactsRes = await pool.query(
     `select * from contacts
-     where site_id = $2
+     where site_id = $2 and active = true
      and id = any(select distinct unnest(contact_ids) from points where scene_id = $1 and site_id = $2 and scope = 'shared')`,
     [sceneId, siteId]
   );
@@ -260,7 +260,7 @@ async function getSceneBundleByCode(code, viewerProfileId = null) {
     viewer: viewerProfileId ? { signedIn: true, isMine: scene.created_by === viewerProfileId } : { signedIn: false, isMine: false },
     objects: objectsRes.rows.map(sceneObjectToJson),
     pins: pinsRes.rows.map(pointToJson),
-    contacts: contactsRes.rows.map(contactToJson),
+    contacts: contactsRes.rows.map(publicContactToJson),
     photos,
   };
 }

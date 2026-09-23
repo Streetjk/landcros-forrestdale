@@ -393,17 +393,20 @@ test('scene point ownership: actual PostgreSQL and HTTP server', { skip: !proces
       for(const method of ['PATCH','DELETE']) assert.equal((await request('/api/sites/alpha/points/photos/'+PHOTO,{method,body:method==='PATCH'?{keep:true}:undefined})).status,404);
       assert.equal(await count('point_photos'),1);
     });
-    await t.test('real anonymous share bundle exposes only explicitly shared pins and their contacts', async () => {
-      const sharedId=uid(70),sharedContact=uid(71);
+    await t.test('real anonymous share bundle exposes only explicitly shared pins and minimal active contacts', async () => {
+      const sharedId=uid(70),sharedContact=uid(71),inactiveContact=uid(72);
+      const privateEmail='private-scene-contact@example.test';
       await sql.query("update scenes set share_code='abcde23456' where id=$1",[SCENE_A]);
-      await sql.query("insert into contacts(id,site_id,name) values($1,$2,'Synthetic shared contact')",[sharedContact,SITE_A]);
+      await sql.query("insert into contacts(id,site_id,name,role,phone,email,active) values($1,$2,'Synthetic shared contact','Visitor contact','08 9000 0000',$3,true),($4,$2,'Inactive contact','Old role','08 9111 1111','inactive@example.test',false)",[sharedContact,SITE_A,privateEmail,inactiveContact]);
       await db.saveScenePoint('alpha',SCENE_A,payload(POINT_A,{contactIds:[CONTACT_A]}),OWNER);
-      await db.saveScenePoint('alpha',SCENE_A,payload(sharedId,{scope:'shared',contactIds:[sharedContact]}),OWNER);
+      await db.saveScenePoint('alpha',SCENE_A,payload(sharedId,{scope:'shared',contactIds:[sharedContact,inactiveContact]}),OWNER);
       const shared=await request('/api/scenes/by-code/abcde23456',{actor:null});
       assert.equal(shared.status,200);assert.deepEqual(shared.body.pins.map(x=>x.id),[sharedId]);
-      assert.deepEqual(shared.body.contacts.map(x=>x.id),[sharedContact]);
+      assert.deepEqual(shared.body.contacts,[{id:sharedContact,name:'Synthetic shared contact',role:'Visitor contact',phone:'08 9000 0000',active:true}]);
+      assert.equal(Object.hasOwn(shared.body.contacts[0],'email'),false);assert.equal(Object.hasOwn(shared.body.contacts[0],'createdBy'),false);assert.equal(Object.hasOwn(shared.body.contacts[0],'createdAt'),false);
+      assert.equal(JSON.stringify(shared.body).includes(privateEmail),false);assert.equal(JSON.stringify(shared.body).includes('Inactive contact'),false);
       assert.equal(shared.body.scene.createdByEmail,null);assert.equal(shared.body.scene.statusChangedByEmail,null);
-      await db.saveScenePoint('alpha',SCENE_A,payload(sharedId,{scope:'personal',contactIds:[sharedContact]}),OWNER);
+      await db.saveScenePoint('alpha',SCENE_A,payload(sharedId,{scope:'personal',contactIds:[sharedContact,inactiveContact]}),OWNER);
       const withdrawn=await request('/api/scenes/by-code/abcde23456',{actor:null});
       assert.equal(withdrawn.status,200);assert.deepEqual(withdrawn.body.pins,[]);assert.deepEqual(withdrawn.body.contacts,[]);
     });
