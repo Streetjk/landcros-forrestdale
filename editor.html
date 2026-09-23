@@ -426,9 +426,10 @@
     document.getElementById('sn-auth-email-label').textContent = (info && info.email) || '';
     SnAuthGate.decorateAuthBar();
     if (info && info.email) {
+      const navParams = new URLSearchParams(location.search);
       SiteNavStaffNav.mount({
-        currentPage: 'editor',
-        siteSlug: new URLSearchParams(location.search).get('site'),
+        currentPage: navParams.get('mode') === 'hazard' ? 'reports' : 'editor',
+        siteSlug: navParams.get('site'),
       });
     }
     document.getElementById('sn-signout-btn').onclick = async () => {

@@ -23,6 +23,11 @@
         label: "Editor",
         href: `/editor.html?site=${encodeURIComponent(slug)}`,
       });
+      items.push({
+        id: "reports",
+        label: "Reports",
+        href: `/editor.html?site=${encodeURIComponent(slug)}&mode=hazard`,
+      });
     }
     items.push({ ...MORE_ITEM });
     return items;
@@ -69,8 +74,9 @@
       link.dataset.staffNav = item.id;
       link.style.cssText = [
         "min-height:44px",
-        "min-width:64px",
-        "padding:0 10px",
+        "min-width:44px",
+        "padding:0 4px",
+        "flex:1 1 0",
         "display:inline-flex",
         "align-items:center",
         "justify-content:center",
