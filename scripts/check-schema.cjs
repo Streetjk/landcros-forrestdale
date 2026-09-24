@@ -1,15 +1,18 @@
 // Optional read-only schema preflight. Takes an already-authorized DB URL from
 // the environment, never reads .env files, prints no credentials or row data.
 const { Client } = require('pg');
+const { classifyDbError } = require('./deployment-diagnostics.cjs');
 const required = {
-  sites: ['id', 'slug'], profiles: ['id'], site_members: ['site_id'],
-  points: ['id', 'site_id', 'scene_id'], contacts: ['id', 'site_id'],
+  sites: ['id', 'slug', 'published'], profiles: ['id'], site_members: ['site_id'],
+  points: ['id', 'site_id', 'scene_id', 'phone_override'], contacts: ['id', 'site_id'],
   scenes: ['id', 'site_id', 'created_by', 'share_code', 'kind', 'status'],
   scene_objects: ['id', 'site_id', 'scene_id'],
   profile_pins: ['profile_id'], pin_reset_tokens: ['profile_id'],
   point_photos: ['point_id'], hazard_photos: ['scene_id'],
   hazard_notifications: ['scene_id'], scene_subscriptions: ['scene_id', 'profile_id'],
+  my_pin_capabilities: ['id', 'site_id', 'scene_id', 'point_id', 'token_hash', 'revoked_at'],
 };
+const requiredFunctions = [{ name: 'contact_is_base_visible', args: 'cid uuid, sid uuid', result: 'boolean' }];
 async function main() {
   if (!process.env.SUPABASE_DB_URL) throw new Error('DB_URL_REQUIRED');
   const client = new Client({ connectionString: process.env.SUPABASE_DB_URL, connectionTimeoutMillis: 8000 });
@@ -22,6 +25,12 @@ async function main() {
     for (const [table, columns] of Object.entries(required)) {
       for (const column of columns) if (!rows.some(row => row.table_name === table && row.column_name === column)) missing.push(`${table}.${column}`);
     }
+    const fnRes = await client.query("select p.proname, pg_get_function_identity_arguments(p.oid) as args, pg_get_function_result(p.oid) as result from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname=any($1::text[])", [requiredFunctions.map(fn => fn.name)]);
+    for (const fn of requiredFunctions) {
+      if (!fnRes.rows.some(row => row.proname === fn.name && row.args === fn.args && row.result === fn.result)) {
+        missing.push(`function:${fn.name}(${fn.args})->${fn.result}`);
+      }
+    }
     await client.query('rollback');
     console.log(JSON.stringify({ ok: missing.length === 0, missing, note: 'Column presence only; does not certify RLS, constraints, storage or email delivery.' }, null, 2));
     process.exitCode = missing.length ? 1 : 0;
@@ -30,6 +39,7 @@ async function main() {
   }
 }
 main().catch(error => {
-  console.error(JSON.stringify({ ok: false, error: error.message === 'DB_URL_REQUIRED' ? 'SUPABASE_DB_URL is required; no connection attempted.' : 'Database preflight failed; inspect authorized provider logs.' }));
+  const diagnosis = classifyDbError(error);
+  console.error(JSON.stringify({ ok: false, ...diagnosis }));
   process.exitCode = 1;
 });
