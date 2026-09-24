@@ -13,6 +13,7 @@ import { loadPublicArray, renderPublicDataNotice, isRenderablePoint, isRenderabl
 import { loadPublicSiteMetadata, resolveSiteBranding, sanitizePublicLogoUrl } from './public-site.js';
 import { getBasePublicVisitPointId } from './visit-analytics.js';
 import { createPointListItem } from './point-list-item.js';
+import { renderDetailContacts } from './detail-card.js';
 
 // ── Site config (loaded from data/config.json in boot()) ──────────────────
 let _cfg = {};
@@ -1702,59 +1703,12 @@ async function selectPoint(pt, options = {}) {
   const contactsSection = document.getElementById('detail-contacts')?.closest('.detail-section');
   if (contactsSection) contactsSection.style.display = '';
 
-  const contacts = detailModel.contacts;
   const contactsEl = document.getElementById('detail-contacts');
-  contactsEl.replaceChildren();
-  if (contacts.length === 0) {
-    const overridePhone = detailModel.fallbackPhone;
-    if (overridePhone) {
-      const card = document.createElement('div');
-      card.className = 'contact-card-3d';
-      const info = document.createElement('div');
-      const phone = document.createElement('a');
-      phone.className = 'contact-phone-3d';
-      phone.href = overridePhone.href;
-      phone.innerHTML = `<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M5.5 2.5c.5 1 1 2.5.5 3.5L4.5 7c1 2 2.5 3.5 4.5 4.5l1-1.5c1-.5 2.5 0 3.5.5v2.5C13.5 13.5 12 14 11 14 6 14 2 5c0-1 .5-2.5 1.5-2.5h2z"/></svg>`;
-      phone.appendChild(document.createTextNode(overridePhone.display));
-      info.appendChild(phone);
-      card.appendChild(info);
-      contactsEl.appendChild(card);
-    } else {
-      const p = document.createElement('p');
-      p.style.cssText = 'font-size:13px;color:var(--text-secondary)';
-      p.textContent = 'No contacts assigned.';
-      contactsEl.appendChild(p);
-    }
-  } else {
-    contacts.forEach(c => {
-      const card = document.createElement('div');
-      card.className = 'contact-card-3d';
-      const avatar = document.createElement('div');
-      avatar.className = 'avatar';
-      avatar.textContent = c.name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase();
-      const info = document.createElement('div');
-      const name = document.createElement('div');
-      name.className = 'contact-name-3d';
-      name.textContent = c.name;
-      const role = document.createElement('div');
-      role.className = 'contact-role-3d';
-      role.textContent = c.role;
-      info.appendChild(name);
-      info.appendChild(role);
-      const sanitized = c.phone;
-      if (sanitized) {
-        const phone = document.createElement('a');
-        phone.className = 'contact-phone-3d';
-        phone.href = sanitized.href;
-        phone.innerHTML = `<svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M5.5 2.5c.5 1 1 2.5.5 3.5L4.5 7c1 2 2.5 3.5 4.5 4.5l1-1.5c1-.5 2.5 0 3.5.5v2.5C13.5 13.5 12 14 11 14 6 14 2 10 2 5c0-1 .5-2.5 1.5-2.5h2z"/></svg>`;
-        phone.appendChild(document.createTextNode(sanitized.display));
-        info.appendChild(phone);
-      }
-      card.appendChild(avatar);
-      card.appendChild(info);
-      contactsEl.appendChild(card);
-    });
-  }
+  renderDetailContacts(document, contactsEl, {
+    contacts: detailModel.contacts,
+    fallbackPhone: detailModel.fallbackPhone,
+    emptyText: 'No contacts assigned.',
+  });
 
   document.getElementById('point-list').style.display = 'none';
   document.getElementById('point-detail').classList.add('visible');

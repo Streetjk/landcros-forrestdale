@@ -52,6 +52,6 @@ test('account-pin phone override is callable only in the authorized My Pin conte
   assert.doesNotMatch(admin, /_contacts\[.*\]\.phone\s*=/);
 
   assert.match(viewer, /buildPointDetailModel\(pt, _allContacts, \{[\s\S]*phoneOverride: \(_publicMyPinActive && pt\.id === _publicMyPinPointId\) \? pt\.phoneOverride : null/);
-  assert.match(viewer, /const overridePhone = detailModel\.fallbackPhone;/);
-  assert.match(viewer, /const sanitized = c\.phone;/);
+  assert.match(viewer, /renderDetailContacts\(document, contactsEl, \{[\s\S]*contacts: detailModel\.contacts,[\s\S]*fallbackPhone: detailModel\.fallbackPhone/);
+  assert.doesNotMatch(viewer, /fallbackPhone:\s*pt\.phoneOverride/);
 });

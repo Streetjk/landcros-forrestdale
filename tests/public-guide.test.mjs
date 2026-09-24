@@ -22,7 +22,7 @@ const {
   buildSiteDetailModel,
   buildPointDetailModel,
   hasSiteDetail,
-} = await importHelper('./location-details.js');
+} = await import(new URL('../location-details.js', import.meta.url));
 
 test('guide-url: buildPinUrl preserves pathname, query scene/s/d, and hash while setting id', () => {
   const current = 'https://example.com/site/?scene=alpha&s=code1&d=eyJmb28iOiJiYXIifQ==#cam-top';

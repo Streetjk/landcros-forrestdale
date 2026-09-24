@@ -1,4 +1,5 @@
 // location-details.js - Metadata validator and safe DOM renderer for building details
+import { createDetailPhoneLink } from './detail-card.js';
 
 const RASTER_EXT_RE = /\.(jpe?g|png|webp|avif|gif)$/i;
 
@@ -235,17 +236,16 @@ export function showBuildingDetail(building, openDetailPanel) {
   const contactsSection = contactsEl?.closest('.detail-section');
   if (contactsEl) {
     contactsEl.replaceChildren();
-    if (details.phone) {
-      const a = document.createElement('a');
-      a.href = details.phone.href;
-      a.textContent = details.phone.display;
-      a.className = 'contact-phone-3d';
-      a.setAttribute('aria-label', `Call main contact ${details.phone.display}`);
-      a.style.cssText = 'min-height:44px;display:inline-flex;align-items:center;';
-      contactsEl.appendChild(a);
+    const phoneLink = createDetailPhoneLink(document, details.phone, {
+      ariaLabel: details.phone ? `Call main contact ${details.phone.display}` : null,
+      icon: false,
+      touchTarget: true,
+    });
+    if (phoneLink) {
+      contactsEl.appendChild(phoneLink);
       if (contactsSection) contactsSection.style.display = '';
-    } else {
-      if (contactsSection) contactsSection.style.display = 'none';
+    } else if (contactsSection) {
+      contactsSection.style.display = 'none';
     }
   }
 
