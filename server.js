@@ -39,6 +39,7 @@ const { createScenePointPhotoHandler } = require('./scene-point-photos-routes');
 const { createRequestId, writePublicDataUnavailable, writeStaffDataUnavailable } = require('./public-api-diagnostics');
 const { readPublicSiteMetadata } = require('./site-metadata');
 const { NotificationStatusPartialError, notifyThenPersistStatus, partialCompletionBody } = require('./hazard-status-workflow');
+const { publicBasePoint, publicContact } = require('./data-projections');
 
 // Generic client error body — logs the real error server-side, never leaks
 // DB/schema/config detail (e.message) to the client.
@@ -1534,8 +1535,13 @@ const server = http.createServer((req, res) => {
       // Public read → base pins only (scene_id IS NULL). Scene-scoped pins
       // never surface here; they load via a scene's share-code bundle.
       sdb.getPoints(SITE, { baseOnly: true }).then(points => {
+        // Defense in depth: the DAL already returns a public projection, but
+        // re-project at the HTTP boundary so a future DAL change cannot expose
+        // staff/audit columns on this anonymous route. A non-array result throws
+        // here and follows the existing correlated failure path below.
+        const publicPoints = points.map(publicBasePoint).filter(Boolean);
         res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
-        res.end(JSON.stringify(points));
+        res.end(JSON.stringify(publicPoints));
       }).catch(e => {
         writePublicDataUnavailable(res, { requestId, route: 'GET-api-points', site: SITE, error: e });
       });
@@ -1591,8 +1597,11 @@ const server = http.createServer((req, res) => {
     // Public read → exclude scene-only contacts (referenced solely by
     // scene-scoped pins), keeping scene-created PII off the public route.
     sdb.getContacts(SITE, { baseOnly: true }).then(contacts => {
+      // Keep the anonymous contract allowlisted at the HTTP boundary as well as
+      // in the DAL. This deliberately strips staff-only email/audit metadata.
+      const publicContacts = contacts.map(publicContact).filter(Boolean);
       res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
-      res.end(JSON.stringify(contacts));
+      res.end(JSON.stringify(publicContacts));
     }).catch(e => {
       writePublicDataUnavailable(res, { requestId, route: 'GET-api-contacts', site: SITE, error: e });
     });
