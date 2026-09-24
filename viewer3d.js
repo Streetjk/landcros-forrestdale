@@ -8,7 +8,7 @@ import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer
 import { Sky } from 'three/addons/objects/Sky.js';
 import { initComparison, updateComparison, comparisonNeedsRender } from './splat-compare.js';
 import { buildPinUrl, clearPinUrl, buildMyPinShareUrl, buildMyPinPhotoUrl } from './guide-url.js';
-import { hasSiteDetail, showBuildingDetail, showSiteDetail, sanitizePhone } from './location-details.js';
+import { buildPointDetailModel, hasSiteDetail, showBuildingDetail, showSiteDetail } from './location-details.js';
 import { loadPublicArray, renderPublicDataNotice, isRenderablePoint, isRenderableContact, projectPublicPoint, projectPublicContact } from './public-data.js';
 import { loadPublicSiteMetadata, resolveSiteBranding, sanitizePublicLogoUrl } from './public-site.js';
 import { getBasePublicVisitPointId } from './visit-analytics.js';
@@ -1685,10 +1685,13 @@ async function selectPoint(pt, options = {}) {
   const chipClass = { 'drop-off': 'chip-dropoff', 'collection': 'chip-collection', 'both': 'chip-both' };
   const chipLabel = { 'drop-off': 'Drop-off', 'collection': 'Collection', 'both': 'Drop-off & Collection' };
 
+  const detailModel = buildPointDetailModel(pt, _allContacts, {
+    phoneOverride: (_publicMyPinActive && pt.id === _publicMyPinPointId) ? pt.phoneOverride : null,
+  });
   document.getElementById('detail-chip').className = `chip ${chipClass[pt.type] ?? ''}`;
   document.getElementById('detail-chip').textContent = chipLabel[pt.type] ?? pt.type;
-  document.getElementById('detail-label').textContent = pt.label;
-  document.getElementById('detail-notes').textContent = pt.notes ?? '';
+  document.getElementById('detail-label').textContent = detailModel.title;
+  document.getElementById('detail-notes').textContent = detailModel.notes;
   _renderPointPhotos(pt);
 
   const navSection = document.getElementById('detail-nav-section');
@@ -1699,13 +1702,11 @@ async function selectPoint(pt, options = {}) {
   const contactsSection = document.getElementById('detail-contacts')?.closest('.detail-section');
   if (contactsSection) contactsSection.style.display = '';
 
-  const contacts = (pt.contactIds ?? []).map(id => _allContacts.find(c => c.id === id)).filter(Boolean);
+  const contacts = detailModel.contacts;
   const contactsEl = document.getElementById('detail-contacts');
-  contactsEl.innerHTML = '';
+  contactsEl.replaceChildren();
   if (contacts.length === 0) {
-    const overridePhone = (_publicMyPinActive && pt.id === _publicMyPinPointId && pt.phoneOverride)
-      ? sanitizePhone(pt.phoneOverride)
-      : null;
+    const overridePhone = detailModel.fallbackPhone;
     if (overridePhone) {
       const card = document.createElement('div');
       card.className = 'contact-card-3d';
@@ -1740,8 +1741,7 @@ async function selectPoint(pt, options = {}) {
       role.textContent = c.role;
       info.appendChild(name);
       info.appendChild(role);
-      const displayPhone = (_publicMyPinActive && pt.id === _publicMyPinPointId && pt.phoneOverride) ? pt.phoneOverride : c.phone;
-      const sanitized = sanitizePhone(displayPhone);
+      const sanitized = c.phone;
       if (sanitized) {
         const phone = document.createElement('a');
         phone.className = 'contact-phone-3d';

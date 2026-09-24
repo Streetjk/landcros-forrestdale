@@ -124,6 +124,25 @@ export function hasSiteDetail(site) {
   return Boolean(details.visitorInfo || details.phone || details.image);
 }
 
+/** Build a safe read-only point detail model from projected public data. */
+export function buildPointDetailModel(point, contacts, { phoneOverride = null } = {}) {
+  const value = point && typeof point === 'object' && !Array.isArray(point) ? point : {};
+  const directory = Array.isArray(contacts) ? contacts : [];
+  const ids = Array.isArray(value.contactIds) ? value.contactIds : [];
+  const overrideSupplied = typeof phoneOverride === 'string' && phoneOverride.length > 0;
+  const selectedContacts = ids.map(id => directory.find(contact => contact?.id === id)).filter(Boolean).map(contact => ({
+    name: cleanDisplayText(contact.name) || 'Contact',
+    role: cleanDisplayText(contact.role) || '',
+    phone: sanitizePhone(overrideSupplied ? phoneOverride : contact.phone),
+  }));
+  return {
+    title: cleanDisplayText(value.label) || 'Location',
+    notes: typeof value.notes === 'string' ? value.notes : '',
+    contacts: selectedContacts,
+    fallbackPhone: selectedContacts.length === 0 && overrideSupplied ? sanitizePhone(phoneOverride) : null,
+  };
+}
+
 /**
  * Renders validated building details safely into the existing detail panel DOM.
  * Reuses #detail-chip, #detail-label, #detail-notes, #detail-photos, and #detail-contacts.

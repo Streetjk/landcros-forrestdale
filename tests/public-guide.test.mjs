@@ -20,6 +20,7 @@ const {
   sanitizeImageUrl,
   validateBuildingDetails,
   buildSiteDetailModel,
+  buildPointDetailModel,
   hasSiteDetail,
 } = await importHelper('./location-details.js');
 
@@ -210,6 +211,34 @@ test('site detail availability requires a sanitized optional public detail', () 
   assert.equal(hasSiteDetail({ slug: 'landcros', visitorInfo: 'Reception first.' }), true);
   assert.equal(hasSiteDetail({ slug: 'landcros', buildingPhoto: '/building.webp' }), true);
   assert.equal(hasSiteDetail({ slug: 'landcros', mainPhone: 'javascript:alert(1)', buildingPhoto: 'data:image/png;base64,no' }), false);
+});
+
+test('point detail model preserves projected contact order and sanitizes phone data', () => {
+  const model = buildPointDetailModel({
+    label: ' Gate 1 ', notes: 'Use reception.', contactIds: ['b', 'a'], privateAudit: 'ignored',
+  }, [
+    { id: 'a', name: ' Alice Admin ', role: ' Supervisor ', phone: '08 9000 0001', privateEmail: 'hidden@example.test' },
+    { id: 'b', name: 'Bob Builder', role: '', phone: '+61 400 000 002' },
+  ]);
+  assert.equal(model.title, 'Gate 1');
+  assert.equal(model.notes, 'Use reception.');
+  assert.deepEqual(model.contacts.map(c => [c.name, c.role, c.phone?.href]), [
+    ['Bob Builder', '', 'tel:+61400000002'],
+    ['Alice Admin', 'Supervisor', 'tel:0890000001'],
+  ]);
+  assert.equal(model.fallbackPhone, null);
+  assert.equal('privateAudit' in model, false);
+  assert.equal('privateEmail' in model.contacts[1], false);
+});
+
+test('point detail model keeps My Pins override fail-closed and supports phone-only fallback', () => {
+  const contacts = [{ id: 'a', name: 'Alice', role: 'Supervisor', phone: '08 9000 0001' }];
+  const invalid = buildPointDetailModel({ label: 'Pin', contactIds: ['a'] }, contacts, { phoneOverride: 'javascript:bad' });
+  assert.equal(invalid.contacts[0].phone, null, 'invalid override must not fall back to directory phone');
+  const fallback = buildPointDetailModel({ label: 'Pin', contactIds: [] }, contacts, { phoneOverride: '+61 400 000 003' });
+  assert.equal(fallback.fallbackPhone?.href, 'tel:+61400000003');
+  const malformed = buildPointDetailModel(null, null, { phoneOverride: '<bad>' });
+  assert.deepEqual(malformed, { title: 'Location', notes: '', contacts: [], fallbackPhone: null });
 });
 
 test('raw controls and backslashes never become image or phone URLs', () => {
