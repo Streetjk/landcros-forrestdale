@@ -112,6 +112,12 @@ function publicPointCore(row) {
 }
 
 function publicBasePoint(row) {
+  if (!row) return null;
+  const camelSceneId = row.sceneId;
+  const dbSceneId = row.scene_id;
+  if ((camelSceneId !== undefined && camelSceneId !== null) ||
+      (dbSceneId !== undefined && dbSceneId !== null) ||
+      row.scope !== 'shared') return null;
   return publicPointCore(row);
 }
 

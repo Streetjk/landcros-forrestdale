@@ -71,6 +71,12 @@ describe('Data Projections Unit Tests', () => {
     unknown_internal_key: 'confidential'
   };
 
+  const sampleBasePointRow = {
+    ...samplePointRow,
+    scene_id: null,
+    scope: 'shared'
+  };
+
   const sampleContactRow = {
     id: 'c-1',
     name: 'Alice',
@@ -193,7 +199,7 @@ describe('Data Projections Unit Tests', () => {
       'type'
     ].sort();
 
-    const baseRes = publicBasePoint(samplePointRow);
+    const baseRes = publicBasePoint(sampleBasePointRow);
     const sharedRes = publicSharedPoint(samplePointRow);
 
     assert.deepEqual(Object.keys(baseRes).sort(), expectedKeys);
@@ -205,8 +211,25 @@ describe('Data Projections Unit Tests', () => {
     }
   });
 
+  it('fails closed for scene-scoped/non-shared raw rows and remains idempotent after projection', () => {
+    assert.equal(publicBasePoint({ ...sampleBasePointRow, scene_id: 's-2' }), null);
+    assert.equal(publicBasePoint({ ...sampleBasePointRow, sceneId: 's-3' }), null);
+    assert.equal(publicBasePoint({ ...sampleBasePointRow, sceneId: null, scene_id: 's-4' }), null);
+    assert.equal(publicBasePoint({ ...sampleBasePointRow, sceneId: 's-5', scene_id: null }), null);
+    assert.equal(publicBasePoint({ ...sampleBasePointRow, scope: 'personal' }), null);
+
+    const camelBase = { ...sampleBasePointRow, sceneId: null };
+    delete camelBase.scene_id;
+    assert.equal(publicBasePoint(camelBase).id, 'p-1');
+
+    const once = publicBasePoint(sampleBasePointRow);
+    const projectedAgain = publicBasePoint(once);
+    assert.equal(projectedAgain.id, 'p-1');
+    assert.equal(projectedAgain.scope, 'shared');
+  });
+
   it('keeps base points free of phone overrides while shared points expose only a trimmed override', () => {
-    const baseWithOverride = publicBasePoint({ ...samplePointRow, phone_override: '555-0199' });
+    const baseWithOverride = publicBasePoint({ ...sampleBasePointRow, phone_override: '555-0199' });
     assert.equal(baseWithOverride.phoneOverride, undefined);
 
     const withEmpty = publicSharedPoint({ ...samplePointRow, phone_override: '' });
@@ -280,14 +303,14 @@ describe('Data Projections Unit Tests', () => {
 
   it('ensures input arrays are not mutated through returned objects', () => {
     const rawIds = ['c-1', 'c-2'];
-    const point = publicBasePoint({ ...samplePointRow, contact_ids: rawIds });
+    const point = publicBasePoint({ ...sampleBasePointRow, contact_ids: rawIds });
     point.contactIds.push('c-new');
     assert.equal(rawIds.length, 2);
   });
 
   it('deeply detaches nested point JSON for public and staff projections', () => {
     const source = {
-      ...samplePointRow,
+      ...sampleBasePointRow,
       position3d: { x: 1, nested: { floor: 2 } },
       route_waypoints: [[1, 2], [3, 4]],
       route_waypoints3d: [{ x: 1, meta: { speed: 2 } }],
@@ -308,7 +331,7 @@ describe('Data Projections Unit Tests', () => {
 
   it('deep clone preserves JSON __proto__ keys without prototype mutation', () => {
     const source = JSON.parse('{"__proto__":{"polluted":true},"constructor":{"nested":1}}');
-    const point = publicBasePoint({ ...samplePointRow, position3d: source });
+    const point = publicBasePoint({ ...sampleBasePointRow, position3d: source });
 
     assert.equal(Object.prototype.hasOwnProperty.call(point.position3d, '__proto__'), true);
     assert.deepEqual(point.position3d.__proto__, { polluted: true });

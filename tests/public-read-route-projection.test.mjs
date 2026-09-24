@@ -41,6 +41,24 @@ test('anonymous point/contact HTTP routes re-project DAL results before serializ
   assert.doesNotMatch(contacts, /JSON\.stringify\(contacts\)/);
 });
 
+test('anonymous point projection drops scene-scoped and personal rows before serialization', () => {
+  const base = {
+    id: '10000000-0000-0000-0000-000000000001',
+    scene_id: null,
+    label: 'Visitor gate',
+    type: 'drop-off',
+    scope: 'shared',
+  };
+  const projected = [
+    base,
+    { ...base, id: '10000000-0000-0000-0000-000000000002', scene_id: '40000000-0000-0000-0000-000000000001' },
+    { ...base, id: '10000000-0000-0000-0000-000000000003', scope: 'personal' },
+    { ...base, id: '10000000-0000-0000-0000-000000000004', sceneId: '40000000-0000-0000-0000-000000000002' },
+  ].map(publicBasePoint).filter(Boolean);
+
+  assert.deepEqual(projected.map((point) => point.id), [base.id]);
+});
+
 test('HTTP-boundary projectors strip staff and unknown columns from representative raw rows', () => {
   const point = publicBasePoint({
     id: '10000000-0000-0000-0000-000000000001',
