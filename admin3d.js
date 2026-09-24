@@ -213,6 +213,7 @@ async function _maybeInitAdmin() {
     const preparedLegacy = await _loadLegacyPins();
     if (epoch !== _initEpoch || window._snAdminIdentity?.email !== email) return;
     _siteBounds = bounds; _slug = site.slug; _accountSession = session; _accountEmail = email;
+    window.SiteNavStaffNav?.mount?.({ currentPage: 'pins', siteSlug: _slug });
     _personalPins = preparedAccount; _points = preparedBase; _legacyPins = preparedLegacy;
     _contacts = contacts; _contactsAll = [...contacts]; _accountReady = true;
     _renderAllPins(); _renderImportNotice();
@@ -233,6 +234,7 @@ window.addEventListener('viewer3d:ready', () => _maybeInitAdmin());
 window.addEventListener('sitenav:auth-ready', () => _maybeInitAdmin());
 window.addEventListener('sitenav:auth-cleared', () => {
   _setEditorPanel(false);
+  window.SiteNavStaffNav?.mount?.({ currentPage: 'pins' });
   ++_initEpoch; _accountReady = false; _accountSession = null; _accountEmail = null; _accountShareTokens.clear();
   _personalPins = []; _legacyPins = []; _contacts = []; _contactsAll = []; _editingContactIds = [];
   _editingPoint = null; _editingIsLegacy = false; _isNewPoint = false;

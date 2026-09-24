@@ -92,8 +92,35 @@ test('mount marks exactly the requested staff destination current', () => {
   assert.equal(mounted.children.filter((el) => el.getAttribute('aria-current') === 'page').length, 0);
 });
 
+test('My Pins nav gains Reports only after a validated site slug is available', () => {
+  function makeElement(tag) {
+    const attrs = new Map();
+    return {
+      tagName: tag.toUpperCase(), children: [], dataset: {}, style: {}, firstChild: null,
+      setAttribute(name, value) { attrs.set(name, value); },
+      getAttribute(name) { return attrs.get(name) ?? null; },
+      appendChild(child) { this.children.push(child); this.firstChild = this.children[0] || null; return child; },
+      removeChild(child) { this.children = this.children.filter((x) => x !== child); this.firstChild = this.children[0] || null; },
+    };
+  }
+  const body = makeElement('body');
+  const doc = {
+    body,
+    createElement: makeElement,
+    getElementById(id) { return body.children.find((el) => el.id === id) || null; },
+  };
+
+  let mounted = nav.mount({ currentPage: 'pins', document: doc });
+  assert.deepEqual(mounted.children.map((el) => el.dataset.staffNav), ['map', 'pins', 'more']);
+
+  mounted = nav.mount({ currentPage: 'pins', siteSlug: 'landcros', document: doc });
+  assert.deepEqual(mounted.children.map((el) => el.dataset.staffNav), ['map', 'pins', 'reports', 'more']);
+  assert.equal(mounted.children.find((el) => el.dataset.staffNav === 'pins').getAttribute('aria-current'), 'page');
+});
+
 test('staff pages load and mount the shared nav only in authenticated entry paths', () => {
   const admin = read('admin3d.html');
+  const adminModule = read('admin3d.js');
   const editor = read('editor.html');
   const portal = read('portal.html');
   for (const html of [admin, editor, portal]) assert.match(html, /<script src="staff-nav\.js"><\/script>/);
@@ -101,6 +128,8 @@ test('staff pages load and mount the shared nav only in authenticated entry path
   assert.match(editor, /if \(info && info\.email\) \{\s*const navParams = new URLSearchParams\(location\.search\);\s*SiteNavStaffNav\.mount\(\{\s*currentPage: navParams\.get\('mode'\) === 'hazard' \? 'reports' : 'more',\s*siteSlug: navParams\.get\('site'\),\s*\}\);\s*\}/s);
   assert.match(portal, /SiteNavStaffNav\.mount\(\{ currentPage: 'more' \}\);/);
   assert.ok(admin.indexOf("SiteNavStaffNav.mount({ currentPage: 'pins' })") > admin.indexOf('function showAuthBar(info)'));
+  assert.match(adminModule, /if \(epoch !== _initEpoch \|\| window\._snAdminIdentity\?\.email !== email\) return;[\s\S]*_slug = site\.slug;[\s\S]*SiteNavStaffNav\?\.mount\?\.\(\{ currentPage: 'pins', siteSlug: _slug \}\);/);
+  assert.match(adminModule, /sitenav:auth-cleared'[\s\S]*SiteNavStaffNav\?\.mount\?\.\(\{ currentPage: 'pins' \}\);/);
   assert.ok(editor.indexOf("currentPage: navParams.get('mode') === 'hazard' ? 'reports' : 'more'") > editor.indexOf('function showAuthBar(info)'));
   assert.ok(portal.indexOf("SiteNavStaffNav.mount({ currentPage: 'more' })") > portal.indexOf('async function checkPlatformAdminAndEnter(email)'));
 });
