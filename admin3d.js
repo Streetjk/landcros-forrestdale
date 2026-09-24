@@ -234,7 +234,7 @@ window.addEventListener('viewer3d:ready', () => _maybeInitAdmin());
 window.addEventListener('sitenav:auth-ready', () => _maybeInitAdmin());
 window.addEventListener('sitenav:auth-cleared', () => {
   _setEditorPanel(false);
-  window.SiteNavStaffNav?.mount?.({ currentPage: 'pins' });
+  window.SiteNavStaffNav?.unmount?.();
   ++_initEpoch; _accountReady = false; _accountSession = null; _accountEmail = null; _accountShareTokens.clear();
   _personalPins = []; _legacyPins = []; _contacts = []; _contactsAll = []; _editingContactIds = [];
   _editingPoint = null; _editingIsLegacy = false; _isNewPoint = false;

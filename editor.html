@@ -436,6 +436,7 @@
       });
     }
     document.getElementById('sn-signout-btn').onclick = async () => {
+      window.SiteNavStaffNav?.unmount?.();
       await fetch('/api/auth/logout', { method: 'POST' });
       location.reload();
     };

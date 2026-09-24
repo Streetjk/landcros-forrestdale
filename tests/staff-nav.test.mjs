@@ -133,9 +133,12 @@ test('staff pages load and mount the shared nav only in authenticated entry path
   assert.match(portal, /SiteNavStaffNav\.mount\(\{ currentPage: 'more' \}\);/);
   assert.ok(admin.indexOf("SiteNavStaffNav.mount({ currentPage: 'pins' })") > admin.indexOf('function showAuthBar(info)'));
   assert.match(adminModule, /if \(epoch !== _initEpoch \|\| window\._snAdminIdentity\?\.email !== email\) return;[\s\S]*_slug = site\.slug;[\s\S]*SiteNavStaffNav\?\.mount\?\.\(\{ currentPage: 'pins', siteSlug: _slug \}\);/);
-  assert.match(adminModule, /sitenav:auth-cleared'[\s\S]*SiteNavStaffNav\?\.mount\?\.\(\{ currentPage: 'pins' \}\);/);
+  assert.match(adminModule, /sitenav:auth-cleared'[\s\S]*SiteNavStaffNav\?\.unmount\?\.\(\);/);
   assert.ok(editor.indexOf("currentPage: navParams.get('mode') === 'hazard' ? 'reports' : 'more'") > editor.indexOf('function showAuthBar(info)'));
+  assert.match(editor, /sn-signout-btn'[\s\S]*SiteNavStaffNav\?\.unmount\?\.\(\);[\s\S]*fetch\('\/api\/auth\/logout'/);
   assert.ok(portal.indexOf("SiteNavStaffNav.mount({ currentPage: 'more' })") > portal.indexOf('async function checkPlatformAdminAndEnter(email)'));
+  assert.match(portal, /async function signOut\(\) \{[\s\S]*SiteNavStaffNav\?\.unmount\?\.\(\);[\s\S]*fetch\('\/api\/auth\/logout'/);
+  assert.match(portal, /gateSignoutBtn\.onclick = signOut;[\s\S]*getElementById\('signout-btn'\)\.onclick = signOut;/);
 });
 
 test('unmount removes only the shared staff nav and is idempotent', () => {

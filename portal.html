@@ -194,15 +194,14 @@ import { createDetailSiteCard } from './detail-card.js';
     renderSites(sites);
   }
 
-  gateSignoutBtn.onclick = async () => {
+  async function signOut() {
+    window.SiteNavStaffNav?.unmount?.();
     await fetch('/api/auth/logout', { method: 'POST' });
     location.reload();
-  };
+  }
 
-  document.getElementById('signout-btn').onclick = async () => {
-    await fetch('/api/auth/logout', { method: 'POST' });
-    location.reload();
-  };
+  gateSignoutBtn.onclick = signOut;
+  document.getElementById('signout-btn').onclick = signOut;
 
   function renderSites(sites) {
     const list = document.getElementById('sites-list');
