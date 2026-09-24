@@ -36,7 +36,7 @@ const pointPhotosDb = require('./point-photos-db');
 const { canManageScene } = require('./resource-ownership');
 const { createScenePointHandler } = require('./scene-points-routes');
 const { createScenePointPhotoHandler } = require('./scene-point-photos-routes');
-const { createRequestId, writePublicDataUnavailable } = require('./public-api-diagnostics');
+const { createRequestId, writePublicDataUnavailable, writeStaffDataUnavailable } = require('./public-api-diagnostics');
 const { readPublicSiteMetadata } = require('./site-metadata');
 const { NotificationStatusPartialError, notifyThenPersistStatus, partialCompletionBody } = require('./hazard-status-workflow');
 
@@ -852,9 +852,15 @@ const server = http.createServer((req, res) => {
     res.setHeader('Cache-Control', 'no-store');
     _requireSiteEditor(req, res, slug, (session) => {
       if (req.method === 'GET') {
+        const requestId = createRequestId();
         sdb.getContacts(slug, { baseOnly: false })
           .then(contacts => _json(res, 200, contacts))
-          .catch(e => _json(res, 500, JSON.parse(_errBody(e))));
+          .catch(e => writeStaffDataUnavailable(res, {
+            requestId,
+            route: 'GET-api-sites-contacts',
+            site: slug,
+            error: e,
+          }));
         return;
       }
       _readJsonBody(req, async (err, contact) => {

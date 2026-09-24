@@ -6,7 +6,7 @@ import { spawn } from 'node:child_process';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const { createRequestId, writePublicDataUnavailable } = require('../public-api-diagnostics.js');
+const { createRequestId, writePublicDataUnavailable, writeStaffDataUnavailable } = require('../public-api-diagnostics.js');
 
 function captureResponse() {
   const state = { status: null, headers: null, body: null };
@@ -24,6 +24,20 @@ function exercise(route, error) {
   const { state, response } = captureResponse();
   const logs = [];
   writePublicDataUnavailable(response, {
+    requestId,
+    route,
+    site: 'landcros',
+    error,
+    logger: { error: (...args) => logs.push(args.join(' ')) },
+  });
+  return { requestId, state, logs };
+}
+
+function exerciseStaff(route, error) {
+  const requestId = createRequestId();
+  const { state, response } = captureResponse();
+  const logs = [];
+  writeStaffDataUnavailable(response, {
     requestId,
     route,
     site: 'landcros',
@@ -65,11 +79,40 @@ test('public data failure helper returns correlated generic 500 responses and st
   assert.match(contacts.requestId, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
 });
 
+test('staff data failure helper returns a private correlated 500 without leaking raw errors', () => {
+  const secret = 'STAFF_DB_SECRET_MARKER';
+  const result = exerciseStaff('GET-api-sites-contacts', Object.assign(
+    new Error(`password=hidden ${secret}`),
+    { name: `DatabaseError-${secret}`, code: '28P01' },
+  ));
+
+  assert.equal(result.state.status, 500);
+  assert.equal(result.state.headers['Content-Type'], 'application/json');
+  assert.equal(result.state.headers['X-Request-Id'], result.requestId);
+  assert.equal(Object.hasOwn(result.state.headers, 'Access-Control-Allow-Origin'), false);
+  const body = JSON.parse(result.state.body);
+  assert.deepEqual(body, { error: 'STAFF_DATA_UNAVAILABLE', requestId: result.requestId });
+  assert.equal(JSON.stringify({ headers: result.state.headers, body }).includes(secret), false);
+  assert.equal(result.logs.join('\n').includes(secret), false);
+  assert.match(result.logs[0], /^\[staff-data\] /);
+  const loggedJson = result.logs[0].slice(result.logs[0].indexOf('{'));
+  assert.deepEqual(JSON.parse(loggedJson), {
+    route: 'GET-api-sites-contacts',
+    site: 'landcros',
+    requestId: result.requestId,
+    errorKind: 'database-authentication',
+  });
+});
+
 test('server wires only public GET point/contact failures to the correlation helper', () => {
   const source = fs.readFileSync(new URL('../server.js', import.meta.url), 'utf8');
   assert.match(source, /const requestId = createRequestId\(\);/);
   assert.match(source, /getPoints\(SITE, \{ baseOnly: true \}\)[\s\S]*?writePublicDataUnavailable\(res, \{ requestId, route: 'GET-api-points', site: SITE, error: e \}\)/);
   assert.match(source, /getContacts\(SITE, \{ baseOnly: true \}\)[\s\S]*?writePublicDataUnavailable\(res, \{ requestId, route: 'GET-api-contacts', site: SITE, error: e \}\)/);
+  const staffStart = source.indexOf('const staffContactsMatch');
+  const staffEnd = source.indexOf('if (handleScenePoints(req, res, url))', staffStart);
+  const staffBlock = source.slice(staffStart, staffEnd);
+  assert.match(staffBlock, /req\.method === 'GET'[\s\S]*?const requestId = createRequestId\(\);[\s\S]*?sdb\.getContacts\(slug, \{ baseOnly: false \}\)[\s\S]*?writeStaffDataUnavailable\(res, \{[\s\S]*?route: 'GET-api-sites-contacts'[\s\S]*?site: slug[\s\S]*?error: e/);
   assert.match(source, /savePoint\(SITE, point, s\.profileId\)[\s\S]*?_errBody\(e\)/);
   assert.match(source, /sdb\.saveContact\(slug, contact, session\.profileId\)[\s\S]*?_errBody\(e\)/);
   assert.match(source, /pathname === '\/api\/contacts' && req\.method === 'POST'[\s\S]*?req\.resume\(\);[\s\S]*?setHeader\('Allow', 'GET'\)[\s\S]*?405/);

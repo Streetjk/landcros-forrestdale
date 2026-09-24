@@ -38,6 +38,7 @@ test('staff contact client rejects a missing site before fetch', async () => {
 
 test('server separates public read from authenticated site-scoped writes', () => {
   assert.match(server, /staffContactsMatch[\s\S]*?req\.method === 'GET' \|\| req\.method === 'POST'/);
+  assert.match(server, /_requireSiteEditor\(req, res, slug, \(session\) => \{[\s\S]*?sdb\.getContacts\(slug, \{ baseOnly: false \}\)[\s\S]*?writeStaffDataUnavailable\(res, \{[\s\S]*?route: 'GET-api-sites-contacts'/);
   assert.match(server, /_requireSiteEditor\(req, res, slug, \(session\) => \{[\s\S]*?sdb\.saveContact\(slug, contact, session\.profileId\)/);
   assert.match(server, /pathname === '\/api\/contacts' && req\.method === 'GET'[\s\S]*?sdb\.getContacts\(SITE, \{ baseOnly: true \}\)/);
   assert.match(server, /pathname === '\/api\/contacts' && req\.method === 'POST'[\s\S]*?req\.resume\(\);[\s\S]*?setHeader\('Allow', 'GET'\)[\s\S]*?405/);

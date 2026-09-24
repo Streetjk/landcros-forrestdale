@@ -39,7 +39,25 @@ function writePublicDataUnavailable(res, { requestId, route, site, error, logger
   res.end(JSON.stringify({ error: 'PUBLIC_DATA_UNAVAILABLE', requestId: id }));
 }
 
+function writeStaffDataUnavailable(res, { requestId, route, site, error, logger = console }) {
+  const id = safeToken(requestId, 'unavailable', 64);
+  const diagnostic = {
+    route: safeToken(route, 'staff-data', 48),
+    site: safeToken(site, 'unknown', 64),
+    requestId: id,
+    errorKind: classifyError(error),
+  };
+
+  logger.error('[staff-data]', JSON.stringify(diagnostic));
+  res.writeHead(500, {
+    'Content-Type': 'application/json',
+    'X-Request-Id': id,
+  });
+  res.end(JSON.stringify({ error: 'STAFF_DATA_UNAVAILABLE', requestId: id }));
+}
+
 module.exports = {
   createRequestId,
   writePublicDataUnavailable,
+  writeStaffDataUnavailable,
 };
