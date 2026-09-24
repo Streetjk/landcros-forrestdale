@@ -25,6 +25,30 @@
     return doc ? doc.getElementById('side-panel') : null;
   }
 
+  function syncAccessibility(state) {
+    var doc = getDoc();
+    if (!doc || typeof doc.getElementById !== 'function') return;
+
+    var expanded = state.compact ? state.detailOpen : state.desktopOpen;
+    var ids = ['panel-toggle', 'panel-tab', 'sheet-peek-toggle'];
+    for (var i = 0; i < ids.length; i++) {
+      var control = doc.getElementById(ids[i]);
+      if (!control || typeof control.setAttribute !== 'function') continue;
+      control.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+      control.setAttribute('aria-controls', 'side-panel');
+    }
+
+    var panelToggle = doc.getElementById('panel-toggle');
+    if (panelToggle && typeof panelToggle.setAttribute === 'function') {
+      panelToggle.setAttribute('aria-label', expanded ? 'Collapse locations panel' : 'Expand locations panel');
+    }
+
+    var panelTab = doc.getElementById('panel-tab');
+    if (panelTab && typeof panelTab.setAttribute === 'function') {
+      panelTab.setAttribute('aria-label', expanded ? 'Close locations panel' : 'Open locations panel');
+    }
+  }
+
   function isCompact() {
     var win = getWin();
     if (!win || typeof win.innerWidth !== 'number') {
@@ -78,13 +102,17 @@
     var panel = getPanel();
 
     if (!app || !app.classList) {
-      return snapshot();
+      var missingAppState = snapshot();
+      syncAccessibility(missingAppState);
+      return missingAppState;
     }
 
     if (!compact) {
       app.classList.remove('sheet-open');
       app.classList.remove('panel-is-folded');
-      return snapshot();
+      var desktopState = snapshot();
+      syncAccessibility(desktopState);
+      return desktopState;
     }
 
     if (currentMode === 'sheet') {
@@ -105,7 +133,9 @@
       app.classList.remove('sheet-open');
     }
 
-    return snapshot();
+    var state = snapshot();
+    syncAccessibility(state);
+    return state;
   }
 
   function toggleDesktop() {
