@@ -29,6 +29,14 @@ import { createClient } from '@supabase/supabase-js';
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_PUBLISHABLE_KEY = process.env.SUPABASE_PUBLISHABLE_KEY;
 
+// Explicit anonymous read contracts. Keep these separate from the existing
+// authenticated/general helpers so auth transitions on a Supabase client can
+// never leave a stale client-side visibility classification behind. PostgreSQL
+// RLS remains the row boundary; migration 0016 is the column boundary.
+const PUBLIC_SITE_COLUMNS = 'id,slug,name,title,address,logo,published';
+const PUBLIC_POINT_COLUMNS = 'id,site_id,label,type,scope,latlng,position3d,notes,contact_ids,route_waypoints,route_waypoints3d,camera_preset3d,building_ref';
+const PUBLIC_CONTACT_COLUMNS = 'id,site_id,name,role,phone,active';
+
 export function browserClient(accessToken) {
   if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY) {
     throw new Error('SUPABASE_URL / SUPABASE_PUBLISHABLE_KEY must be set');
@@ -60,10 +68,22 @@ export function getSite(client, slug) {
   return client.from('sites').select('*').eq('slug', slug).single();
 }
 
+export function listPublicSites(client) {
+  return client.from('sites').select(PUBLIC_SITE_COLUMNS);
+}
+
+export function getPublicSite(client, slug) {
+  return client.from('sites').select(PUBLIC_SITE_COLUMNS).eq('slug', slug).single();
+}
+
 // ── Points ───────────────────────────────────────────────────────────────
 
 export function listPoints(client, siteId) {
   return client.from('points').select('*').eq('site_id', siteId);
+}
+
+export function listPublicPoints(client, siteId) {
+  return client.from('points').select(PUBLIC_POINT_COLUMNS).eq('site_id', siteId);
 }
 
 export function savePoint(client, point) {
@@ -78,6 +98,10 @@ export function deletePoint(client, id) {
 
 export function listContacts(client, siteId) {
   return client.from('contacts').select('*').eq('site_id', siteId);
+}
+
+export function listPublicContacts(client, siteId) {
+  return client.from('contacts').select(PUBLIC_CONTACT_COLUMNS).eq('site_id', siteId);
 }
 
 export function saveContact(client, contact) {

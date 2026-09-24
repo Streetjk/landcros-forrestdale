@@ -5,6 +5,7 @@ import { createHash, createHmac, randomUUID } from 'node:crypto';
 import { fork } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { once } from 'node:events';
+import { readFileSync } from 'node:fs';
 const require = createRequire(import.meta.url);
 const { Client } = require('pg');
 const uid = n => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
@@ -521,6 +522,96 @@ test('scene point ownership: actual PostgreSQL and HTTP server', { skip: !proces
     if(sdb) await sdb.pool().end();
     await sql.end().catch(()=>{});
     await root.query(`drop schema if exists ${schema} cascade`).catch(()=>{});
+    await root.end();
+  }
+});
+
+
+test('anonymous direct database reads are column allowlisted', { skip: !process.env.SITENAV_TEST_DATABASE_URL, timeout: 15000 }, async () => {
+  const base = new URL(process.env.SITENAV_TEST_DATABASE_URL);
+  assert.ok(['127.0.0.1', 'localhost'].includes(base.hostname));
+  assert.equal(base.pathname, '/sitenav_test');
+  assert.equal(base.username, 'sitenav_test');
+
+  const schema = 'test_anon_grants_' + randomUUID().replaceAll('-', '');
+  const root = new Client({ connectionString: base.href });
+  const scoped = new URL(base);
+  scoped.searchParams.set('options', `-c search_path=${schema}`);
+  const sql = new Client({ connectionString: scoped.href });
+  const migration = readFileSync(new URL('../supabase/migrations/0016_public_column_grants.sql', import.meta.url), 'utf8');
+
+  const createdRoles = [];
+  await root.connect();
+  try {
+    const existingRoles = new Set((await root.query(
+      "select rolname from pg_roles where rolname in ('anon','authenticated')",
+    )).rows.map(row => row.rolname));
+    for (const role of ['anon', 'authenticated']) {
+      if (existingRoles.has(role)) continue;
+      await root.query(`create role ${role} nologin`);
+      createdRoles.push(role);
+    }
+    await root.query(`create schema ${schema}`);
+    await sql.connect();
+    await sql.query(`
+      create table sites(id text, slug text, name text, title text, address text, logo text,
+        config jsonb, published boolean, created_by text, created_at timestamptz, updated_at timestamptz);
+      create table points(id text, site_id text, label text, type text, scope text, latlng jsonb,
+        position3d jsonb, notes text, contact_ids text[], route_waypoints jsonb, route_waypoints3d jsonb,
+        camera_preset3d jsonb, building_ref text, scene_id text, phone_override text,
+        created_by text, created_at timestamptz, updated_at timestamptz);
+      create table contacts(id text, site_id text, name text, role text, phone text, email text,
+        active boolean, created_by text, created_at timestamptz);
+      insert into sites values ('s1','alpha','Alpha','Guide','107 Test Rd','/logo.png','{}',true,'owner',now(),now());
+      insert into points values ('p1','s1','Gate','drop-off','shared',null,null,null,'{}','[]','[]',null,null,null,null,'owner',now(),now());
+      insert into contacts values ('c1','s1','Reception','staff','0800000000','secret@example.test',true,'owner',now());
+      grant usage on schema ${schema} to anon, authenticated;
+      grant select on table sites, points, contacts to anon, authenticated;
+      grant select (config) on table sites to anon;
+      grant select (created_by) on table points to anon;
+      grant select (email) on table contacts to anon;
+    `);
+    await sql.query(migration);
+
+    assert.equal((await sql.query("select has_table_privilege('anon','sites','select') as allowed")).rows[0].allowed, false);
+    assert.equal((await sql.query("select has_column_privilege('anon','contacts','phone','select') as allowed")).rows[0].allowed, true);
+    for (const [table, column] of [
+      ['sites', 'config'], ['sites', 'created_by'], ['points', 'scene_id'], ['points', 'phone_override'],
+      ['points', 'created_by'], ['contacts', 'email'], ['contacts', 'created_by'],
+    ]) {
+      const result = await sql.query('select has_column_privilege($1,$2,$3,$4) as allowed', ['anon', table, column, 'select']);
+      assert.equal(result.rows[0].allowed, false, `anon cannot select ${table}.${column}`);
+    }
+    assert.equal((await sql.query("select has_table_privilege('authenticated','contacts','select') as allowed")).rows[0].allowed, true);
+
+    await sql.query('begin');
+    await sql.query('set local role anon');
+    assert.equal((await sql.query('select id,slug,name,title,address,logo,published from sites')).rows[0].slug, 'alpha');
+    assert.equal((await sql.query('select id,site_id,label,type,scope,latlng,position3d,notes,contact_ids,route_waypoints,route_waypoints3d,camera_preset3d,building_ref from points')).rows[0].label, 'Gate');
+    assert.equal((await sql.query('select id,site_id,name,role,phone,active from contacts')).rows[0].phone, '0800000000');
+    await sql.query('rollback');
+
+    async function assertAnonDenied(statement) {
+      await sql.query('begin');
+      await sql.query('set local role anon');
+      try {
+        await assert.rejects(sql.query(statement), error => error?.code === '42501');
+      } finally {
+        await sql.query('rollback');
+      }
+    }
+    await assertAnonDenied('select * from contacts');
+    await assertAnonDenied('select created_by from points');
+    await assertAnonDenied('select config from sites');
+
+    await sql.query('begin');
+    await sql.query('set local role authenticated');
+    assert.equal((await sql.query('select email,created_by from contacts')).rows[0].email, 'secret@example.test');
+    await sql.query('rollback');
+  } finally {
+    await sql.end().catch(() => {});
+    await root.query(`drop schema if exists ${schema} cascade`).catch(() => {});
+    for (const role of createdRoles.reverse()) await root.query(`drop role if exists ${role}`).catch(() => {});
     await root.end();
   }
 });

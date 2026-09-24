@@ -15,6 +15,7 @@ import {
   listPoints,
   savePoint,
   listContacts,
+  listPublicContacts,
   getSite,
   recordVisit,
 } from '../db.mjs';
@@ -141,7 +142,7 @@ async function main() {
     }
 
     {
-      const { data, error } = await listContacts(anon, tempSiteId);
+      const { data, error } = await listPublicContacts(anon, tempSiteId);
       assert(!error && data?.length === 0, 'f. anon listContacts(tempSite) returns 0 rows (unpublished)', error ? error.message : `length=${data?.length}`);
     }
 
