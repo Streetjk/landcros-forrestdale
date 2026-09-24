@@ -131,3 +131,54 @@ export function renderDetailContacts(doc, container, options = {}) {
   }
   return { kind: 'empty', count: 0 };
 }
+function detailText(value, fallback) {
+  return typeof value === 'string' && value.trim() ? value : fallback;
+}
+
+function formatSiteCreatedDate(value) {
+  if (!value) return 'Created date unavailable';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return 'Created date unavailable';
+  return `Created ${date.toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' })}`;
+}
+
+export function createDetailSiteCard(doc, site = {}) {
+  if (!doc || typeof doc.createElement !== 'function') {
+    throw new TypeError('createDetailSiteCard requires a document-like object');
+  }
+  const source = site && typeof site === 'object' && !Array.isArray(site) ? site : {};
+  const card = doc.createElement('div');
+  card.className = 'site-card';
+
+  const info = doc.createElement('div');
+  info.className = 'site-info';
+
+  const nameRow = doc.createElement('div');
+  nameRow.className = 'site-name';
+  const name = doc.createElement('span');
+  name.textContent = detailText(source.name, 'Unnamed site');
+  const badge = doc.createElement('span');
+  badge.className = `badge ${source.published ? 'published' : 'draft'}`;
+  badge.textContent = source.published ? 'Published' : 'Draft';
+  nameRow.appendChild(name);
+  nameRow.appendChild(badge);
+
+  const title = doc.createElement('div');
+  title.className = 'site-title';
+  title.textContent = detailText(source.title, 'No site title');
+
+  const slug = doc.createElement('div');
+  slug.className = 'site-slug';
+  slug.textContent = detailText(source.slug, 'Site slug unavailable');
+
+  const meta = doc.createElement('div');
+  meta.className = 'site-meta';
+  meta.textContent = formatSiteCreatedDate(source.createdAt);
+
+  info.appendChild(nameRow);
+  info.appendChild(title);
+  info.appendChild(slug);
+  info.appendChild(meta);
+  card.appendChild(info);
+  return card;
+}

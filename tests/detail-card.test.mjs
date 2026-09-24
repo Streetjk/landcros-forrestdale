@@ -5,6 +5,7 @@ import {
   createDetailPhoneLink,
   createDetailContactCard,
   renderDetailContacts,
+  createDetailSiteCard,
 } from '../detail-card.js';
 
 class FakeElement {
@@ -76,6 +77,31 @@ test('shared detail contact renderer handles contacts, phone fallback and empty 
   });
   assert.deepEqual(result, { kind: 'empty', count: 0 });
   assert.equal(container.children[0].textContent, 'No contacts assigned.');
+});
+
+
+test('shared site card renders projected metadata as text with neutral fallbacks', () => {
+  const hostile = {
+    name: '<img src=x onerror=alert(1)>', title: '<b>not markup</b>',
+    slug: 'site /?&<script>', published: true, createdAt: 'not-a-date',
+  };
+  const card = createDetailSiteCard(fakeDocument, hostile);
+  const [nameRow, title, slug, meta] = card.children[0].children;
+  assert.equal(card.className, 'site-card');
+  assert.equal(nameRow.children[0].textContent, hostile.name);
+  assert.equal(nameRow.children[1].className, 'badge published');
+  assert.equal(nameRow.children[1].textContent, 'Published');
+  assert.equal(title.textContent, hostile.title);
+  assert.equal(slug.textContent, hostile.slug);
+  assert.equal(meta.textContent, 'Created date unavailable');
+
+  const fallback = createDetailSiteCard(fakeDocument, { published: false });
+  const [fallbackName, fallbackTitle, fallbackSlug, fallbackMeta] = fallback.children[0].children;
+  assert.equal(fallbackName.children[0].textContent, 'Unnamed site');
+  assert.equal(fallbackName.children[1].className, 'badge draft');
+  assert.equal(fallbackTitle.textContent, 'No site title');
+  assert.equal(fallbackSlug.textContent, 'Site slug unavailable');
+  assert.equal(fallbackMeta.textContent, 'Created date unavailable');
 });
 
 test('public point and location detail paths consume the shared primitive', () => {

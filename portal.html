@@ -148,7 +148,9 @@
 
 <script src="auth-gate.js"></script>
 <script src="staff-nav.js"></script>
-<script>
+<script type="module">
+import { createDetailSiteCard } from './detail-card.js';
+
 (function() {
   const gate = document.getElementById('sn-auth-gate');
   const msg = document.getElementById('sn-auth-msg');
@@ -202,13 +204,6 @@
     location.reload();
   };
 
-  function formatCreatedDate(value) {
-    if (!value) return 'Created date unavailable';
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) return 'Created date unavailable';
-    return `Created ${date.toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' })}`;
-  }
-
   function renderSites(sites) {
     const list = document.getElementById('sites-list');
     const emptyMsg = document.getElementById('empty-msg');
@@ -221,33 +216,7 @@
 
     for (const site of rows) {
       const slug = typeof site.slug === 'string' ? site.slug : '';
-      const card = document.createElement('div');
-      card.className = 'site-card';
-
-      const info = document.createElement('div');
-      info.className = 'site-info';
-
-      const nameRow = document.createElement('div');
-      nameRow.className = 'site-name';
-      const name = document.createElement('span');
-      name.textContent = typeof site.name === 'string' && site.name.trim() ? site.name : 'Unnamed site';
-      const badge = document.createElement('span');
-      badge.className = `badge ${site.published ? 'published' : 'draft'}`;
-      badge.textContent = site.published ? 'Published' : 'Draft';
-      nameRow.append(name, badge);
-
-      const title = document.createElement('div');
-      title.className = 'site-title';
-      title.textContent = typeof site.title === 'string' && site.title.trim() ? site.title : 'No site title';
-
-      const slugEl = document.createElement('div');
-      slugEl.className = 'site-slug';
-      slugEl.textContent = slug || 'Site slug unavailable';
-
-      const meta = document.createElement('div');
-      meta.className = 'site-meta';
-      meta.textContent = formatCreatedDate(site.createdAt);
-      info.append(nameRow, title, slugEl, meta);
+      const card = createDetailSiteCard(document, site);
 
       const actions = document.createElement('div');
       actions.className = 'site-actions';
@@ -270,7 +239,7 @@
         } catch {}
       };
       actions.append(openLink, toggle);
-      card.append(info, actions);
+      card.appendChild(actions);
       list.appendChild(card);
     }
   }

@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
+import { createDetailSiteCard } from '../detail-card.js';
 
 const portal = fs.readFileSync(new URL('../portal.html', import.meta.url), 'utf8');
 const siteAdmin = fs.readFileSync(new URL('../site-admin.js', import.meta.url), 'utf8');
@@ -20,25 +21,25 @@ test('platform site list is projected before leaving site-admin', () => {
   assert.match(siteAdmin, /return rows\.map\(staffSite\);/);
 });
 
-test('portal renders projected site metadata through DOM text sinks only', () => {
+test('portal renders projected site metadata through the shared read-only card primitive', () => {
   const render = functionBlock('renderSites(sites)', 'async function refreshSites');
+  assert.match(portal, /<script type="module">\s*import \{ createDetailSiteCard \} from '\.\/detail-card\.js';/);
+  assert.ok(portal.indexOf('<script src="auth-gate.js"></script>') < portal.indexOf('<script type="module">'));
+  assert.ok(portal.indexOf('<script src="staff-nav.js"></script>') < portal.indexOf('<script type="module">'));
   assert.match(render, /sites\.filter\(site => site && typeof site === 'object' && !Array\.isArray\(site\)\)/);
   assert.match(render, /list\.replaceChildren\(\)/);
   assert.doesNotMatch(render, /innerHTML|insertAdjacentHTML|outerHTML|document\.write/);
-  assert.match(render, /name\.textContent =/);
-  assert.match(render, /title\.textContent =/);
-  assert.match(render, /slugEl\.textContent =/);
-  assert.match(render, /meta\.textContent = formatCreatedDate\(site\.createdAt\)/);
-  assert.match(render, /badge\.textContent = site\.published \? 'Published' : 'Draft'/);
+  assert.match(render, /const card = createDetailSiteCard\(document, site\);/);
   assert.match(render, /toggle\.textContent = site\.published \? 'Unpublish' : 'Publish'/);
   assert.match(render, /openLink\.href = `\/editor\.html\?site=\$\{encodeURIComponent\(slug\)\}`/);
   assert.match(render, /fetch\(`\/api\/sites\/\$\{encodeURIComponent\(slug\)\}\/publish`/);
 });
 
 test('portal gives missing metadata neutral fallbacks and mobile touch-safe actions', () => {
-  assert.match(portal, /'Unnamed site'/);
-  assert.match(portal, /'No site title'/);
-  assert.match(portal, /'Created date unavailable'/);
+  const detail = fs.readFileSync(new URL('../detail-card.js', import.meta.url), 'utf8');
+  assert.match(detail, /'Unnamed site'/);
+  assert.match(detail, /'No site title'/);
+  assert.match(detail, /'Created date unavailable'/);
   assert.match(portal, /\.btn-sm \{[\s\S]*?min-height: 44px; min-width: 44px;/);
   assert.match(portal, /\.open-link \{ min-height: 44px; display: inline-flex;/);
   assert.match(portal, /@media \(max-width: 620px\)[\s\S]*?\.site-card \{ align-items: stretch; flex-direction: column; \}/);
@@ -75,6 +76,7 @@ function runtimePortal() {
   const byId = new Map([['sites-list', list], ['empty-msg', empty]]);
   const calls = [];
   const context = {
+    createDetailSiteCard,
     document: {
       getElementById(id) { return byId.get(id) || null; },
       createElement(tag) { return new FakeElement(tag); },
@@ -84,7 +86,7 @@ function runtimePortal() {
       return { ok: true, async json() { return []; } };
     },
   };
-  const start = portal.indexOf('  function formatCreatedDate(value)');
+  const start = portal.indexOf('  function renderSites(sites)');
   const end = portal.indexOf("  document.getElementById('new-site-form').onsubmit", start);
   assert.notEqual(start, -1);
   assert.notEqual(end, -1);
