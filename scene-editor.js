@@ -155,9 +155,11 @@ function renderScenesList() {
     // Anyone else: removes it from their own list only — the server decides the same.
     const mine = scene.isMine || !scene.createdByEmail || scene.createdByEmail === _me?.email;
     const del = document.createElement('button');
+    del.type = 'button';
     del.className = 'scene-del-btn';
     del.textContent = '✕';
     del.title = mine ? `Delete ${noun} for everyone` : 'Remove from my list';
+    del.setAttribute('aria-label', del.title);
     del.dataset.action = mine ? 'delete' : 'remove';
     del.addEventListener('click', e => { e.stopPropagation(); onDeleteSceneClick(scene.id, mine); });
     row.appendChild(del);
@@ -173,6 +175,7 @@ function renderScenesList() {
     btn.type = 'button';
     btn.className = _archiveOpen ? 'open' : '';
     btn.id = 'archive-toggle';
+    btn.setAttribute('aria-expanded', String(_archiveOpen));
     btn.textContent = `Archived (${archived.length})`;
     btn.addEventListener('click', () => { _archiveOpen = !_archiveOpen; renderScenesList(); });
     head.appendChild(btn);
@@ -650,8 +653,10 @@ function renderHazardPhotos(objectId, pending = 0) {
     img.title = `${p.originalName || ''} — click to open original`;
     img.addEventListener('click', () => window.open(`/api/hazard-photos/${encodeURIComponent(p.id)}?original=1`, '_blank', 'noopener'));
     const del = document.createElement('button');
+    del.type = 'button';
     del.textContent = '✕';
     del.title = 'Remove photo';
+    del.setAttribute('aria-label', del.title);
     del.addEventListener('click', async () => {
       const ok = await apiWrite(`/api/sites/${encodeURIComponent(SLUG)}/hazard/photos/${encodeURIComponent(p.id)}`, { method: 'DELETE' });
       if (ok) { _hazardPhotos = _hazardPhotos.filter(x => x.id !== p.id); renderHazardPhotos(objectId); }
