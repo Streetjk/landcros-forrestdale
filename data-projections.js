@@ -13,6 +13,18 @@ function from(row, camel, db = camel) {
 }
 
 
+function staffSite(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    slug: row.slug,
+    name: row.name,
+    title: row.title ?? null,
+    published: row.published === true,
+    createdAt: from(row, 'createdAt', 'created_at') ?? null,
+  };
+}
+
 function staffScene(row) {
   if (!row) return null;
   return {
@@ -151,6 +163,7 @@ function publicPointPhoto(row) {
 }
 
 module.exports = {
+  staffSite,
   staffScene,
   publicSharedScene,
   publicMyPinScene,

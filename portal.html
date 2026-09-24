@@ -50,9 +50,11 @@
     border-radius: 8px;
   }
   .site-info { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
-  .site-name { font-size: 0.9375rem; font-weight: 600; }
+  .site-name { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 0.9375rem; font-weight: 600; }
+  .site-title { font-size: 0.8125rem; color: #CBD5E1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .site-slug { font-size: 0.75rem; color: #94A3B8; font-family: ui-monospace, monospace; }
-  .site-actions { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+  .site-meta { font-size: 0.6875rem; color: #64748B; }
+  .site-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
   .badge {
     font-size: 0.6875rem; font-weight: 600; padding: 3px 9px; border-radius: 999px;
     text-transform: uppercase; letter-spacing: 0.03em;
@@ -60,13 +62,19 @@
   .badge.published { background: rgba(34,197,94,0.15); color: #4ADE80; }
   .badge.draft { background: rgba(148,163,184,0.15); color: #94A3B8; }
   .btn-sm {
-    padding: 6px 12px; border-radius: 6px; font-size: 0.75rem; cursor: pointer;
+    min-height: 44px; min-width: 44px; padding: 6px 12px; border-radius: 6px; font-size: 0.75rem; cursor: pointer;
     background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); color: #fff;
   }
   .btn-sm:hover { background: rgba(255,255,255,0.1); }
-  .open-link { font-size: 0.75rem; color: #60A5FA; text-decoration: none; white-space: nowrap; }
+  .open-link { min-height: 44px; display: inline-flex; align-items: center; font-size: 0.75rem; color: #60A5FA; text-decoration: none; white-space: nowrap; }
   .open-link:hover { text-decoration: underline; }
   #empty-msg { color: #94A3B8; font-size: 0.875rem; }
+  @media (max-width: 620px) {
+    #app { padding: 20px 12px 88px; }
+    .site-card { align-items: stretch; flex-direction: column; }
+    .site-actions { width: 100%; }
+    .site-actions > * { flex: 1 1 0; justify-content: center; }
+  }
 
   /* ── Auth gate overlay ── */
   #sn-auth-gate {
@@ -194,37 +202,75 @@
     location.reload();
   };
 
+  function formatCreatedDate(value) {
+    if (!value) return 'Created date unavailable';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return 'Created date unavailable';
+    return `Created ${date.toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' })}`;
+  }
+
   function renderSites(sites) {
     const list = document.getElementById('sites-list');
     const emptyMsg = document.getElementById('empty-msg');
-    list.innerHTML = '';
-    if (!sites.length) { emptyMsg.style.display = ''; return; }
+    const rows = Array.isArray(sites)
+      ? sites.filter(site => site && typeof site === 'object' && !Array.isArray(site))
+      : [];
+    list.replaceChildren();
+    if (!rows.length) { emptyMsg.style.display = ''; return; }
     emptyMsg.style.display = 'none';
-    for (const site of sites) {
+
+    for (const site of rows) {
+      const slug = typeof site.slug === 'string' ? site.slug : '';
       const card = document.createElement('div');
       card.className = 'site-card';
-      const badgeClass = site.published ? 'published' : 'draft';
-      const badgeText = site.published ? 'Published' : 'Draft';
-      const toggleLabel = site.published ? 'Unpublish' : 'Publish';
-      card.innerHTML = `
-        <div class="site-info">
-          <div class="site-name">${escapeHtml(site.name)} <span class="badge ${badgeClass}">${badgeText}</span></div>
-          <div class="site-slug">${escapeHtml(site.slug)}</div>
-        </div>
-        <div class="site-actions">
-          <a class="open-link" href="/editor.html?site=${encodeURIComponent(site.slug)}">Open editor →</a>
-          <button class="btn-sm toggle-publish">${toggleLabel}</button>
-        </div>
-      `;
-      card.querySelector('.toggle-publish').onclick = async () => {
+
+      const info = document.createElement('div');
+      info.className = 'site-info';
+
+      const nameRow = document.createElement('div');
+      nameRow.className = 'site-name';
+      const name = document.createElement('span');
+      name.textContent = typeof site.name === 'string' && site.name.trim() ? site.name : 'Unnamed site';
+      const badge = document.createElement('span');
+      badge.className = `badge ${site.published ? 'published' : 'draft'}`;
+      badge.textContent = site.published ? 'Published' : 'Draft';
+      nameRow.append(name, badge);
+
+      const title = document.createElement('div');
+      title.className = 'site-title';
+      title.textContent = typeof site.title === 'string' && site.title.trim() ? site.title : 'No site title';
+
+      const slugEl = document.createElement('div');
+      slugEl.className = 'site-slug';
+      slugEl.textContent = slug || 'Site slug unavailable';
+
+      const meta = document.createElement('div');
+      meta.className = 'site-meta';
+      meta.textContent = formatCreatedDate(site.createdAt);
+      info.append(nameRow, title, slugEl, meta);
+
+      const actions = document.createElement('div');
+      actions.className = 'site-actions';
+      const openLink = document.createElement('a');
+      openLink.className = 'open-link';
+      openLink.href = `/editor.html?site=${encodeURIComponent(slug)}`;
+      openLink.textContent = 'Open editor →';
+
+      const toggle = document.createElement('button');
+      toggle.type = 'button';
+      toggle.className = 'btn-sm toggle-publish';
+      toggle.textContent = site.published ? 'Unpublish' : 'Publish';
+      toggle.onclick = async () => {
         try {
-          await fetch(`/api/sites/${encodeURIComponent(site.slug)}/publish`, {
+          await fetch(`/api/sites/${encodeURIComponent(slug)}/publish`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ published: !site.published }),
           });
           refreshSites();
         } catch {}
       };
+      actions.append(openLink, toggle);
+      card.append(info, actions);
       list.appendChild(card);
     }
   }
@@ -261,9 +307,6 @@
     }
   };
 
-  function escapeHtml(s) {
-    return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-  }
 
   // Initial load: figure out where we stand.
   fetch('/api/auth/me').then(r => r.ok ? r.json() : null).then(d => {

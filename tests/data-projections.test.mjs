@@ -7,6 +7,7 @@ import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 const projections = require('../data-projections.js');
 const {
+  staffSite,
   staffScene,
   publicSharedScene,
   publicMyPinScene,
@@ -19,6 +20,19 @@ const {
 } = projections;
 
 describe('Data Projections Unit Tests', () => {
+  const sampleSiteRow = {
+    id: 'site-1',
+    slug: 'landcros',
+    name: 'LANDCROS Forrestdale',
+    title: 'Visitor guide',
+    published: true,
+    created_at: '2026-09-20T01:02:03Z',
+    address: 'private staff context',
+    logo: 'internal-logo.png',
+    config: { internal: true },
+    created_by: 'profile-1',
+  };
+
   const sampleSceneRow = {
     id: 's-1',
     name: 'Visitor guide',
@@ -79,6 +93,24 @@ describe('Data Projections Unit Tests', () => {
     source_bucket: 'private-bucket'
   };
 
+
+  it('defines an exact authenticated staff site-list contract', () => {
+    const site = staffSite(sampleSiteRow);
+    assert.deepEqual(Object.keys(site).sort(), [
+      'createdAt', 'id', 'name', 'published', 'slug', 'title'
+    ].sort());
+    assert.deepEqual(site, {
+      id: 'site-1', slug: 'landcros', name: 'LANDCROS Forrestdale',
+      title: 'Visitor guide', published: true, createdAt: '2026-09-20T01:02:03Z',
+    });
+    for (const forbidden of ['address', 'logo', 'config', 'created_by']) {
+      assert.equal(site[forbidden], undefined);
+    }
+    assert.deepEqual(staffSite({ ...sampleSiteRow, title: null, published: false, createdAt: 'camel-date' }), {
+      id: 'site-1', slug: 'landcros', name: 'LANDCROS Forrestdale',
+      title: null, published: false, createdAt: 'camel-date',
+    });
+  });
 
   it('defines exact staff and public scene contracts without widening public data', () => {
     const staff = staffScene(sampleSceneRow);

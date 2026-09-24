@@ -11,6 +11,7 @@
 // module performs no authorization checks of its own.
 
 const { pool: sharedPool } = require('./supabase-db');
+const { staffSite } = require('./data-projections');
 
 function _getPool() {
   return sharedPool();
@@ -55,7 +56,7 @@ async function listAllSites() {
   const { rows } = await _getPool().query(
     'select id, slug, name, title, published, created_at from sites order by created_at'
   );
-  return rows;
+  return rows.map(staffSite);
 }
 
 async function setPublished(slug, published) {
