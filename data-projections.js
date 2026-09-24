@@ -155,6 +155,93 @@ function publicContact(row, { phoneOverride = null } = {}) {
   };
 }
 
+
+function finiteNumber(value) {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+function legacyString(value, max = 500) {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed ? trimmed.slice(0, max) : '';
+}
+
+function legacyPosition3d(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const x = finiteNumber(value.x), y = finiteNumber(value.y), z = finiteNumber(value.z);
+  return x === null || y === null || z === null ? null : { x, y, z };
+}
+
+function legacyLatlng(value) {
+  if (!Array.isArray(value) || value.length < 2) return null;
+  const lat = finiteNumber(value[0]), lng = finiteNumber(value[1]);
+  return lat === null || lng === null ? null : [lat, lng];
+}
+
+function legacyCameraPreset(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const position = legacyPosition3d(value.position);
+  const lookAt = legacyPosition3d(value.lookAt);
+  return position && lookAt ? { position, lookAt } : null;
+}
+
+function legacyContact(row) {
+  if (!row || typeof row !== 'object' || Array.isArray(row)) return null;
+  const id = legacyString(row.id, 128);
+  const name = legacyString(row.name, 160);
+  if (!id || !name) return null;
+  const out = { id, name };
+  const role = legacyString(row.role, 160);
+  const phone = legacyString(row.phone, 80);
+  if (role !== null) out.role = role;
+  if (phone !== null) out.phone = phone;
+  out.active = row.active === true;
+  return out;
+}
+
+function projectLegacySharePinData(row) {
+  if (!row || typeof row !== 'object' || Array.isArray(row)) return null;
+  const id = legacyString(row.id, 128);
+  const label = legacyString(row.label, 200);
+  if (!id || label === null) return null;
+  const out = {
+    id,
+    label,
+    type: legacyString(row.type, 80) || 'drop-off',
+    scope: 'shared',
+  };
+  const notes = legacyString(row.notes, 4000);
+  const latlng = legacyLatlng(row.latlng);
+  const position3d = legacyPosition3d(row.position3d);
+  const cameraPreset3d = legacyCameraPreset(row.cameraPreset3d);
+  const buildingRef = legacyString(row.buildingRef, 160);
+  const phoneOverride = legacyString(row.phoneOverride, 80);
+  if (notes !== null) out.notes = notes;
+  if (latlng) out.latlng = latlng;
+  if (position3d) out.position3d = position3d;
+  if (cameraPreset3d) out.cameraPreset3d = cameraPreset3d;
+  if (buildingRef !== null) out.buildingRef = buildingRef;
+  if (phoneOverride) out.phoneOverride = phoneOverride;
+
+  const contactIds = Array.isArray(row.contactIds)
+    ? row.contactIds.map(value => legacyString(value, 128)).filter(Boolean).slice(0, 64)
+    : [];
+  out.contactIds = contactIds;
+
+  const routeWaypoints = Array.isArray(row.routeWaypoints)
+    ? row.routeWaypoints.map(legacyLatlng).filter(Boolean).slice(0, 256)
+    : [];
+  const routeWaypoints3d = Array.isArray(row.routeWaypoints3d)
+    ? row.routeWaypoints3d.map(legacyPosition3d).filter(Boolean).slice(0, 256)
+    : [];
+  out.routeWaypoints = routeWaypoints;
+  out.routeWaypoints3d = routeWaypoints3d;
+  out.contacts = Array.isArray(row.contacts)
+    ? row.contacts.map(legacyContact).filter(Boolean).slice(0, 64)
+    : [];
+  return out;
+}
+
 function publicPointPhoto(row) {
   if (!row) return null;
   return {
@@ -178,5 +265,6 @@ module.exports = {
   publicSharedPoint,
   staffContact,
   publicContact,
+  projectLegacySharePinData,
   publicPointPhoto,
 };

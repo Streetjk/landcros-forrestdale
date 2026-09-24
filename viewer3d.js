@@ -3843,7 +3843,7 @@ async function boot() {
   }
   _armPublicGuideHistory();
   } else if (_debugMode) {
-  _updateVisitHud(await fetch('./data/points.json').then(r => r.json()).catch(() => []));
+  _updateVisitHud([]);
   }
 
   }

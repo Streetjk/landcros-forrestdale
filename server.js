@@ -39,7 +39,8 @@ const { createScenePointPhotoHandler } = require('./scene-point-photos-routes');
 const { createRequestId, writePublicDataUnavailable, writeStaffDataUnavailable } = require('./public-api-diagnostics');
 const { readPublicSiteMetadata } = require('./site-metadata');
 const { NotificationStatusPartialError, notifyThenPersistStatus, partialCompletionBody } = require('./hazard-status-workflow');
-const { publicBasePoint, publicContact } = require('./data-projections');
+const { publicBasePoint, publicContact, projectLegacySharePinData } = require('./data-projections');
+const { classifyPublicStaticPath } = require('./static-public-files');
 
 // Generic client error body — logs the real error server-side, never leaks
 // DB/schema/config detail (e.message) to the client.
@@ -1416,44 +1417,12 @@ const server = http.createServer((req, res) => {
 
   // ── Share link store ──────────────────────────────────────────────────
   if (req.method === 'POST' && pathname === '/api/share') {
-    let body = '';
-    let bodySize = 0;
-    req.on('data', c => { bodySize += c.length; if (bodySize > POST_BODY_LIMIT) { req.destroy(); return; } body += c; });
-    req.on('end', () => {
-      try {
-        const pinData = JSON.parse(body);
-        if (JSON.stringify(pinData).length > 100_000) {
-          res.writeHead(413, { 'Content-Type': 'application/json' });
-          return res.end(JSON.stringify({ error: 'pinData too large' }));
-        }
-        const ip = req.socket.remoteAddress;
-        const now = Date.now();
-        const hits = (_shareHits.get(ip) || []).filter(t => now - t < 3_600_000);
-        if (hits.length >= 20) {
-          res.writeHead(429, { 'Content-Type': 'application/json' });
-          return res.end(JSON.stringify({ error: 'rate limit' }));
-        }
-        hits.push(now);
-        _shareHits.set(ip, hits);
-        const links = _readSharedLinks();
-        const chars = 'abcdefghijkmnpqrstuvwxyz23456789';
-        let code;
-        do { code = Array.from({ length: 8 }, () => chars[Math.floor(Math.random() * chars.length)]).join(''); }
-        while (links[code]);
-        links[code] = { pinData, created: new Date().toISOString() };
-        _writeSharedLinks(links);
-        _gitCommitPush('data/shared-links.json');
-        const proto = req.headers['x-forwarded-proto'] || 'http';
-        const shareUrl = `${proto}://${req.headers['host']}/${code}`;
-        res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
-        res.end(JSON.stringify({ code, url: shareUrl }));
-      } catch (e) {
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(_errBody(e));
-      }
-    });
-    return;
+    // Legacy arbitrary-payload sharing is retired. Current sharing uses
+    // scene codes or per-pin My Pins capabilities, both server-projected.
+    req.resume();
+    return _json(res, 410, { error: 'LEGACY_SHARE_CREATE_DISABLED' });
   }
+
 
   if (req.method === 'GET' && pathname.startsWith('/api/share/')) {
     const code = pathname.slice('/api/share/'.length).replace(/[^a-z0-9]/g, '');
@@ -1466,7 +1435,7 @@ const server = http.createServer((req, res) => {
       return res.end(JSON.stringify({ error: 'expired' }));
     }
     res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
-    return res.end(JSON.stringify(entry.pinData));
+    return res.end(JSON.stringify(projectLegacySharePinData(entry.pinData)));
   }
 
   if (req.method === 'GET' && pathname === '/api/visits') {
@@ -1642,18 +1611,27 @@ const server = http.createServer((req, res) => {
     res.writeHead(405); return res.end();
   }
 
-  // Resolve file path — site-specific data/assets take priority over engine root
+  // Static access is fail-closed. The repository also contains server source,
+  // credentials templates, raw staff data and runtime share files; existence
+  // on disk is never sufficient authorization to serve a path.
+  const staticPath = classifyPublicStaticPath(pathname);
+  if (!staticPath) {
+    res.writeHead(404, { 'Content-Type': 'text/plain' });
+    return res.end('Not found: ' + pathname);
+  }
+
   let filePath;
-  if (pathname.startsWith('/data/')) {
-    filePath = path.join(SITE_DIR, pathname);
-  } else if (pathname.startsWith('/assets/')) {
-    const siteAsset = path.join(SITE_DIR, pathname);
-    filePath = fs.existsSync(siteAsset) ? siteAsset : path.join(ROOT, pathname);
+  if (staticPath.kind === 'data') {
+    filePath = path.join(DATA, staticPath.relative);
+  } else if (staticPath.kind === 'asset') {
+    const siteAsset = path.join(SITE_DIR, 'assets', staticPath.relative);
+    filePath = fs.existsSync(siteAsset)
+      ? siteAsset
+      : path.join(SHARED_ASSETS, staticPath.relative);
+  } else if (staticPath.kind === 'site-root') {
+    filePath = path.join(SITE_DIR, staticPath.relative);
   } else {
-    // Engine files (HTML, JS, CSS) — also check site root for branding files (logo.png, etc.)
-    const enginePath = path.join(ROOT, pathname === '/' ? '/index.html' : pathname);
-    const sitePath   = path.join(SITE_DIR, pathname.replace(/^\//, ''));
-    filePath = fs.existsSync(enginePath) ? enginePath : sitePath;
+    filePath = path.join(ROOT, staticPath.relative);
   }
 
   // Prevent path traversal
@@ -1666,15 +1644,9 @@ const server = http.createServer((req, res) => {
     filePath = path.join(filePath, 'index.html');
   }
 
-  if (!fs.existsSync(filePath)) {
-    // Try .html extension fallback (e.g. /viewer3d → viewer3d.html)
-    const htmlFallback = filePath + '.html';
-    if (fs.existsSync(htmlFallback)) {
-      filePath = htmlFallback;
-    } else {
-      res.writeHead(404, { 'Content-Type': 'text/plain' });
-      return res.end('Not found: ' + pathname);
-    }
+  if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) {
+    res.writeHead(404, { 'Content-Type': 'text/plain' });
+    return res.end('Not found: ' + pathname);
   }
 
   const ext  = path.extname(filePath).toLowerCase();
