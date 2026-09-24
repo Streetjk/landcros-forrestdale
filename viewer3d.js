@@ -14,6 +14,7 @@ import { loadPublicSiteMetadata, resolveSiteBranding, sanitizePublicLogoUrl } fr
 import { getBasePublicVisitPointId } from './visit-analytics.js';
 import { createPointListItem } from './point-list-item.js';
 import { renderDetailContacts } from './detail-card.js';
+import { mapControlLabel, syncPressedButton, syncPressedButtons } from './map-controls.js';
 
 // ── Site config (loaded from data/config.json in boot()) ──────────────────
 let _cfg = {};
@@ -276,6 +277,7 @@ function startAutoOrbit(target, radius, elevDeg) {
   if (_orbitTween) { _orbitTween.kill(); _orbitTween = null; }
   _orbitTarget.copy(target);
   _orbitActive = true;
+  _syncAutoPanButtons();
 
   const targetElev = (elevDeg ?? 40) * Math.PI / 180;
   const targetR    = radius ?? AUTO_PAN_RADIUS;
@@ -287,6 +289,7 @@ function startAutoOrbit(target, radius, elevDeg) {
   _camAnimating    = true;
   controls.enabled = false;
   controls.autoRotate = false;
+  window._syncRotateBtn?.();
   const proxy = { elev: currentElev, r: sph.radius };
   _orbitTween = gsap.to(proxy, {
     elev: targetElev, r: targetR, duration: 2, ease: 'power2.inOut',
@@ -317,16 +320,20 @@ function stopAutoOrbit() {
   // an active orbit-around-a-pin".
   controls.autoRotate = false;
   window._syncRotateBtn?.();
-  if (!_orbitActive) return;
+  if (!_orbitActive) { _syncAutoPanButtons(); return; }
   _orbitActive          = false;
   _camAnimating         = false;
   controls.enabled      = true;
   controls.update();
+  _syncAutoPanButtons();
+}
+
+function _syncAutoPanButtons() {
+  syncPressedButtons(document, '[data-map-toggle="autopan"]', _orbitActive);
 }
 
 window._syncRotateBtn = () => {
-  const btn = document.getElementById('btn-auto-rotate');
-  if (btn) btn.classList.toggle('active', !!controls.autoRotate);
+  syncPressedButton(document.getElementById('btn-auto-rotate'), controls.autoRotate);
 };
 let _drawPts = [];
 const _drawGrp = new THREE.Group();
@@ -623,9 +630,12 @@ function _buildCamButtons(cfg) {
 
   // Auto-rotate toggle — always first
   const rotBtn = document.createElement('button');
+  rotBtn.type = 'button';
   rotBtn.className = 'cam-preset-btn';
   rotBtn.id = 'btn-auto-rotate';
   rotBtn.title = 'Toggle auto-rotate';
+  rotBtn.setAttribute('aria-label', 'Toggle auto-rotate');
+  syncPressedButton(rotBtn, controls.autoRotate);
   rotBtn.innerHTML = `<div class="icon-wrap">${icons.autopan}</div><span class="label-wrap">Rotate</span>`;
   rotBtn.onclick = () => {
     if (controls.autoRotate) {
@@ -643,8 +653,14 @@ function _buildCamButtons(cfg) {
 
   (cfg.camera?.presets ?? []).forEach((p, i) => {
     const btn = document.createElement('button');
+    btn.type = 'button';
     btn.className = 'cam-preset-btn';
     btn.id = `btn-${p.id}`;
+    btn.setAttribute('aria-label', mapControlLabel(p));
+    if (p.action === 'autopan') {
+      btn.dataset.mapToggle = 'autopan';
+      syncPressedButton(btn, _orbitActive);
+    }
 
     const icon = icons[p.id] || icons.overhead;
     btn.innerHTML = `<div class="icon-wrap">${icon}</div>`;
@@ -680,9 +696,12 @@ function _buildCamButtons(cfg) {
 
   // Measurement tool button
   const mBtn = document.createElement('button');
+  mBtn.type = 'button';
   mBtn.className = 'cam-preset-btn';
   mBtn.id = 'btn-measure';
   mBtn.title = 'Measure distance';
+  mBtn.setAttribute('aria-label', 'Measure distance');
+  syncPressedButton(mBtn, _measureMode);
   mBtn.innerHTML = `
     <div class="icon-wrap">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -1467,7 +1486,7 @@ function _toggleMeasure(on) {
   _measureMode = on;
   _clearMeasure();
   const btn = document.getElementById('btn-measure');
-  if (btn) btn.classList.toggle('active', on);
+  syncPressedButton(btn, on);
   if (_measureChip) _measureChip.style.display = on ? 'flex' : 'none';
   if (_measureChip && on) _measureChip.textContent = 'Click two points to measure';
 }
@@ -1802,6 +1821,8 @@ async function selectPoint(pt, options = {}) {
       controls.autoRotate      = true;
       controls.autoRotateSpeed = 0.45;
       controls.update();
+      _syncAutoPanButtons();
+      window._syncRotateBtn?.();
     },
   });
 }
