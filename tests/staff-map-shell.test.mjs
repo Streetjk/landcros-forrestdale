@@ -20,10 +20,12 @@ function response(status, data, { jsonThrows = false } = {}) {
 function harness(sequence) {
   const calls = [];
   const mounts = [];
+  const unmounts = [];
   const doc = { body: { dataset: {} } };
   const nav = {
     normalizeSiteSlug: staffNav.normalizeSiteSlug,
     mount(opts) { mounts.push(opts); return {}; },
+    unmount(opts) { unmounts.push(opts); return true; },
   };
   const fetchFn = async (url, opts) => {
     calls.push({ url, opts });
@@ -31,7 +33,7 @@ function harness(sequence) {
     if (next instanceof Error) throw next;
     return next;
   };
-  return { calls, mounts, doc, document: doc, nav, fetchFn };
+  return { calls, mounts, unmounts, doc, document: doc, nav, fetchFn };
 }
 
 test('anonymous, failed, malformed, or non-staff sessions never mount staff Map navigation', async () => {
@@ -101,4 +103,34 @@ test('staff identity validation is narrow and side-effect free', () => {
   for (const value of [null, [], {}, { email: '', role: 'editor' }, { email: 'x', role: 'editor' }, { email: 'a@hcma.com.au', role: 'viewer' }]) {
     assert.equal(shell.isStaffIdentity(value), false);
   }
+});
+
+
+test('failed revalidation clears a previously mounted Map staff shell', async () => {
+  const h = harness([
+    response(200, { email: 'staff@hcma.com.au', role: 'editor' }),
+    response(200, { slug: 'landcros' }),
+    response(401, { error: 'Unauthorized' }),
+  ]);
+  assert.equal(await shell.mountAuthenticatedMapNav(h), true);
+  assert.equal(h.doc.body.dataset.staffNavMounted, 'true');
+  assert.equal(await shell.mountAuthenticatedMapNav(h), false);
+  assert.equal(h.doc.body.dataset.staffNavMounted, undefined);
+  assert.equal(h.unmounts.length, 1);
+  assert.equal(h.mounts.length, 2);
+});
+
+test('explicit clear invalidates a pending site upgrade so Reports cannot remount stale state', async () => {
+  let resolveSite;
+  const siteReply = new Promise(resolve => { resolveSite = resolve; });
+  const h = harness([response(200, { email: 'staff@hcma.com.au', role: 'editor' }), siteReply]);
+  const pending = shell.mountAuthenticatedMapNav(h);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(h.mounts.length, 1);
+  shell.clearAuthenticatedMapNav(h);
+  resolveSite(response(200, { slug: 'landcros' }));
+  assert.equal(await pending, false);
+  assert.equal(h.mounts.length, 1);
+  assert.equal(h.unmounts.length, 1);
+  assert.equal(h.doc.body.dataset.staffNavMounted, undefined);
 });

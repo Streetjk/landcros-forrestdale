@@ -28,6 +28,16 @@
     return items;
   }
 
+  function unmount({ document: doc = global.document } = {}) {
+    if (!doc || typeof doc.getElementById !== "function") return false;
+    const nav = doc.getElementById("sn-staff-nav");
+    if (!nav) return false;
+    if (typeof nav.remove === "function") nav.remove();
+    else if (nav.parentNode && typeof nav.parentNode.removeChild === "function") nav.parentNode.removeChild(nav);
+    else return false;
+    return true;
+  }
+
   function mount({ currentPage = "", siteSlug = null, document: doc = global.document } = {}) {
     if (!doc || typeof doc.createElement !== "function" || !doc.body) return null;
 
@@ -91,7 +101,7 @@
     return nav;
   }
 
-  const api = Object.freeze({ buildItems, mount, normalizeSiteSlug });
+  const api = Object.freeze({ buildItems, mount, normalizeSiteSlug, unmount });
   global.SiteNavStaffNav = api;
   if (typeof module !== "undefined" && module.exports) module.exports = api;
 })(typeof globalThis !== "undefined" ? globalThis : window);

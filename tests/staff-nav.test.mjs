@@ -137,3 +137,20 @@ test('staff pages load and mount the shared nav only in authenticated entry path
   assert.ok(editor.indexOf("currentPage: navParams.get('mode') === 'hazard' ? 'reports' : 'more'") > editor.indexOf('function showAuthBar(info)'));
   assert.ok(portal.indexOf("SiteNavStaffNav.mount({ currentPage: 'more' })") > portal.indexOf('async function checkPlatformAdminAndEnter(email)'));
 });
+
+test('unmount removes only the shared staff nav and is idempotent', () => {
+  const other = { id: 'keep-me' };
+  const staff = { id: 'sn-staff-nav', parentNode: null };
+  const body = {
+    children: [other, staff],
+    removeChild(child) {
+      this.children = this.children.filter(item => item !== child);
+      child.parentNode = null;
+    },
+  };
+  staff.parentNode = body;
+  const doc = { getElementById(id) { return body.children.find(el => el.id === id) || null; } };
+  assert.equal(nav.unmount({ document: doc }), true);
+  assert.deepEqual(body.children, [other]);
+  assert.equal(nav.unmount({ document: doc }), false);
+});
