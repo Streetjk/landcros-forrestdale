@@ -3,6 +3,7 @@ import { createMyPinsSession } from './my-pins-session.js';
 import { buildLegacyImportPlan } from './my-pins-client.js';
 import { generateQR, downloadQR } from './qr.js';
 import { buildMyPinShareUrl } from './guide-url.js';
+import { createPointListItem } from './point-list-item.js';
 
 // ── State ─────────────────────────────────────────────────────────────────────
 let _v3d           = null;
@@ -433,52 +434,58 @@ function renderPointList(filter = '') {
   );
 
   const dotColor = { 'drop-off': 'var(--primary)', 'collection': 'var(--accent)', 'both': 'var(--amber)', 'meet-point': '#f59e0b' };
+  el.replaceChildren();
 
-  let html = '';
+  const appendSection = label => {
+    const heading = document.createElement('div');
+    heading.className = 'list-section';
+    heading.textContent = label;
+    el.appendChild(heading);
+  };
+  const appendMessage = message => {
+    const note = document.createElement('div');
+    note.className = 'point-list-note';
+    note.textContent = message;
+    el.appendChild(note);
+  };
+  const appendPoint = (p, source, color, selected = false) => {
+    el.appendChild(createPointListItem(document, {
+      id: p.id,
+      label: p.label,
+      dotColor: color,
+      selected,
+      pinSource: source,
+      trailing: true,
+    }));
+  };
 
   if (visibleShared.length) {
-    html += `<div class="list-section">Base-site pins</div>`;
-    visibleShared.forEach(p => {
-      const isActive = _editingPoint?.id === p.id;
-      const item = document.createElement('div');
-      item.className = 'point-item' + (isActive ? ' selected' : '');
-      item.dataset.ptId = p.id;
-      item.dataset.pinSource = 'base';
-      item.innerHTML = `<div class="pt-dot" style="background:${dotColor[p.type] ?? dotColor['meet-point']}"></div><div class="pt-label">${_esc(p.label)}</div><span style="color:var(--text-tertiary);font-size:16px">›</span>`;
-      html += item.outerHTML;
-    });
+    appendSection('Base-site pins');
+    visibleShared.forEach(p => appendPoint(
+      p, 'base', dotColor[p.type] ?? dotColor['meet-point'], _editingPoint?.id === p.id
+    ));
   }
 
-  html += `<div class="list-section">My account pins</div>`;
+  appendSection('My account pins');
   if (visiblePersonal.length) {
-    visiblePersonal.forEach(p => {
-      const isActive = _editingPoint?.id === p.id;
-      const item = document.createElement('div');
-      item.className = 'point-item' + (isActive ? ' selected' : '');
-      item.dataset.ptId = p.id;
-      item.dataset.pinSource = 'account';
-      item.innerHTML = `<div class="pt-dot" style="background:#4F6AF5"></div><div class="pt-label">${_esc(p.label)}</div><span style="color:var(--text-tertiary);font-size:16px">›</span>`;
-      html += item.outerHTML;
-    });
+    visiblePersonal.forEach(p => appendPoint(
+      p, 'account', '#4F6AF5', _editingPoint?.id === p.id
+    ));
   } else {
-    html += `<div style="padding:12px 16px;font-size:12px;color:var(--text-secondary)">No account pins yet — place a pin and save it to your account</div>`;
+    appendMessage('No account pins yet — place a pin and save it to your account');
   }
 
   if (visibleLegacy.length) {
-    html += `<div class="list-section">Pins on this device</div>`;
-    visibleLegacy.forEach(p => {
-      const item = document.createElement('div');
-      item.className = 'point-item' + (_editingPoint?.id === p.id && _editingIsLegacy ? ' selected' : '');
-      item.dataset.ptId = p.id; item.dataset.pinSource = 'legacy';
-      item.innerHTML = `<div class="pt-dot" style="background:#8B5CF6"></div><div class="pt-label">${_esc(p.label)}</div><span style="color:var(--text-tertiary);font-size:16px">›</span>`;
-      html += item.outerHTML;
-    });
-  }
-  if (!visibleShared.length && !visiblePersonal.length && !visibleLegacy.length) {
-    html = `<div style="padding:20px;text-align:center;color:var(--text-secondary);font-size:13px">No pins found</div>`;
+    appendSection('Pins on this device');
+    visibleLegacy.forEach(p => appendPoint(
+      p, 'legacy', '#8B5CF6', _editingPoint?.id === p.id && _editingIsLegacy
+    ));
   }
 
-  el.innerHTML = html;
+  if (!visibleShared.length && !visiblePersonal.length && !visibleLegacy.length) {
+    el.replaceChildren();
+    appendMessage('No pins found');
+  }
 }
 
 window._adminOpenEditor = (id, source) => {

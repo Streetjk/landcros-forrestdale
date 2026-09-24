@@ -12,6 +12,7 @@ import { hasSiteDetail, showBuildingDetail, showSiteDetail, sanitizePhone } from
 import { loadPublicArray, renderPublicDataNotice, isRenderablePoint, isRenderableContact, projectPublicPoint, projectPublicContact } from './public-data.js';
 import { loadPublicSiteMetadata, resolveSiteBranding, sanitizePublicLogoUrl } from './public-site.js';
 import { getBasePublicVisitPointId } from './visit-analytics.js';
+import { createPointListItem } from './point-list-item.js';
 
 // ── Site config (loaded from data/config.json in boot()) ──────────────────
 let _cfg = {};
@@ -2047,8 +2048,8 @@ window.startNav = function(pt) {
 function renderPointList(points) {
   const dropEl = document.getElementById('list-dropoff');
   const colEl  = document.getElementById('list-collection');
-  dropEl.innerHTML = '';
-  colEl.innerHTML  = '';
+  dropEl.replaceChildren();
+  colEl.replaceChildren();
 
   const dropHeader = dropEl.previousElementSibling;
   const colHeader  = colEl.previousElementSibling;
@@ -2056,7 +2057,10 @@ function renderPointList(points) {
   if (!points.length) {
     if (dropHeader) dropHeader.style.display = 'none';
     if (colHeader)  colHeader.style.display  = 'none';
-    dropEl.innerHTML = '<div class="list-empty">No locations configured yet</div>';
+    const empty = document.createElement('div');
+    empty.className = 'list-empty';
+    empty.textContent = 'No locations configured yet';
+    dropEl.appendChild(empty);
     return;
   }
 
@@ -2066,27 +2070,15 @@ function renderPointList(points) {
   if (colHeader)  colHeader.style.display  = hasCol  ? '' : 'none';
 
   points.forEach(pt => {
-    const dot = { 'drop-off': '#185FA5', 'collection': '#1D9E75', 'both': '#854F0B' }[pt.type] ?? '#6b7280';
-    const el = document.createElement('button');
-    el.type = 'button';
-    el.className = 'point-item';
-    el.dataset.ptId = pt.id;
-    el.setAttribute('aria-label', pt.label);
-    const dotEl = document.createElement('div');
-    dotEl.className = 'pt-dot';
-    dotEl.style.background = dot;
-    const labelEl = document.createElement('div');
-    const ptLabel = document.createElement('div');
-    ptLabel.className = 'pt-label';
-    ptLabel.textContent = pt.label;
-    const ptSub = document.createElement('div');
-    ptSub.className = 'pt-sub';
-    ptSub.textContent = pt.type.replace('-', ' ');
-    labelEl.appendChild(ptLabel);
-    labelEl.appendChild(ptSub);
-    el.appendChild(dotEl);
-    el.appendChild(labelEl);
-    el.onclick = () => selectPoint(pt);
+    const dotColor = { 'drop-off': '#185FA5', 'collection': '#1D9E75', 'both': '#854F0B' }[pt.type] ?? '#6b7280';
+    const el = createPointListItem(document, {
+      id: pt.id,
+      label: pt.label,
+      subtitle: pt.type.replace('-', ' '),
+      dotColor,
+      selected: _selectedId === pt.id,
+      onActivate: () => selectPoint(pt),
+    });
     if (pt.type === 'collection') colEl.appendChild(el);
     else dropEl.appendChild(el);
   });

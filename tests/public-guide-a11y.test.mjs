@@ -3,13 +3,16 @@ import fs from 'node:fs';
 import test from 'node:test';
 
 const viewer = fs.readFileSync(new URL('../viewer3d.js', import.meta.url), 'utf8');
+const pointListItem = fs.readFileSync(new URL('../point-list-item.js', import.meta.url), 'utf8');
 const htmlFiles = ['viewer3d.html', 'index.html'];
 
-test('public location list uses native buttons with stable accessible names', () => {
-  assert.match(viewer, /document\.createElement\('button'\)/);
-  assert.match(viewer, /el\.type = 'button'/);
-  assert.match(viewer, /el\.setAttribute\('aria-label', pt\.label\)/);
-  assert.match(viewer, /el\.onclick = \(\) => selectPoint\(pt\)/);
+test('public location list uses shared native buttons with stable accessible names', () => {
+  assert.match(viewer, /createPointListItem\(document, \{/);
+  assert.match(viewer, /onActivate: \(\) => selectPoint\(pt\)/);
+  assert.match(pointListItem, /doc\.createElement\('button'\)/);
+  assert.match(pointListItem, /el\.type = 'button'/);
+  assert.match(pointListItem, /el\.setAttribute\('aria-label', label\)/);
+  assert.match(pointListItem, /labelEl\.textContent = label/);
 });
 
 test('selected public location is exposed with aria-current', () => {

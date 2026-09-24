@@ -289,13 +289,17 @@
     }
     .point-item {
       display: flex; align-items: center; gap: 11px; padding: 10px; border-radius: 10px;
-      min-height: 44px; box-sizing: border-box; /* touch-target minimum */
+      min-height: 44px; width: 100%; box-sizing: border-box; /* touch-target minimum */
       cursor: pointer; margin-bottom: 2px; transition: background 0.1s;
+      border: 0; background: transparent; color: inherit; font: inherit; text-align: left; appearance: none;
     }
     .point-item:hover   { background: var(--surface-secondary); }
     .point-item.selected { background: var(--primary-light); }
+    .point-item:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
     .pt-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
     .pt-label { font-size: 13px; font-weight: 500; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .pt-arrow { margin-left: auto; color: var(--text-tertiary); font-size: 16px; line-height: 1; flex-shrink: 0; }
+    .point-list-note { padding: 12px 16px; font-size: 12px; color: var(--text-secondary); }
 
     /* ── Contacts modal ── */
     #modal-backdrop {
