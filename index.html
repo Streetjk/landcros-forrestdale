@@ -785,6 +785,28 @@
       #nav-progress { bottom: calc(44px + var(--safe-bottom)); }
       #app.sheet-open #nav-progress { bottom: calc(22vh + var(--safe-bottom) + 12px); }
 
+      /* Authenticated staff Map keeps the public map-first sheet, but reserves
+         the fixed bottom-nav footprint so sheet/controls never sit underneath it. */
+      body[data-staff-nav-mounted="true"] { --sn-map-staff-nav-lift: calc(55px + var(--safe-bottom)); }
+      body[data-staff-nav-mounted="true"] #side-panel {
+        bottom: var(--sn-map-staff-nav-lift) !important;
+        height: calc(85vh - 55px) !important;
+        padding-bottom: 0;
+        transform: translateY(calc(100% - 36px));
+      }
+      body[data-staff-nav-mounted="true"] #side-panel.sheet-mid { transform: translateY(calc(100% - 22vh)); }
+      body[data-staff-nav-mounted="true"] #side-panel.sheet-full { transform: translateY(0); }
+      body[data-staff-nav-mounted="true"] #cam-presets {
+        bottom: calc(44px + var(--sn-map-staff-nav-lift)) !important;
+      }
+      body[data-staff-nav-mounted="true"] #app.sheet-open #cam-presets {
+        bottom: calc(22vh + var(--sn-map-staff-nav-lift) + 8px) !important;
+      }
+      body[data-staff-nav-mounted="true"] #nav-progress { bottom: calc(44px + var(--sn-map-staff-nav-lift)); }
+      body[data-staff-nav-mounted="true"] #app.sheet-open #nav-progress {
+        bottom: calc(22vh + var(--sn-map-staff-nav-lift) + 12px);
+      }
+
       /* Brand: top-right, fixed over canvas */
       #site-brand {
         position: fixed !important;
@@ -943,6 +965,13 @@
     gate.style.display = 'flex';
     g.showLoginState(document.getElementById('sn-auth-msg').textContent);
   };
+</script>
+<script src="staff-nav.js"></script>
+<script src="staff-map-shell.js"></script>
+<script>
+  // Public Map never requires sign-in. Existing staff sessions get the shared
+  // shell opportunistically; all auth/site failures degrade to the public Map.
+  window.SiteNavStaffMapShell?.mountAuthenticatedMapNav?.();
 </script>
 
 <script src="./panel-state.js"></script>

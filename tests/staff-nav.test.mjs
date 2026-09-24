@@ -119,11 +119,15 @@ test('My Pins nav gains Reports only after a validated site slug is available', 
 });
 
 test('staff pages load and mount the shared nav only in authenticated entry paths', () => {
+  const index = read('index.html');
   const admin = read('admin3d.html');
   const adminModule = read('admin3d.js');
   const editor = read('editor.html');
   const portal = read('portal.html');
-  for (const html of [admin, editor, portal]) assert.match(html, /<script src="staff-nav\.js"><\/script>/);
+  for (const html of [index, admin, editor, portal]) assert.match(html, /<script src="staff-nav\.js"><\/script>/);
+  assert.match(index, /<script src="staff-map-shell\.js"><\/script>/);
+  assert.match(index, /SiteNavStaffMapShell\?\.mountAuthenticatedMapNav\?\.\(\);/);
+  assert.match(index, /body\[data-staff-nav-mounted="true"\][\s\S]*--sn-map-staff-nav-lift[\s\S]*#side-panel[\s\S]*#cam-presets[\s\S]*#nav-progress/);
   assert.match(admin, /SiteNavStaffNav\.mount\(\{ currentPage: 'pins' \}\);/);
   assert.match(editor, /if \(info && info\.email\) \{\s*const navParams = new URLSearchParams\(location\.search\);\s*SiteNavStaffNav\.mount\(\{\s*currentPage: navParams\.get\('mode'\) === 'hazard' \? 'reports' : 'more',\s*siteSlug: navParams\.get\('site'\),\s*\}\);\s*\}/s);
   assert.match(portal, /SiteNavStaffNav\.mount\(\{ currentPage: 'more' \}\);/);
