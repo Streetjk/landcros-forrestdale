@@ -615,3 +615,116 @@ test('anonymous direct database reads are column allowlisted', { skip: !process.
     await root.end();
   }
 });
+
+test('function and backup hardening migrations enforce effective PostgreSQL privileges', { skip: !process.env.SITENAV_TEST_DATABASE_URL, timeout: 20000 }, async () => {
+  const base = new URL(process.env.SITENAV_TEST_DATABASE_URL);
+  assert.ok(['127.0.0.1', 'localhost'].includes(base.hostname));
+  assert.equal(base.pathname, '/sitenav_test');
+  assert.equal(base.username, 'sitenav_test');
+
+  const schema = 'test_security_' + randomUUID().replaceAll('-', '');
+  const root = new Client({ connectionString: base.href });
+  const scoped = new URL(base);
+  scoped.searchParams.set('options', `-c search_path=${schema}`);
+  const sql = new Client({ connectionString: scoped.href });
+  const hardening = readFileSync(new URL('../supabase/migrations/0017_function_execute_hardening.sql', import.meta.url), 'utf8').replaceAll('public.', `${schema}.`);
+  const backup = readFileSync(new URL('../supabase/migrations/0018_backup_table_lockdown.sql', import.meta.url), 'utf8').replaceAll('public.', `${schema}.`);
+  const createdRoles = [];
+
+  await root.connect();
+  try {
+    const existingRoles = new Set((await root.query(
+      "select rolname from pg_roles where rolname in ('anon','authenticated','service_role')",
+    )).rows.map(row => row.rolname));
+    for (const role of ['anon', 'authenticated', 'service_role']) {
+      if (existingRoles.has(role)) continue;
+      await root.query(`create role ${role} nologin`);
+      createdRoles.push(role);
+    }
+    await root.query(`create schema ${schema}`);
+    await sql.connect();
+    await sql.query(`
+      create type site_role as enum ('viewer','editor','admin','owner');
+      create table site_members(site_id uuid,user_id uuid,role site_role,primary key(site_id,user_id));
+      create table sites(id uuid primary key,created_by uuid);
+      create table scene_objects_pre_scenes_backup(id uuid);
+
+      create function allowed_email_domain() returns text language sql immutable as $$ select 'hcma.com.au'::text $$;
+      create function current_email() returns text language sql stable security definer as $$ select 'user@hcma.com.au'::text $$;
+      create function user_email_ok(uid uuid) returns boolean language sql stable security definer as $$ select true $$;
+      create function is_site_member(sid uuid,min_role site_role) returns boolean language sql stable security definer as $$ select true $$;
+      create function contact_is_base_visible(cid uuid,sid uuid) returns boolean language sql stable security definer as $$ select true $$;
+      create function increment_visit(p_site_id uuid,p_point_id uuid default null) returns void language plpgsql security definer as $$ begin return; end $$;
+      create function set_updated_at() returns trigger language plpgsql as $$ begin return new; end $$;
+      create function add_owner_membership() returns trigger language plpgsql security definer as $$
+        begin
+          if new.created_by is not null then
+            insert into site_members(site_id,user_id,role) values(new.id,new.created_by,'owner') on conflict do nothing;
+          end if;
+          return new;
+        end $$;
+      create trigger t_sites_owner after insert on sites for each row execute function add_owner_membership();
+
+      create policy members_insert on site_members for insert with check (true);
+      create policy members_update on site_members for update using (true) with check (true);
+
+      grant usage on schema ${schema} to anon, authenticated, service_role;
+      grant insert on sites to authenticated;
+      grant select on site_members to authenticated;
+      grant all on scene_objects_pre_scenes_backup to anon, authenticated;
+      grant execute on all functions in schema ${schema} to public, anon, authenticated;
+    `);
+
+    await sql.query(hardening);
+    await sql.query(backup);
+
+    const canExec = async (role, signature) => (await sql.query(
+      'select has_function_privilege($1,$2,$3) as ok', [role, `${schema}.${signature}`, 'EXECUTE'],
+    )).rows[0].ok;
+    assert.equal(await canExec('anon', 'add_owner_membership()'), false);
+    assert.equal(await canExec('authenticated', 'add_owner_membership()'), false);
+    assert.equal(await canExec('anon', 'current_email()'), false);
+    assert.equal(await canExec('authenticated', 'current_email()'), true);
+    assert.equal(await canExec('anon', 'user_email_ok(uuid)'), false);
+    assert.equal(await canExec('authenticated', 'user_email_ok(uuid)'), true);
+    assert.equal(await canExec('anon', `is_site_member(uuid,${schema}.site_role)`), true);
+    assert.equal(await canExec('authenticated', `is_site_member(uuid,${schema}.site_role)`), true);
+    assert.equal(await canExec('anon', 'contact_is_base_visible(uuid,uuid)'), true);
+    assert.equal(await canExec('authenticated', 'contact_is_base_visible(uuid,uuid)'), true);
+    assert.equal(await canExec('anon', 'increment_visit(uuid,uuid)'), false);
+    assert.equal(await canExec('authenticated', 'increment_visit(uuid,uuid)'), false);
+    assert.equal(await canExec('service_role', 'increment_visit(uuid,uuid)'), true);
+
+    const publicExec = await sql.query(`
+      select p.proname
+        from pg_proc p
+        join pg_namespace n on n.oid=p.pronamespace
+        join lateral aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) a on true
+       where n.nspname=$1 and a.grantee=0 and a.privilege_type='EXECUTE'
+         and p.proname = any($2::text[])
+    `, [schema, ['add_owner_membership','current_email','user_email_ok','is_site_member','contact_is_base_visible','increment_visit']]);
+    assert.deepEqual(publicExec.rows, []);
+
+    const authOid = Number((await root.query("select oid from pg_roles where rolname='authenticated'")).rows[0].oid);
+    const policies = await sql.query(`select polname,polroles from pg_policy where polrelid='${schema}.site_members'::regclass order by polname`);
+    assert.deepEqual(policies.rows.map(r => [r.polname, r.polroles.map(Number)]), [
+      ['members_insert', [authOid]], ['members_update', [authOid]],
+    ]);
+
+    await sql.query('begin');
+    await sql.query('set local role authenticated');
+    const siteId = randomUUID(), userId = randomUUID();
+    await sql.query('insert into sites(id,created_by) values($1,$2)', [siteId,userId]);
+    const triggered = await sql.query('select role from site_members where site_id=$1 and user_id=$2', [siteId,userId]);
+    assert.deepEqual(triggered.rows, [{ role: 'owner' }], 'owner trigger still executes without browser EXECUTE privilege');
+    await sql.query('rollback');
+    assert.equal((await sql.query("select has_table_privilege('anon','scene_objects_pre_scenes_backup','select') as ok")).rows[0].ok, false);
+    assert.equal((await sql.query("select has_table_privilege('authenticated','scene_objects_pre_scenes_backup','select') as ok")).rows[0].ok, false);
+    assert.equal((await sql.query("select relrowsecurity from pg_class where oid='scene_objects_pre_scenes_backup'::regclass")).rows[0].relrowsecurity, true);
+  } finally {
+    await sql.end().catch(() => {});
+    await root.query(`drop schema if exists ${schema} cascade`).catch(() => {});
+    for (const role of createdRoles.reverse()) await root.query(`drop role if exists ${role}`).catch(() => {});
+    await root.end();
+  }
+});
