@@ -16,7 +16,7 @@ test('static source analysis: legacy queries remain base-only and all scene quer
 
   // Legacy queries must check scene_id is null
   assert.match(code, /select id from points where id = \$1 and site_id = \$2 and scene_id is null/);
-  assert.match(code, /where ph\.id = \$1 and p\.scene_id is null/);
+  assert.match(code, /where ph\.id = \$1[\s\S]*p\.scene_id is null[\s\S]*p\.scope = 'shared'[\s\S]*s\.published = true[\s\S]*ph\.expires_at is null or ph\.expires_at > now\(\)/);
   assert.match(code, /where ph\.id = \$1 and ph\.site_id = \$2 and p\.scene_id is null/);
   assert.match(code, /and p\.site_id = point_photos\.site_id and p\.scene_id is null/);
 

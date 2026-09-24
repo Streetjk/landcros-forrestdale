@@ -809,16 +809,17 @@ function _renderPinPhotos(pointId, pending = 0) {
     cell.className = 'pin-photo';
 
     const img = document.createElement('img');
+    const basePhotoUrl = `/api/sites/${encodeURIComponent(_slug)}/points/photos/${encodeURIComponent(p.id)}`;
     const thumbUrl = isAccount && _accountSession
       ? _accountSession.getPhotoUrl(pointId, p.id, { original: false })
-      : `/api/point-photos/${encodeURIComponent(p.id)}`;
+      : basePhotoUrl;
     img.src = thumbUrl;
     img.alt = p.originalName || 'Pin photo';
     img.title = `${p.originalName || ''} — click to open original`;
 
     const origUrl = isAccount && _accountSession
       ? _accountSession.getPhotoUrl(pointId, p.id, { original: true })
-      : `/api/point-photos/${encodeURIComponent(p.id)}?original=1`;
+      : `${basePhotoUrl}?original=1`;
     img.addEventListener('click', () => window.open(origUrl, '_blank', 'noopener'));
 
     const keep = document.createElement('button');

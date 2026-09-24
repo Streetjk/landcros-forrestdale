@@ -164,10 +164,34 @@ async function setRetention(slug, photoId, keepIndefinitely) {
   return photoToJson(rows[0]);
 }
 
-// Returns { buffer, contentType, row } for the compressed copy (panel proxy).
-async function readPhoto(photoId, { original = false } = {}) {
-  const { rows } = await _getPool().query(`select ph.* from point_photos ph join points p on p.id = ph.point_id and p.site_id = ph.site_id
-     where ph.id = $1 and p.scene_id is null`, [photoId]);
+// Anonymous base-photo bytes are deliberately narrower than staff photo access:
+// only compressed media for an explicitly shared base point on a published site,
+// and only while the photo is still within retention (or kept indefinitely).
+async function readPublicPhoto(photoId) {
+  const { rows } = await _getPool().query(`select ph.*
+      from point_photos ph
+      join points p on p.id = ph.point_id and p.site_id = ph.site_id
+      join sites s on s.id = ph.site_id
+     where ph.id = $1
+       and p.scene_id is null
+       and p.scope = 'shared'
+       and s.published = true
+       and (ph.expires_at is null or ph.expires_at > now())`, [photoId]);
+  if (!rows.length) return null;
+  const r = rows[0];
+  const { data, error } = await _getStorage().from(BUCKET).download(r.storage_path);
+  if (error) throw new Error(`storage download failed: ${error.message}`);
+  return { buffer: Buffer.from(await data.arrayBuffer()), contentType: 'image/jpeg', row: r };
+}
+
+// Authenticated site viewers may read base-photo bytes independently of public
+// publication state. This is the only base-photo path that may return originals.
+async function readPhotoForSite(slug, photoId, { original = false } = {}) {
+  const siteId = await getSiteId(slug);
+  const { rows } = await _getPool().query(`select ph.*
+      from point_photos ph
+      join points p on p.id = ph.point_id and p.site_id = ph.site_id
+     where ph.id = $1 and ph.site_id = $2 and p.scene_id is null`, [photoId, siteId]);
   if (!rows.length) return null;
   const r = rows[0];
   const { data, error } = await _getStorage().from(BUCKET).download(original ? r.original_path : r.storage_path);
@@ -233,7 +257,8 @@ module.exports = {
   listPhotos,
   addPhoto,
   setRetention,
-  readPhoto,
+  readPublicPhoto,
+  readPhotoForSite,
   deletePhoto,
   deletePhotosForPoint,
   sweepExpiredPhotos,

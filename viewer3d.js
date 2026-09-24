@@ -1654,9 +1654,11 @@ async function _renderPointPhotos(pt) {
         _publicPhotoObjectUrls.push(displayUrl);
         a.href = displayUrl;
       } else {
-        const compressedUrl = `/api/point-photos/${encodeURIComponent(ph.id)}`;
-        displayUrl = compressedUrl;
-        a.href = `${compressedUrl}?original=1`;
+        // The metadata list endpoint is staff-authorized, so use the matching
+        // site-qualified byte route. Anonymous public media never exposes originals.
+        const staffPhotoUrl = `/api/sites/${encodeURIComponent(_pointPhotoSlug)}/points/photos/${encodeURIComponent(ph.id)}`;
+        displayUrl = staffPhotoUrl;
+        a.href = `${staffPhotoUrl}?original=1`;
       }
       a.target = '_blank';
       a.rel = 'noopener';

@@ -1323,12 +1323,29 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  // DELETE removes the photo; PATCH { keep: bool } flips its retention.
+  // Site-qualified photo item route. Authenticated site viewers may read the
+  // compressed copy or original; editor+ remains required for retention/delete.
   const _pointPhotoItemMatch = /^\/api\/sites\/([^/]+)\/points\/photos\/([0-9a-fA-F-]{36})$/.exec(pathname);
-  if (_pointPhotoItemMatch && (req.method === 'DELETE' || req.method === 'PATCH')) {
+  if (_pointPhotoItemMatch && ['GET', 'HEAD', 'DELETE', 'PATCH'].includes(req.method)) {
     const slug = _pointPhotoItemMatch[1];
     const photoId = _pointPhotoItemMatch[2];
     if (!SLUG_RE.test(slug)) return _json(res, 404, { error: 'not found' });
+    if (req.method === 'GET' || req.method === 'HEAD') {
+      _requireSiteRole(req, res, slug, 'viewer', () => {
+        pointPhotosDb.readPhotoForSite(slug, photoId, { original: url.searchParams.get('original') === '1' }).then(p => {
+          if (!p) return _json(res, 404, { error: 'not found' });
+          res.writeHead(200, {
+            'Content-Type': p.contentType,
+            'Content-Length': p.buffer.length,
+            'Cache-Control': 'private, no-store',
+            'Referrer-Policy': 'no-referrer',
+            'Content-Disposition': `inline; filename="${(p.row.original_name || 'photo').replace(/[^\w.-]/g, '_')}"`,
+          });
+          res.end(req.method === 'HEAD' ? undefined : p.buffer);
+        }).catch(e => _json(res, 500, JSON.parse(_errBody(e))));
+      });
+      return;
+    }
     _requireSiteEditor(req, res, slug, () => {
       if (req.method === 'PATCH') {
         _readJsonBody(req, (err, body = {}) => {
@@ -1350,22 +1367,19 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  // Image bytes, login-gated (any active profile) — same model as
-  // /api/hazard-photos: a photo URL never works without a session.
-  // Deliberately PUBLIC, unlike /api/hazard-photos which requires a session.
-  // Admin-map pins are public wayfinding — their share links are documented as
-  // "open for anyone, no sign-in needed" — so a photo attached to one has to be
-  // readable by an anonymous share-link visitor or it renders as a broken tile.
-  // Access still requires knowing the photo's UUID, which is only handed out
-  // with the pin itself. Hazard photos stay gated: those are incident evidence.
+  // Public base-photo bytes are compressed-only and fail closed unless the
+  // site is published, the base point is explicitly shared, and retention is
+  // still valid. `?original=1` never upgrades this anonymous capability.
   const _pointPhotoReadMatch = /^\/api\/point-photos\/([0-9a-fA-F-]{36})$/.exec(pathname);
   if (_pointPhotoReadMatch && (req.method === 'GET' || req.method === 'HEAD')) {
-    pointPhotosDb.readPhoto(_pointPhotoReadMatch[1], { original: url.searchParams.get('original') === '1' }).then(p => {
+    if (url.searchParams.get('original') === '1') return _json(res, 404, { error: 'not found' });
+    pointPhotosDb.readPublicPhoto(_pointPhotoReadMatch[1]).then(p => {
       if (!p) return _json(res, 404, { error: 'not found' });
       res.writeHead(200, {
         'Content-Type': p.contentType,
         'Content-Length': p.buffer.length,
-        'Cache-Control': 'private, max-age=3600',
+        'Cache-Control': 'private, no-store',
+        'Referrer-Policy': 'no-referrer',
         'Content-Disposition': `inline; filename="${(p.row.original_name || 'photo').replace(/[^\w.-]/g, '_')}"`,
       });
       res.end(req.method === 'HEAD' ? undefined : p.buffer);
