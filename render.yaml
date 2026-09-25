@@ -16,6 +16,22 @@ services:
         name: Cross-Origin-Embedder-Policy
         value: credentialless
 
+
+  # LANDCROS public guide — static/CDN front end. Anonymous site/point/contact
+  # reads go directly to Supabase; the Node service above remains staff/API fallback.
+  - type: web
+    name: landcros-forrestdale-static
+    runtime: static
+    buildCommand: bash build.sh landcros
+    staticPublishPath: dist-landcros
+    headers:
+      - path: /*
+        name: Cross-Origin-Opener-Policy
+        value: same-origin
+      - path: /*
+        name: Cross-Origin-Embedder-Policy
+        value: credentialless
+
   # Brown Greenfields — static site built via build.sh
   - type: web
     name: Brown-greenfields

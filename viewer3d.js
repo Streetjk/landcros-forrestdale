@@ -10,7 +10,8 @@ import { initComparison, updateComparison, comparisonNeedsRender } from './splat
 import { buildPinUrl, clearPinUrl, buildMyPinShareUrl, buildMyPinPhotoUrl } from './guide-url.js';
 import { buildPointDetailModel, hasSiteDetail, showBuildingDetail, showSiteDetail } from './location-details.js';
 import { loadPublicArray, renderPublicDataNotice, isRenderablePoint, isRenderableContact, projectPublicPoint, projectPublicContact } from './public-data.js';
-import { loadPublicSiteMetadata, resolveSiteBranding, sanitizePublicLogoUrl } from './public-site.js';
+import { resolveSiteBranding, sanitizePublicLogoUrl } from './public-site.js';
+import { loadPublicRuntimeConfig, loadPublicTransport, backendRedirectForScopedRoute, shouldProbeStaffSession, backendApiUrl } from './public-transport.js';
 import { getBasePublicVisitPointId } from './visit-analytics.js';
 import { createPointListItem } from './point-list-item.js';
 import { renderDetailContacts } from './detail-card.js';
@@ -20,6 +21,10 @@ import { mapControlLabel, syncPressedButton, syncPressedButtons } from './map-co
 let _cfg = {};
 let _publicSiteMetadata = null;
 let _siteInfoDetailOpen = false;
+let _publicRuntime = null;
+let _publicTransport = null;
+
+function _apiUrl(path) { return backendApiUrl(_publicRuntime, path); }
 
 // ── Coord conversion ───────────────────────────────────────────────────────
 // Maps lat/lng to Three.js scene coords using site bounds.
@@ -235,10 +240,18 @@ const _LS_PT_VISITS   = 'sn_point_visits';
     ptv[_ptId] = (ptv[_ptId] || 0) + 1;
     localStorage.setItem(_LS_PT_VISITS, JSON.stringify(ptv));
   }
-  fetch('/api/visit', {
+  // Server analytics are flushed after the tiny runtime config loads. Static
+  // public hosting intentionally keeps this local-only so it never wakes the
+  // sleeping staff/API backend during first paint.
+  window._snPendingVisitPointId = _ptId || null;
+}
+
+function _flushBackendVisitIfLocal() {
+  if (!shouldProbeStaffSession(_publicRuntime, window.location)) return;
+  fetch(_apiUrl('/api/visit'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ pointId: _ptId || null }),
+    body: JSON.stringify({ pointId: window._snPendingVisitPointId || null }),
   }).catch(() => {});
 }
 
@@ -437,7 +450,7 @@ async function _updateVisitHud(points = []) {
 
   let serverTotal = null, serverPtVisits = {};
   try {
-    const r = await fetch('/api/visits');
+    const r = await fetch(_apiUrl('/api/visits'));
     if (r.ok) { const d = await r.json(); serverTotal = d.total; serverPtVisits = d.points || {}; }
   } catch {}
 
@@ -1627,11 +1640,15 @@ async function _renderPointPhotos(pt) {
       list = _scenePhotos.filter(ph => ph.pointId === pt.id);
       publicMyPin = true;
     } else {
+      // The static public guide deliberately has no private-storage credential.
+      // Base-photo media remains a backend feature until a dedicated public
+      // compressed-media surface is available; do not wake Render on selection.
+      if (!shouldProbeStaffSession(_publicRuntime, window.location)) return;
       if (_pointPhotoSlug === null) {
-        _pointPhotoSlug = await fetch('/api/site').then(r => r.ok ? r.json() : null).then(d => d?.slug ?? '').catch(() => '');
+        _pointPhotoSlug = _publicRuntime?.siteSlug || await fetch(_apiUrl('/api/site')).then(r => r.ok ? r.json() : null).then(d => d?.slug ?? '').catch(() => '');
       }
       if (!_pointPhotoSlug) return;
-      list = await fetch(`/api/sites/${encodeURIComponent(_pointPhotoSlug)}/points/${encodeURIComponent(pt.id)}/photos`)
+      list = await fetch(_apiUrl(`/api/sites/${encodeURIComponent(_pointPhotoSlug)}/points/${encodeURIComponent(pt.id)}/photos`))
         .then(r => r.ok ? r.json() : []).catch(() => []);
     }
     if (!Array.isArray(list) || !list.length) return;
@@ -1656,7 +1673,7 @@ async function _renderPointPhotos(pt) {
       } else {
         // The metadata list endpoint is staff-authorized, so use the matching
         // site-qualified byte route. Anonymous public media never exposes originals.
-        const staffPhotoUrl = `/api/sites/${encodeURIComponent(_pointPhotoSlug)}/points/photos/${encodeURIComponent(ph.id)}`;
+        const staffPhotoUrl = _apiUrl(`/api/sites/${encodeURIComponent(_pointPhotoSlug)}/points/photos/${encodeURIComponent(ph.id)}`);
         displayUrl = staffPhotoUrl;
         a.href = `${staffPhotoUrl}?original=1`;
       }
@@ -3478,10 +3495,19 @@ async function boot() {
   // Perf instrumentation is dynamically loaded only in ?perf=1 sessions.
   await _perfReady;
   document.getElementById('load-msg').textContent = 'Loading config…';
-  // Public shell metadata is optional and must never gate 3D startup. Start it
-  // alongside the existing local config, apply the local fallback immediately,
-  // then overlay the stable allowlisted /api/site fields when available.
-  const _publicSitePromise = loadPublicSiteMetadata(globalThis.fetch);
+  // Public runtime config is a tiny static file. On the static host it points
+  // anonymous reads straight at Supabase; Render remains the fallback/staff API.
+  const _runtimePromise = loadPublicRuntimeConfig(globalThis.fetch);
+  const _runtime = await _runtimePromise;
+  _publicRuntime = _runtime;
+  _flushBackendVisitIfLocal();
+  const _redirect = backendRedirectForScopedRoute(_runtime, window.location);
+  if (_redirect) { window.location.replace(_redirect); return; }
+  if (shouldProbeStaffSession(_runtime, window.location)) {
+    window._snMountStaffShell?.();
+  }
+  const _publicTransportPromise = loadPublicTransport(_runtime, globalThis.fetch);
+  const _publicSitePromise = _publicTransportPromise.then(result => result.siteResult);
   _cfg = await fetch('./data/config.json').then(r => r.json()).catch((err) => {
     console.error('Config load failed:', err);
     return {};
@@ -3700,7 +3726,7 @@ async function boot() {
     }
   } else if (_sceneCode && !_publicMyPinMode && !document.getElementById('add-label-btn')) {
     try {
-      const response = await fetch(`/api/scenes/by-code/${encodeURIComponent(_sceneCode)}`);
+      const response = await fetch(_apiUrl(`/api/scenes/by-code/${encodeURIComponent(_sceneCode)}`));
       if (response.ok) {
         _sceneBundle = await response.json().catch(() => null);
         _scopedGuideUnavailable = !_sceneBundle || typeof _sceneBundle !== 'object' || Array.isArray(_sceneBundle);
@@ -3723,10 +3749,9 @@ async function boot() {
 
   // viewer3d.html: load pins/contacts
   if (!document.getElementById('admin-controls') && _showOverlays) {
-  const [pointResult, contactResult] = await Promise.all([
-    loadPublicArray('/api/points', globalThis.fetch, isRenderablePoint, projectPublicPoint),
-    loadPublicArray('/api/contacts', globalThis.fetch, isRenderableContact, projectPublicContact),
-  ]);
+  _publicTransport = await _publicTransportPromise;
+  const pointResult = _publicTransport.pointResult;
+  const contactResult = _publicTransport.contactResult;
   const points = pointResult.data;
   const contacts = contactResult.data;
   const rawScenePins = Array.isArray(_sceneBundle?.pins) ? _sceneBundle.pins : [];

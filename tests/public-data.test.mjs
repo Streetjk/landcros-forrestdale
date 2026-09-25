@@ -181,10 +181,11 @@ test('render validators accept the minimum required contracts', () => {
   assert.equal(isRenderableContact({ id: 'c', name: 'Contact' }), true);
 });
 
-test('viewer wires render validators into public arrays and scene pin merge', async () => {
+test('viewer wires Supabase-first public transport into public arrays and scene pin merge', async () => {
   const viewer = await readFile(new URL('../viewer3d.js', import.meta.url), 'utf8');
-  assert.match(viewer, /loadPublicArray\('\/api\/points', globalThis\.fetch, isRenderablePoint, projectPublicPoint\)/);
-  assert.match(viewer, /loadPublicArray\('\/api\/contacts', globalThis\.fetch, isRenderableContact, projectPublicContact\)/);
+  assert.match(viewer, /loadPublicTransport\(_runtime, globalThis\.fetch\)/);
+  assert.match(viewer, /const pointResult = _publicTransport\.pointResult;/);
+  assert.match(viewer, /const contactResult = _publicTransport\.contactResult;/);
   assert.doesNotMatch(viewer, /loadPublicArray\('\.\/data\/(points|contacts)\.json/);
   assert.doesNotMatch(viewer, /fetch\('\.\/data\/contacts\.json/);
   assert.match(viewer, /rawScenePins\.filter\(isRenderablePoint\)/);

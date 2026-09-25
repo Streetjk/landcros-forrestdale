@@ -989,9 +989,9 @@
 <script src="staff-nav.js"></script>
 <script src="staff-map-shell.js"></script>
 <script>
-  // Public Map never requires sign-in. Existing staff sessions get the shared
-  // shell opportunistically; all auth/site failures degrade to the public Map.
-  window.SiteNavStaffMapShell?.mountAuthenticatedMapNav?.();
+  // viewer3d.js calls this only when the page is running on the backend origin.
+  // Static public hosting therefore never wakes Render just to probe /api/auth/me.
+  window._snMountStaffShell = () => window.SiteNavStaffMapShell?.mountAuthenticatedMapNav?.();
 </script>
 
 <script src="./panel-state.js"></script>

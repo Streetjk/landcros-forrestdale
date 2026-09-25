@@ -33,7 +33,7 @@ test('static allowlist fails closed for traversal, encoded traversal, dotfiles a
 
 test('declared browser root files exist and sensitive site data is absent from the public data set', () => {
   for (const file of PUBLIC_ROOT_FILES) assert.ok(fs.existsSync(file), file);
-  assert.deepEqual([...PUBLIC_DATA_FILES].sort(), ['buildings.geojson', 'config.json', 'roads.json', 'traffic.json']);
+  assert.deepEqual([...PUBLIC_DATA_FILES].sort(), ['buildings.geojson', 'config.json', 'public-runtime.json', 'roads.json', 'traffic.json']);
 });
 
 test('legacy share projection strips arbitrary keys and contact email/audit fields', () => {

@@ -32,16 +32,14 @@ test('ambiguous or blank point ids fail closed', () => {
   assert.equal(getBasePublicVisitPointId('?id=%20%20', ''), null);
   assert.equal(getBasePublicVisitPointId('?id=one&id=two', ''), null);
 });
-test('viewer uses classified id for local point analytics and visit POST', async () => {
+test('viewer keeps classified local analytics and only flushes server visit on backend origin', async () => {
   const viewer = await readFile(new URL('../viewer3d.js', import.meta.url), 'utf8');
   assert.match(
     viewer,
     /const _ptId = getBasePublicVisitPointId\(_params, window\.location\.hash\);/
   );
   assert.match(viewer, /if \(_ptId\) \{[\s\S]*?_LS_PT_VISITS[\s\S]*?\}/);
-  assert.match(
-    viewer,
-    /fetch\('\/api\/visit',[\s\S]*?body: JSON\.stringify\(\{ pointId: _ptId \|\| null \}\)/
-  );
+  assert.match(viewer, /window\._snPendingVisitPointId = _ptId \|\| null/);
+  assert.match(viewer, /function _flushBackendVisitIfLocal\(\)[\s\S]*?if \(!shouldProbeStaffSession\(_publicRuntime, window\.location\)\) return;[\s\S]*?fetch\(_apiUrl\('\/api\/visit'\),[\s\S]*?pointId: window\._snPendingVisitPointId \|\| null/);
   assert.doesNotMatch(viewer, /const _ptId = _params\.get\('id'\)/);
 });

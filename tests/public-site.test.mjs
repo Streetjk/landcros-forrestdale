@@ -74,8 +74,8 @@ test('API branding overlays only shell fields and local config remains the fallb
 
 test('viewer starts public site metadata without gating local config or renderer settings', async () => {
   const viewer = await readFile(new URL('../viewer3d.js', import.meta.url), 'utf8');
-  assert.match(viewer, /import \{ loadPublicSiteMetadata, resolveSiteBranding, sanitizePublicLogoUrl \} from '\.\/public-site\.js';/);
-  assert.match(viewer, /const _publicSitePromise = loadPublicSiteMetadata\(globalThis\.fetch\);[\s\S]*?_cfg = await fetch\('\.\/data\/config\.json'/);
+  assert.match(viewer, /import \{ resolveSiteBranding, sanitizePublicLogoUrl \} from '\.\/public-site\.js';/);
+  assert.match(viewer, /loadPublicRuntimeConfig\(globalThis\.fetch\)[\s\S]*?loadPublicTransport\(_runtime, globalThis\.fetch\)[\s\S]*?const _publicSitePromise = _publicTransportPromise\.then\(result => result\.siteResult\);[\s\S]*?_cfg = await fetch\('\.\/data\/config\.json'/);
   assert.match(viewer, /_applyBranding\(_cfg\);[\s\S]*?_publicSitePromise\.then\(\(\{ data \}\) => \{[\s\S]*?if \(data\) _applyBranding\(_cfg, data\);/);
   assert.match(viewer, /_syncSiteInfoAction\(_publicSiteMetadata\)/);
   assert.match(viewer, /function _applyBranding\(cfg, publicSite = null\) \{\s*const s = resolveSiteBranding\(cfg\?\.site, publicSite\);/);
