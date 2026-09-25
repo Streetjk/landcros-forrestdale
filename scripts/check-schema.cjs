@@ -3,7 +3,7 @@
 const { Client } = require('pg');
 const { classifyDbError } = require('./deployment-diagnostics.cjs');
 const required = {
-  sites: ['id', 'slug', 'published'], profiles: ['id'], site_members: ['site_id'],
+  sites: ['id', 'slug', 'published'], profiles: ['id', 'session_version'], site_members: ['site_id'],
   points: ['id', 'site_id', 'scene_id', 'phone_override'], contacts: ['id', 'site_id'],
   scenes: ['id', 'site_id', 'created_by', 'share_code', 'kind', 'status'],
   scene_objects: ['id', 'site_id', 'scene_id'],

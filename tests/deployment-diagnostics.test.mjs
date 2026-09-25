@@ -36,6 +36,7 @@ test('deployment findings identify stale build and broad DB outage only from sta
 
 test('schema preflight covers current production-required migration surfaces', () => {
   const source = fs.readFileSync('scripts/check-schema.cjs', 'utf8');
+  assert.match(source, /profiles: \['id', 'session_version'\]/);
   assert.match(source, /points: \['id', 'site_id', 'scene_id', 'phone_override'\]/);
   assert.match(source, /my_pin_capabilities: \['id', 'site_id', 'scene_id', 'point_id', 'token_hash', 'revoked_at'\]/);
   assert.match(source, /name: 'contact_is_base_visible', args: 'cid uuid, sid uuid', result: 'boolean'/);

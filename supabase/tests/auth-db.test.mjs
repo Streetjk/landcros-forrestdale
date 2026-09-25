@@ -22,6 +22,8 @@ const {
   withClaims,
   signSession,
   verifySession,
+  getSessionIdentity,
+  validateSession,
 } = authDb;
 
 let failures = 0;
@@ -177,11 +179,15 @@ async function main() {
 
     // ── 5. session sign/verify ───────────────────────────────────────────
     {
-      const token = signSession({ profileId: activeProfileId, email: contactEmail });
+      const identity = await getSessionIdentity(activeProfileId);
+      const token = signSession(identity);
       const verified = verifySession(token);
+      const activeVerified = await validateSession(token);
       assert(
-        !!verified && verified.profileId === activeProfileId && verified.email === contactEmail,
-        '5a. signSession/verifySession round-trips',
+        !!verified && verified.profileId === activeProfileId && verified.email === contactEmail
+          && verified.sessionVersion === identity.sessionVersion
+          && activeVerified?.sessionVersion === identity.sessionVersion,
+        '5a. signSession/verifySession/validateSession round-trips current DB identity',
         `verified=${JSON.stringify(verified)}`
       );
 
@@ -189,7 +195,7 @@ async function main() {
       assert(verifySession(tampered) === null, '5b. tampered token → null');
 
       const expiredPayload = Buffer.from(
-        JSON.stringify({ profileId: activeProfileId, email: contactEmail, exp: Date.now() - 1000 }),
+        JSON.stringify({ profileId: activeProfileId, email: contactEmail, sessionVersion: identity.sessionVersion, exp: Date.now() - 1000 }),
         'utf8'
       );
       const payloadB64 = expiredPayload.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');

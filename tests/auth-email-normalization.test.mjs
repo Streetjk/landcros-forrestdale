@@ -30,7 +30,7 @@ function loadAuthWithFakes({ listUsers, profileRows = [] }) {
       state.queries.push({ sql, params });
       if (sql === 'BEGIN' || sql === 'COMMIT' || sql === 'ROLLBACK') return { rows: [] };
       if (sql.includes('select id from sites where slug')) return { rows: [{ id: 'site-1' }] };
-      if (sql.includes('select id from profiles where lower(btrim(email))')) return { rows: profileRows };
+      if (sql.includes('select id, status from profiles where lower(btrim(email))')) return { rows: profileRows };
       if (sql.includes('select distinct site_id from contacts')) return { rows: [] };
       if (sql.includes('insert into profiles')) return { rows: [{ id: 'auth-user-1' }] };
       throw new Error(`unexpected fake query: ${sql}`);
@@ -91,10 +91,11 @@ test('emailAllowed evaluates canonical identity and still rejects invalid domain
 });
 
 test('session identity is canonical on issue and verification', () => {
-  const token = auth.signSession({ profileId: 'synthetic-profile', email: '  Person@HCMA.COM.AU ' });
+  const token = auth.signSession({ profileId: 'synthetic-profile', email: '  Person@HCMA.COM.AU ', sessionVersion: 7 });
   assert.deepEqual(auth.verifySession(token), {
     profileId: 'synthetic-profile',
     email: 'person@hcma.com.au',
+    sessionVersion: 7,
   });
 });
 
@@ -104,7 +105,7 @@ test('profile persistence paths canonicalize and fail closed on duplicate canoni
   assert.match(source, /if \(rows\.length > 1\) throw new Error\('Ambiguous canonical email identity'\)/);
   assert.match(source, /email: canonicalEmail,\n\s+email_confirm: true/);
   assert.match(source, /\[userId, canonicalEmail, status\]/);
-  assert.match(source, /lower\(btrim\(email\)\) = \$1 and site_id = \$2/);
+  assert.match(source, /lower\(btrim\(email\)\) = \$1 and site_id = \$2 and active = true/);
   assert.match(source, /matches\.length !== 1/);
 });
 
@@ -117,7 +118,7 @@ test('auth HTTP entry points normalize before lookup, delivery, creation and ses
   assert.match(login, /const canonicalEmail = auth\.normalizeEmail\(email\)/);
   assert.match(login, /auth\.checkProfile\(canonicalEmail\)/);
   assert.match(login, /email: canonicalEmail, mode: 'setup'/);
-  assert.match(login, /auth\.signSession\(\{ profileId: st\.profileId, email: canonicalEmail \}\)/);
+  assert.match(login, /auth\.signSession\(v\.identity\)/);
 
   assert.match(reset, /const canonicalEmail = auth\.normalizeEmail\(email\)/);
   assert.match(reset, /auth\.checkProfile\(canonicalEmail\)/);

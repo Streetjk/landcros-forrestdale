@@ -148,14 +148,23 @@ async function createProfile(email) {
     await client.query('BEGIN');
     const authSiteId = await _getAuthSiteId(client);
     const { rows: existingProfiles } = await client.query(
-      'select id from profiles where lower(btrim(email)) = $1 limit 2',
+      'select id, status from profiles where lower(btrim(email)) = $1 limit 2',
       [canonicalEmail]
     );
     if (existingProfiles.length > 1 || (existingProfiles.length === 1 && existingProfiles[0].id !== userId)) {
       throw new Error('Ambiguous canonical email identity');
     }
+    // Never use registration retry as an account reactivation or privilege
+    // re-grant path. Once a profile exists, its status/memberships are admin
+    // controlled; creation only returns the existing state.
+    if (existingProfiles.length === 1) {
+      await client.query('COMMIT');
+      return { status: existingProfiles[0].status, profileId: userId };
+    }
+
     // Platform admins (override list) → active + owner on the auth site.
-    // Otherwise contact-match on the pinned site → active + editor, else pending.
+    // Otherwise an ACTIVE contact match on the pinned site → active + editor,
+    // else pending. Inactive directory rows never grant access.
     let status, memberships, upgradeRole;
     if (isPlatformAdmin(canonicalEmail)) {
       status = 'active';
@@ -163,7 +172,7 @@ async function createProfile(email) {
       upgradeRole = 'owner';
     } else {
       const { rows: contactRows } = await client.query(
-        'select distinct site_id from contacts where lower(btrim(email)) = $1 and site_id = $2',
+        'select distinct site_id from contacts where lower(btrim(email)) = $1 and site_id = $2 and active = true',
         [canonicalEmail, authSiteId]
       );
       status = contactRows.length ? 'active' : 'pending';
@@ -172,7 +181,6 @@ async function createProfile(email) {
     }
     await client.query(
       `insert into profiles (id, email, status) values ($1, $2, $3)
-       on conflict (id) do update set email = excluded.email, status = excluded.status
        returning id`,
       [userId, canonicalEmail, status]
     );
@@ -206,6 +214,7 @@ async function getSiteRole(profileId, slug) {
   const { rows } = await _getPool().query(
     `select sm.role from site_members sm
      join sites s on s.id = sm.site_id
+     join profiles p on p.id = sm.user_id and p.status = 'active'
      where sm.user_id = $1 and s.slug = $2`,
     [profileId, slug]
   );
@@ -313,61 +322,131 @@ async function getPinState(profileId) {
   return { hasPin: true, lockedUntil: lu && lu > new Date() ? lu : null };
 }
 
-// Sets (or replaces) the PIN and clears any lockout. Callers must have
-// already proven identity — a consumed reset token, or the current PIN.
-async function setPin(profileId, pin, client = null) {
+// Sets (or replaces) the PIN, clears lockout and revokes every older session.
+// Lock order for every PIN/reset mutation is PROFILE -> PIN/TOKEN. Keeping one
+// order avoids deadlocks between reset-link issuance/redemption and PIN change.
+async function setPin(profileId, pin, client = null, expectedSessionVersion = null) {
   if (!pinIsAcceptable(pin)) throw new PinError('pin-unacceptable');
-  await (client || _getPool()).query(
-    `insert into profile_pins (profile_id, pin_hash, set_at, failed_attempts, locked_until)
-     values ($1, $2, now(), 0, null)
-     on conflict (profile_id) do update
-       set pin_hash = excluded.pin_hash, set_at = now(), failed_attempts = 0, locked_until = null`,
-    [profileId, hashPin(pin)]
-  );
+  const ownClient = !client;
+  const c = client || await _getPool().connect();
+  try {
+    if (ownClient) await c.query('BEGIN');
+    const { rows: profileRows } = await c.query(
+      `select email, session_version
+         from profiles
+        where id = $1 and status = 'active'
+        for update`,
+      [profileId]
+    );
+    if (!profileRows.length) throw new PinError('profile-inactive');
+    const currentVersion = Number(profileRows[0].session_version);
+    if (!Number.isSafeInteger(currentVersion) || currentVersion < 0) throw new Error('Invalid session version');
+    const hasExpectedVersion = Number.isSafeInteger(expectedSessionVersion) && expectedSessionVersion >= 0;
+    if (hasExpectedVersion && currentVersion !== expectedSessionVersion) throw new PinError('session-stale');
+
+    await c.query(
+      `insert into profile_pins (profile_id, pin_hash, set_at, failed_attempts, locked_until)
+       values ($1, $2, now(), 0, null)
+       on conflict (profile_id) do update
+         set pin_hash = excluded.pin_hash, set_at = now(), failed_attempts = 0, locked_until = null`,
+      [profileId, hashPin(pin)]
+    );
+    const { rows } = await c.query(
+      `update profiles
+          set session_version = session_version + 1
+        where id = $1
+        returning email, session_version`,
+      [profileId]
+    );
+    if (!rows.length) throw new PinError('profile-inactive');
+    const result = {
+      profileId,
+      email: normalizeEmail(rows[0].email),
+      sessionVersion: Number(rows[0].session_version),
+    };
+    if (!Number.isSafeInteger(result.sessionVersion) || result.sessionVersion < 0) throw new Error('Invalid session version');
+    if (ownClient) await c.query('COMMIT');
+    return result;
+  } catch (err) {
+    if (ownClient) await c.query('ROLLBACK');
+    throw err;
+  } finally {
+    if (ownClient) c.release();
+  }
 }
 
 class PinError extends Error {
   constructor(code, extra = {}) { super(code); this.code = code; Object.assign(this, extra); }
 }
 
-// Resolves { ok: true } or { ok: false, reason: 'no-pin' | 'locked' | 'invalid',
-// remaining?, lockedUntil? }. Failures are counted in the same statement that
-// reads the row, so concurrent guesses cannot race past the limit.
+// Resolves { ok: true, identity? } or { ok: false, reason }. Lock order is
+// PROFILE -> PIN, so concurrent guesses/reset/change serialize consistently.
 async function verifyPin(profileId, pin) {
-  const pool = _getPool();
-  const { rows } = await pool.query(
-    'select pin_hash, failed_attempts, locked_until from profile_pins where profile_id = $1',
-    [profileId]
-  );
-  if (!rows.length) return { ok: false, reason: 'no-pin' };
-  const row = rows[0];
-  if (row.locked_until && row.locked_until > new Date()) {
-    return { ok: false, reason: 'locked', lockedUntil: row.locked_until };
-  }
-  if (PIN_RE.test(String(pin)) && verifyPinHash(String(pin), row.pin_hash)) {
-    if (row.failed_attempts) {
-      await pool.query(
-        'update profile_pins set failed_attempts = 0, locked_until = null where profile_id = $1',
-        [profileId]
-      );
+  const client = await _getPool().connect();
+  try {
+    await client.query('BEGIN');
+    const { rows: profileRows } = await client.query(
+      `select email, session_version
+         from profiles
+        where id = $1 and status = 'active'
+        for update`,
+      [profileId]
+    );
+    if (!profileRows.length) {
+      await client.query('COMMIT');
+      return { ok: false, reason: 'no-pin' };
     }
-    return { ok: true };
+    const { rows } = await client.query(
+      `select pin_hash, failed_attempts, locked_until
+         from profile_pins
+        where profile_id = $1
+        for update`,
+      [profileId]
+    );
+    if (!rows.length) {
+      await client.query('COMMIT');
+      return { ok: false, reason: 'no-pin' };
+    }
+    const row = rows[0];
+    if (row.locked_until && row.locked_until > new Date()) {
+      await client.query('COMMIT');
+      return { ok: false, reason: 'locked', lockedUntil: row.locked_until };
+    }
+    if (PIN_RE.test(String(pin)) && verifyPinHash(String(pin), row.pin_hash)) {
+      if (row.failed_attempts) {
+        await client.query(
+          'update profile_pins set failed_attempts = 0, locked_until = null where profile_id = $1',
+          [profileId]
+        );
+      }
+      const sessionVersion = Number(profileRows[0].session_version);
+      if (!Number.isSafeInteger(sessionVersion) || sessionVersion < 0) throw new Error('Invalid session version');
+      const identity = { profileId, email: normalizeEmail(profileRows[0].email), sessionVersion };
+      await client.query('COMMIT');
+      return { ok: true, identity };
+    }
+    const { rows: upd } = await client.query(
+      `update profile_pins
+          set failed_attempts = failed_attempts + 1,
+              locked_until = case when failed_attempts + 1 >= $2
+                                  then now() + ($3 || ' milliseconds')::interval
+                                  else locked_until end
+        where profile_id = $1
+        returning failed_attempts, locked_until`,
+      [profileId, PIN_MAX_FAILURES, String(PIN_LOCK_MS)]
+    );
+    const after = upd[0];
+    await client.query('COMMIT');
+    if (after.locked_until && after.locked_until > new Date()) {
+      return { ok: false, reason: 'locked', lockedUntil: after.locked_until };
+    }
+    return { ok: false, reason: 'invalid', remaining: Math.max(0, PIN_MAX_FAILURES - after.failed_attempts) };
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
   }
-  const { rows: upd } = await pool.query(
-    `update profile_pins
-       set failed_attempts = failed_attempts + 1,
-           locked_until = case when failed_attempts + 1 >= $2
-                               then now() + ($3 || ' milliseconds')::interval
-                               else locked_until end
-     where profile_id = $1
-     returning failed_attempts, locked_until`,
-    [profileId, PIN_MAX_FAILURES, String(PIN_LOCK_MS)]
-  );
-  const after = upd[0];
-  if (after.locked_until && after.locked_until > new Date()) {
-    return { ok: false, reason: 'locked', lockedUntil: after.locked_until };
-  }
-  return { ok: false, reason: 'invalid', remaining: Math.max(0, PIN_MAX_FAILURES - after.failed_attempts) };
 }
 
 function _sha256b64url(s) {
@@ -382,6 +461,11 @@ async function createPinToken(profileId) {
   const client = await _getPool().connect();
   try {
     await client.query('BEGIN');
+    const { rows: activeRows } = await client.query(
+      "select id from profiles where id = $1 and status = 'active' for update",
+      [profileId]
+    );
+    if (!activeRows.length) throw new PinError('profile-inactive');
     await client.query(
       'update pin_reset_tokens set used_at = now() where profile_id = $1 and used_at is null',
       [profileId]
@@ -410,18 +494,31 @@ async function consumePinToken(rawToken, newPin) {
   const client = await _getPool().connect();
   try {
     await client.query('BEGIN');
+    const tokenHash = _sha256b64url(rawToken);
+    const { rows: candidates } = await client.query(
+      `select profile_id from pin_reset_tokens
+        where token_hash = $1 and used_at is null and expires_at > now()`,
+      [tokenHash]
+    );
+    if (candidates.length !== 1) throw new PinError('token-invalid');
+    const profileId = candidates[0].profile_id;
+    const { rows: activeRows } = await client.query(
+      "select id from profiles where id = $1 and status = 'active' for update",
+      [profileId]
+    );
+    if (!activeRows.length) throw new PinError('token-invalid');
     const { rows } = await client.query(
-      `update pin_reset_tokens t set used_at = now()
-       from profiles p
-       where t.token_hash = $1 and t.used_at is null and t.expires_at > now()
-         and p.id = t.profile_id
-       returning t.profile_id, p.email`,
-      [_sha256b64url(rawToken)]
+      `update pin_reset_tokens
+          set used_at = now()
+        where token_hash = $1 and profile_id = $2
+          and used_at is null and expires_at > now()
+        returning profile_id`,
+      [tokenHash, profileId]
     );
     if (!rows.length) throw new PinError('token-invalid');
-    await setPin(rows[0].profile_id, newPin, client);
+    const identity = await setPin(profileId, newPin, client);
     await client.query('COMMIT');
-    return { profileId: rows[0].profile_id, email: normalizeEmail(rows[0].email) };
+    return identity;
   } catch (err) {
     await client.query('ROLLBACK');
     throw err;
@@ -453,8 +550,9 @@ function _sign(payloadB64) {
   return _b64urlEncode(crypto.createHmac('sha256', secret).update(payloadB64).digest());
 }
 
-function signSession({ profileId, email }) {
-  const payload = { profileId, email: normalizeEmail(email), exp: Date.now() + SESSION_TTL_MS };
+function signSession({ profileId, email, sessionVersion }) {
+  if (!Number.isSafeInteger(sessionVersion) || sessionVersion < 0) throw new Error('sessionVersion is required');
+  const payload = { profileId, email: normalizeEmail(email), sessionVersion, exp: Date.now() + SESSION_TTL_MS };
   const payloadB64 = _b64urlEncode(Buffer.from(JSON.stringify(payload), 'utf8'));
   const sig = _sign(payloadB64);
   return `${payloadB64}.${sig}`;
@@ -485,7 +583,32 @@ function verifySession(token) {
     return null;
   }
   if (!payload || typeof payload.exp !== 'number' || Date.now() > payload.exp) return null;
-  return { profileId: payload.profileId, email: normalizeEmail(payload.email) };
+  if (!Number.isSafeInteger(payload.sessionVersion) || payload.sessionVersion < 0) return null;
+  return { profileId: payload.profileId, email: normalizeEmail(payload.email), sessionVersion: payload.sessionVersion };
+}
+
+async function getSessionIdentity(profileId) {
+  if (!profileId) return null;
+  const { rows } = await _getPool().query(
+    `select id, email, session_version
+       from profiles
+      where id = $1 and status = 'active'`,
+    [profileId]
+  );
+  if (rows.length !== 1) return null;
+  const sessionVersion = Number(rows[0].session_version);
+  if (!Number.isSafeInteger(sessionVersion) || sessionVersion < 0) return null;
+  return { profileId: rows[0].id, email: normalizeEmail(rows[0].email), sessionVersion };
+}
+
+async function validateSession(token) {
+  const parsed = verifySession(token);
+  if (!parsed) return null;
+  const current = await getSessionIdentity(parsed.profileId);
+  if (!current) return null;
+  if (current.sessionVersion !== parsed.sessionVersion) return null;
+  if (current.email !== parsed.email) return null;
+  return current;
 }
 
 module.exports = {
@@ -503,6 +626,8 @@ module.exports = {
   withClaims,
   signSession,
   verifySession,
+  getSessionIdentity,
+  validateSession,
   // PINs
   PinError,
   pinIsAcceptable,

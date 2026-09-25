@@ -86,55 +86,49 @@ function _clearSessionCookie(req, res) {
   res.setHeader('Set-Cookie', `${SESSION_COOKIE}=; ${_cookieAttrs(req, 0)}`);
 }
 
-// Verified {profileId, email} for the caller's session cookie, or null.
-function _session(req) {
-  return auth.verifySession(_getCookie(req, SESSION_COOKIE));
+// Signature/expiry parsing is deliberately separate from authorization. Every
+// protected request validates the cookie against the current profile status +
+// session_version so PIN reset/change and offboarding revoke older cookies.
+function _validatedSession(req) {
+  return auth.validateSession(_getCookie(req, SESSION_COOKIE));
+}
+
+function _requireActiveSession(req, res, cb) {
+  _validatedSession(req).then(s => {
+    if (!s) return _json(res, 401, { error: 'Unauthorized' });
+    cb(s);
+  }).catch(e => _json(res, 500, JSON.parse(_errBody(e))));
 }
 
 // Session + site-role gate shared by the write endpoints below: 401 if no
-// session, 403 if the session's role on SITE is below minRole, else cb(session).
+// current active session, 403 if the role on SITE is below minRole.
 function _requireRole(req, res, minRole, cb) {
-  const s = _session(req);
-  if (!s) { res.writeHead(401, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'Unauthorized' })); return; }
-  auth.getSiteRole(s.profileId, SITE).then(role => {
-    if (!auth.roleAtLeast(role, minRole)) {
-      res.writeHead(403, { 'Content-Type': 'application/json' });
-      return res.end(JSON.stringify({ error: 'Forbidden' }));
-    }
-    cb(s);
-  }).catch(e => {
-    res.writeHead(500, { 'Content-Type': 'application/json' });
-    res.end(_errBody(e));
+  _requireActiveSession(req, res, s => {
+    auth.getSiteRole(s.profileId, SITE).then(role => {
+      if (!auth.roleAtLeast(role, minRole)) return _json(res, 403, { error: 'Forbidden' });
+      cb(s);
+    }).catch(e => _json(res, 500, JSON.parse(_errBody(e))));
   });
 }
 
-// Platform-admin gate for the grand-editor portal (/api/sites*): distinct
-// from _requireRole's per-site role check. 401 if no session, 403 if the
-// session's email is not in PLATFORM_ADMIN_EMAILS, else returns the session.
-function _requirePlatformAdmin(req, res) {
-  const s = _session(req);
-  if (!s) { res.writeHead(401, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'auth required' })); return null; }
-  if (!auth.isPlatformAdmin(s.email)) { res.writeHead(403, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'platform admin only' })); return null; }
-  return s;
+// Platform-admin gate for the grand-editor portal (/api/sites*). Platform
+// admin identity is evaluated only after DB-backed active-session validation.
+function _requirePlatformAdmin(req, res, cb) {
+  _requireActiveSession(req, res, s => {
+    if (!auth.isPlatformAdmin(s.email)) return _json(res, 403, { error: 'platform admin only' });
+    cb(s);
+  });
 }
 
 // Per-slug role gate: unlike _requireRole (which checks only the env-pinned
-// SITE), this checks role on an arbitrary :slug, since the editor/webhook
-// admin surfaces are multi-site. Platform admins bypass the per-site role
-// check (they can edit any site, same as _requirePlatformAdmin).
+// SITE), this checks role on an arbitrary :slug.
 function _requireSiteRole(req, res, slug, minRole, cb) {
-  const s = _session(req);
-  if (!s) { res.writeHead(401, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'Unauthorized' })); return; }
-  if (auth.isPlatformAdmin(s.email)) { cb(s); return; }
-  auth.getSiteRole(s.profileId, slug).then(role => {
-    if (!auth.roleAtLeast(role, minRole)) {
-      res.writeHead(403, { 'Content-Type': 'application/json' });
-      return res.end(JSON.stringify({ error: 'Forbidden' }));
-    }
-    cb(s);
-  }).catch(e => {
-    res.writeHead(500, { 'Content-Type': 'application/json' });
-    res.end(_errBody(e));
+  _requireActiveSession(req, res, s => {
+    if (auth.isPlatformAdmin(s.email)) { cb(s); return; }
+    auth.getSiteRole(s.profileId, slug).then(role => {
+      if (!auth.roleAtLeast(role, minRole)) return _json(res, 403, { error: 'Forbidden' });
+      cb(s);
+    }).catch(e => _json(res, 500, JSON.parse(_errBody(e))));
   });
 }
 
@@ -438,8 +432,8 @@ const server = http.createServer((req, res) => {
         if (_rateLimited(req, res, 'auth-pin', 20, 900000)) return;
         const v = await auth.verifyPin(st.profileId, String(pin));
         if (v.ok) {
-          _setSessionCookie(req, res, auth.signSession({ profileId: st.profileId, email: canonicalEmail }));
-          return _json(res, 200, { status: 'active', email: canonicalEmail });
+          _setSessionCookie(req, res, auth.signSession(v.identity));
+          return _json(res, 200, { status: 'active', email: v.identity.email });
         }
         if (v.reason === 'locked') return _json(res, 423, { status: 'locked', lockedUntil: v.lockedUntil });
         return _json(res, 401, { status: 'pin-invalid', remaining: v.remaining });
@@ -477,9 +471,9 @@ const server = http.createServer((req, res) => {
     _readJsonBody(req, async (err, { token, pin } = {}) => {
       if (err) return _json(res, 400, { error: 'Invalid JSON' });
       try {
-        const { profileId, email } = await auth.consumePinToken(String(token || ''), String(pin || ''));
-        _setSessionCookie(req, res, auth.signSession({ profileId, email }));
-        return _json(res, 200, { status: 'active', email });
+        const identity = await auth.consumePinToken(String(token || ''), String(pin || ''));
+        _setSessionCookie(req, res, auth.signSession(identity));
+        return _json(res, 200, { status: 'active', email: identity.email });
       } catch (e) {
         if (e instanceof auth.PinError) return _json(res, 400, { status: e.code });
         _json(res, 500, JSON.parse(_errBody(e)));
@@ -490,23 +484,25 @@ const server = http.createServer((req, res) => {
 
   // Signed-in user changes their own PIN (must know the current one).
   if (req.method === 'POST' && pathname === '/api/auth/pin/change') {
-    const s = _session(req);
-    if (!s) return _json(res, 401, { error: 'Unauthorized' });
     if (_rateLimited(req, res, 'auth-pin', 20, 900000)) return;
-    _readJsonBody(req, async (err, { currentPin, newPin } = {}) => {
-      if (err) return _json(res, 400, { error: 'Invalid JSON' });
-      try {
-        const v = await auth.verifyPin(s.profileId, String(currentPin || ''));
-        if (!v.ok) {
-          if (v.reason === 'locked') return _json(res, 423, { status: 'locked', lockedUntil: v.lockedUntil });
-          return _json(res, 401, { status: 'pin-invalid', remaining: v.remaining });
+    _requireActiveSession(req, res, s => {
+      _readJsonBody(req, async (err, { currentPin, newPin } = {}) => {
+        if (err) return _json(res, 400, { error: 'Invalid JSON' });
+        try {
+          const v = await auth.verifyPin(s.profileId, String(currentPin || ''));
+          if (!v.ok) {
+            if (v.reason === 'locked') return _json(res, 423, { status: 'locked', lockedUntil: v.lockedUntil });
+            return _json(res, 401, { status: 'pin-invalid', remaining: v.remaining });
+          }
+          if (v.identity.sessionVersion !== s.sessionVersion) return _json(res, 401, { status: 'session-stale' });
+          const identity = await auth.setPin(s.profileId, String(newPin || ''), null, s.sessionVersion);
+          _setSessionCookie(req, res, auth.signSession(identity));
+          return _json(res, 200, { ok: true });
+        } catch (e) {
+          if (e instanceof auth.PinError) return _json(res, 400, { status: e.code });
+          _json(res, 500, JSON.parse(_errBody(e)));
         }
-        await auth.setPin(s.profileId, String(newPin || ''));
-        return _json(res, 200, { ok: true });
-      } catch (e) {
-        if (e instanceof auth.PinError) return _json(res, 400, { status: e.code });
-        _json(res, 500, JSON.parse(_errBody(e)));
-      }
+      });
     });
     return;
   }
@@ -548,14 +544,14 @@ const server = http.createServer((req, res) => {
   }
 
   if (req.method === 'GET' && pathname === '/api/auth/me') {
-    const s = _session(req);
-    if (!s) { res.writeHead(401, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ error: 'Unauthorized' })); }
-    Promise.all([auth.getSiteRole(s.profileId, SITE), auth.getPinState(s.profileId)]).then(([role, pinState]) => {
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ email: s.email, role, hasPin: pinState.hasPin }));
-    }).catch(e => {
-      res.writeHead(500, { 'Content-Type': 'application/json' });
-      res.end(_errBody(e));
+    _requireActiveSession(req, res, s => {
+      Promise.all([auth.getSiteRole(s.profileId, SITE), auth.getPinState(s.profileId)]).then(([role, pinState]) => {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ email: s.email, role, hasPin: pinState.hasPin }));
+      }).catch(e => {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(_errBody(e));
+      });
     });
     return;
   }
@@ -600,36 +596,11 @@ const server = http.createServer((req, res) => {
   // Gated by _requirePlatformAdmin (PLATFORM_ADMIN_EMAILS), NOT _requireRole —
   // this is a platform-level surface, distinct from any single site's login.
   if (req.method === 'GET' && pathname === '/api/sites') {
-    const s = _requirePlatformAdmin(req, res);
-    if (!s) return;
-    siteAdmin.listAllSites().then(sites => {
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify(sites));
-    }).catch(e => {
-      res.writeHead(500, { 'Content-Type': 'application/json' });
-      res.end(_errBody(e));
-    });
-    return;
-  }
-
-  if (req.method === 'POST' && pathname === '/api/sites') {
-    const s = _requirePlatformAdmin(req, res);
-    if (!s) return;
-    _readJsonBody(req, (err, { slug, name, title, address, logo } = {}) => {
-      if (err) { res.writeHead(400, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ error: 'Invalid JSON' })); }
-      siteAdmin.createSite({ slug, name, title, address, logo, createdByProfileId: s.profileId }).then(site => {
+    _requirePlatformAdmin(req, res, () => {
+      siteAdmin.listAllSites().then(sites => {
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify(site));
+        res.end(JSON.stringify(sites));
       }).catch(e => {
-        const message = (e && e.message) || '';
-        if (message === 'slug already exists') {
-          res.writeHead(409, { 'Content-Type': 'application/json' });
-          return res.end(JSON.stringify({ error: message }));
-        }
-        if (message === 'invalid slug' || message === 'name is required') {
-          res.writeHead(400, { 'Content-Type': 'application/json' });
-          return res.end(JSON.stringify({ error: message }));
-        }
         res.writeHead(500, { 'Content-Type': 'application/json' });
         res.end(_errBody(e));
       });
@@ -637,22 +608,47 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  if (req.method === 'POST' && pathname === '/api/sites') {
+    _requirePlatformAdmin(req, res, s => {
+      _readJsonBody(req, (err, { slug, name, title, address, logo } = {}) => {
+        if (err) { res.writeHead(400, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ error: 'Invalid JSON' })); }
+        siteAdmin.createSite({ slug, name, title, address, logo, createdByProfileId: s.profileId }).then(site => {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify(site));
+        }).catch(e => {
+          const message = (e && e.message) || '';
+          if (message === 'slug already exists') {
+            res.writeHead(409, { 'Content-Type': 'application/json' });
+            return res.end(JSON.stringify({ error: message }));
+          }
+          if (message === 'invalid slug' || message === 'name is required') {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            return res.end(JSON.stringify({ error: message }));
+          }
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(_errBody(e));
+        });
+      });
+    });
+    return;
+  }
+
   const _publishMatch = /^\/api\/sites\/([a-z0-9][a-z0-9-]{1,62})\/publish$/.exec(pathname);
   if (_publishMatch && req.method === 'POST') {
-    const s = _requirePlatformAdmin(req, res);
-    if (!s) return;
-    _readJsonBody(req, (err, { published } = {}) => {
-      if (err || typeof published !== 'boolean') { res.writeHead(400, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ error: 'published (boolean) is required' })); }
-      siteAdmin.setPublished(_publishMatch[1], published).then(site => {
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify(site));
-      }).catch(e => {
-        if (e && e.message === 'site not found') {
-          res.writeHead(404, { 'Content-Type': 'application/json' });
-          return res.end(JSON.stringify({ error: 'site not found' }));
-        }
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(_errBody(e));
+    _requirePlatformAdmin(req, res, () => {
+      _readJsonBody(req, (err, { published } = {}) => {
+        if (err || typeof published !== 'boolean') { res.writeHead(400, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ error: 'published (boolean) is required' })); }
+        siteAdmin.setPublished(_publishMatch[1], published).then(site => {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify(site));
+        }).catch(e => {
+          if (e && e.message === 'site not found') {
+            res.writeHead(404, { 'Content-Type': 'application/json' });
+            return res.end(JSON.stringify({ error: 'site not found' }));
+          }
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(_errBody(e));
+        });
       });
     });
     return;
@@ -737,8 +733,8 @@ const server = http.createServer((req, res) => {
   const _sceneCodeMatch = /^\/api\/scenes\/by-code\/([a-z0-9]{10})$/.exec(pathname);
   if (_sceneCodeMatch && req.method === 'GET') {
     if (_rateLimited(req, res, 'scene-by-code', 120, 3600000)) return;
-    const viewer = _session(req);
-    scenesDb.getSceneBundleByCode(_sceneCodeMatch[1], viewer?.profileId ?? null).then(async bundle => {
+    _validatedSession(req).then(viewer =>
+      scenesDb.getSceneBundleByCode(_sceneCodeMatch[1], viewer?.profileId ?? null).then(async bundle => {
       if (!bundle) { res.writeHead(404, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ error: 'not found' })); }
       const isMyPinsWorkspace = bundle.scene?.kind === 'admin'
         && bundle.scene?.camera && typeof bundle.scene.camera === 'object'
@@ -758,7 +754,8 @@ const server = http.createServer((req, res) => {
       if (viewer) await scenesDb.subscribe(bundle.scene.id, viewer.profileId).catch(e => console.error('[scenes] subscribe failed:', e.message));
       res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
       res.end(JSON.stringify(bundle));
-    }).catch(e => {
+    })
+    ).catch(e => {
       res.writeHead(500, { 'Content-Type': 'application/json' });
       res.end(_errBody(e));
     });
@@ -801,22 +798,22 @@ const server = http.createServer((req, res) => {
 
   const _sceneCodeStatusMatch = /^\/api\/scenes\/by-code\/([a-z0-9]{10})\/status$/.exec(pathname);
   if (_sceneCodeStatusMatch && req.method === 'POST') {
-    const s = _session(req);
-    if (!s) return _json(res, 401, { error: 'login-required' });
     if (_rateLimited(req, res, 'scene-status', 60, 3600000)) return;
-    _readJsonBody(req, async (err, body = {}) => {
-      if (err) return _json(res, 400, { error: 'Invalid JSON' });
-      try {
-        const scene = await scenesDb.getSceneByCode(_sceneCodeStatusMatch[1]);
-        if (!scene) return _json(res, 404, { error: 'not found' });
-        const isMyPins = scene.kind === 'admin' && scene.camera && typeof scene.camera === 'object'
-          && scene.camera.purpose === 'my-pins-v1';
-        if (isMyPins && !canManageScene(scene, s, auth.isPlatformAdmin(s.email))) {
-          return _json(res, 403, { error: 'forbidden' });
-        }
-        await scenesDb.subscribe(scene.id, s.profileId);
-        await _changeStatus(scene, body, s);
-      } catch (e) { _statusError(e); }
+    _requireActiveSession(req, res, s => {
+      _readJsonBody(req, async (err, body = {}) => {
+        if (err) return _json(res, 400, { error: 'Invalid JSON' });
+        try {
+          const scene = await scenesDb.getSceneByCode(_sceneCodeStatusMatch[1]);
+          if (!scene) return _json(res, 404, { error: 'not found' });
+          const isMyPins = scene.kind === 'admin' && scene.camera && typeof scene.camera === 'object'
+            && scene.camera.purpose === 'my-pins-v1';
+          if (isMyPins && !canManageScene(scene, s, auth.isPlatformAdmin(s.email))) {
+            return _json(res, 403, { error: 'forbidden' });
+          }
+          await scenesDb.subscribe(scene.id, s.profileId);
+          await _changeStatus(scene, body, s);
+        } catch (e) { _statusError(e); }
+      });
     });
     return;
   }
@@ -1256,17 +1253,18 @@ const server = http.createServer((req, res) => {
   // read through here, so a photo URL never works without a session.
   const _hazardPhotoReadMatch = /^\/api\/hazard-photos\/([0-9a-fA-F-]{36})$/.exec(pathname);
   if (_hazardPhotoReadMatch && (req.method === 'GET' || req.method === 'HEAD')) {
-    if (!_session(req)) return _json(res, 401, { error: 'Unauthorized' });
-    hazardDb.readPhoto(_hazardPhotoReadMatch[1], { original: url.searchParams.get('original') === '1' }).then(p => {
-      if (!p) return _json(res, 404, { error: 'not found' });
-      res.writeHead(200, {
-        'Content-Type': p.contentType,
-        'Content-Length': p.buffer.length,
-        'Cache-Control': 'private, max-age=3600',
-        'Content-Disposition': `inline; filename="${(p.row.original_name || 'photo').replace(/[^\w.-]/g, '_')}"`,
-      });
-      res.end(req.method === 'HEAD' ? undefined : p.buffer);
-    }).catch(e => _json(res, 500, JSON.parse(_errBody(e))));
+    _requireActiveSession(req, res, () => {
+      hazardDb.readPhoto(_hazardPhotoReadMatch[1], { original: url.searchParams.get('original') === '1' }).then(p => {
+        if (!p) return _json(res, 404, { error: 'not found' });
+        res.writeHead(200, {
+          'Content-Type': p.contentType,
+          'Content-Length': p.buffer.length,
+          'Cache-Control': 'private, max-age=3600',
+          'Content-Disposition': `inline; filename="${(p.row.original_name || 'photo').replace(/[^\w.-]/g, '_')}"`,
+        });
+        res.end(req.method === 'HEAD' ? undefined : p.buffer);
+      }).catch(e => _json(res, 500, JSON.parse(_errBody(e))));
+    });
     return;
   }
 
