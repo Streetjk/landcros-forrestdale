@@ -11,6 +11,13 @@ const require = createRequire(import.meta.url);
 const { Client } = require('pg');
 const uid = n => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 const SITE_A = uid(1), SITE_B = uid(2), OWNER = uid(11), OTHER = uid(12), VIEWER = uid(13), ADMIN = uid(14), OUTSIDER = uid(15);
+const PROFILE_EMAILS = new Map([
+  [OWNER, 'owner@example.test'],
+  [OTHER, 'other@example.test'],
+  [VIEWER, 'viewer@example.test'],
+  [ADMIN, 'platform@example.test'],
+  [OUTSIDER, 'outsider@example.test'],
+]);
 const SCENE_A = uid(21), SCENE_A2 = uid(22), SCENE_B = uid(23), SCENE_FOREIGN = uid(24), SCENE_LEGACY = uid(25);
 const CONTACT_A = uid(31), CONTACT_B = uid(32), CONTACT_PUBLIC = uid(33), CONTACT_SCENE_ONLY = uid(34), CONTACT_UNREFERENCED = uid(35), CONTACT_PERSONAL = uid(36), POINT_A = uid(41), POINT_B = uid(42), POINT_BASE = uid(43), PHOTO = uid(51);
 const payload = (id = POINT_A, extra = {}) => ({ id, label: 'Synthetic fixture pin', position3d: { x: 1, y: 2, z: 3 }, ...extra });
@@ -70,7 +77,7 @@ test('scene point ownership: actual PostgreSQL and HTTP server', { skip: !proces
     // Public base-read assertions below use alpha; keep beta unpublished so the
     // fixture still contains both publication states.
     await sql.query("insert into sites(id,slug,published) values ($1,'alpha',true),($2,'beta',false)", [SITE_A,SITE_B]);
-    for (const [id,email] of [[OWNER,'owner@example.test'],[OTHER,'other@example.test'],[VIEWER,'viewer@example.test'],[ADMIN,'platform@example.test'],[OUTSIDER,'outsider@example.test']]) {
+    for (const [id,email] of PROFILE_EMAILS) {
       await sql.query('insert into profiles(id,email) values($1,$2)',[id,email]);
     }
     for (const [site,user,role] of [[SITE_A,OWNER,'editor'],[SITE_A,OTHER,'editor'],[SITE_A,VIEWER,'viewer'],[SITE_B,OTHER,'editor']]) {
@@ -90,7 +97,8 @@ test('scene point ownership: actual PostgreSQL and HTTP server', { skip: !proces
     child.stdout.resume();
     const address = await Promise.race([once(child,'message').then(([m]) => m), new Promise((_,reject) => { const timer=setTimeout(()=>reject(new Error('Fixture server did not start')),8000);timer.unref(); })]);
     const origin = `http://127.0.0.1:${address.port}`;
-    const token = (id, email = id === ADMIN ? 'platform@example.test' : 'fixture@example.test') => {
+    const token = (id, email = PROFILE_EMAILS.get(id)) => {
+      assert.ok(email, `missing fixture email for ${id}`);
       const data=Buffer.from(JSON.stringify({profileId:id,email,sessionVersion:0,exp:Date.now()+60000})).toString('base64url');
       return `${data}.${createHmac('sha256',secret).update(data).digest('base64url')}`;
     };
