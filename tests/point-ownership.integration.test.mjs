@@ -6,6 +6,7 @@ import { fork } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { once } from 'node:events';
 import { readFileSync } from 'node:fs';
+import './auth-concurrency.integration.test.mjs';
 const require = createRequire(import.meta.url);
 const { Client } = require('pg');
 const uid = n => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
@@ -36,7 +37,7 @@ test('scene point ownership: actual PostgreSQL and HTTP server', { skip: !proces
     // This does not run production migrations and does not claim to certify RLS.
     await sql.query(`
       create table sites(id uuid primary key,slug text unique,published boolean default false);
-      create table profiles(id uuid primary key,email text,status text default 'active');
+      create table profiles(id uuid primary key,email text,status text default 'active',session_version bigint not null default 0);
       create table site_members(site_id uuid,user_id uuid,role text,primary key(site_id,user_id));
       create table scenes(id uuid primary key default gen_random_uuid(),site_id uuid references sites(id),created_by uuid references profiles(id),
         kind text default 'admin',status text default 'open',share_code text unique,name text,
@@ -90,7 +91,7 @@ test('scene point ownership: actual PostgreSQL and HTTP server', { skip: !proces
     const address = await Promise.race([once(child,'message').then(([m]) => m), new Promise((_,reject) => { const timer=setTimeout(()=>reject(new Error('Fixture server did not start')),8000);timer.unref(); })]);
     const origin = `http://127.0.0.1:${address.port}`;
     const token = (id, email = id === ADMIN ? 'platform@example.test' : 'fixture@example.test') => {
-      const data=Buffer.from(JSON.stringify({profileId:id,email,exp:Date.now()+60000})).toString('base64url');
+      const data=Buffer.from(JSON.stringify({profileId:id,email,sessionVersion:0,exp:Date.now()+60000})).toString('base64url');
       return `${data}.${createHmac('sha256',secret).update(data).digest('base64url')}`;
     };
     const route = (scene=SCENE_A,point='',site='alpha') => `/api/sites/${site}/scenes/${scene}/points${point ? '/'+point : ''}`;
