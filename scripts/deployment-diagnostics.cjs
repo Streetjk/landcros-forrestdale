@@ -35,4 +35,52 @@ function summarizeDeploymentChecks(checks) {
   return findings;
 }
 
-module.exports = { classifyDbError, summarizeDeploymentChecks };
+function evaluateRolloutReadiness(state) {
+  const blockers = [];
+  const warnings = [];
+  const migrationList = Array.isArray(state?.appliedMigrations) ? state.appliedMigrations : [];
+  const targetSha = typeof state?.targetSha === 'string' ? state.targetSha.trim() : '';
+  const nodeSha = typeof state?.nodeSha === 'string' ? state.nodeSha.trim() : '';
+  const staticSha = typeof state?.staticSha === 'string' ? state.staticSha.trim() : '';
+  const targetValid = /^[0-9a-f]{40}$/.test(targetSha);
+  const i19 = migrationList.indexOf('0019');
+  const i20 = migrationList.indexOf('0020');
+
+  if (!targetValid) blockers.push('TARGET_SHA_INVALID');
+  if (state?.ciPassed !== true) blockers.push('CI_NOT_GREEN');
+  if (state?.securityReviewPassed !== true) blockers.push('SECURITY_REVIEW_NOT_PASS');
+  if (state?.databaseEnvironment !== 'production') blockers.push('DATABASE_NOT_PRODUCTION_VERIFIED');
+  if (typeof state?.databaseProjectId !== 'string' || !state.databaseProjectId.trim()) blockers.push('DATABASE_PROJECT_ID_MISSING');
+  if (state?.migrationVerificationPassed !== true) blockers.push('MIGRATION_VERIFICATION_NOT_PASS');
+  if (i19 < 0) blockers.push('MIGRATION_0019_NOT_APPLIED');
+  if (i20 < 0) blockers.push('MIGRATION_0020_NOT_APPLIED');
+  if (i19 >= 0 && i20 >= 0 && i19 > i20) blockers.push('MIGRATION_ORDER_INVALID');
+
+  if (state?.nodeSha != null && !/^[0-9a-f]{40}$/.test(nodeSha)) warnings.push('NODE_SHA_INVALID');
+  else if (nodeSha && nodeSha !== targetSha) warnings.push('NODE_BACKEND_NOT_ON_TARGET');
+  if (state?.staticSha != null && !/^[0-9a-f]{40}$/.test(staticSha)) warnings.push('STATIC_SHA_INVALID');
+  else if (staticSha && staticSha !== targetSha) warnings.push('STATIC_FRONTEND_NOT_ON_TARGET');
+  if (state?.published === true) warnings.push('PUBLICATION_ALREADY_ENABLED');
+
+  const migrationsReady = i19 >= 0 && i20 >= 0 && i19 < i20
+    && state?.databaseEnvironment === 'production'
+    && typeof state?.databaseProjectId === 'string' && Boolean(state.databaseProjectId.trim())
+    && state?.migrationVerificationPassed === true;
+  const codeQualified = state?.ciPassed === true && state?.securityReviewPassed === true && targetValid;
+  return {
+    readyForNodeDeploy: codeQualified && migrationsReady,
+    codeQualified,
+    migrationsReady,
+    blockers,
+    warnings,
+    normalized: {
+      targetSha: targetValid ? targetSha : null,
+      nodeSha: /^[0-9a-f]{40}$/.test(nodeSha) ? nodeSha : null,
+      staticSha: /^[0-9a-f]{40}$/.test(staticSha) ? staticSha : null,
+      databaseProjectId: typeof state?.databaseProjectId === 'string' ? state.databaseProjectId.trim() || null : null,
+    },
+    requiredOrder: ['0019', '0020', 'node-backend-deploy', 'production-verification', 'publication-separate'],
+  };
+}
+
+module.exports = { classifyDbError, summarizeDeploymentChecks, evaluateRolloutReadiness };
