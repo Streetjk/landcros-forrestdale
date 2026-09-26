@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { validatePublicRuntimeConfig, loadDirectPublicData, loadPublicTransport, backendRedirectForScopedRoute, shouldProbeStaffSession, PUBLIC_TRANSPORT_COLUMNS } from '../public-transport.js';
+import { validatePublicRuntimeConfig, loadDirectPublicData, loadPublicTransport, backendApiUrl, backendRedirectForScopedRoute, shouldProbeStaffSession, PUBLIC_TRANSPORT_COLUMNS } from '../public-transport.js';
 
 const runtime = Object.freeze({
   siteSlug: 'landcros',
@@ -99,4 +99,13 @@ test('viewer startup does not ping backend analytics or staff auth on a separate
   assert.match(viewer, /if \(!shouldProbeStaffSession\(_publicRuntime, window\.location\)\) return;[\s\S]*?_pointPhotoSlug/);
   assert.match(index, /window\._snMountStaffShell = \(\) => window\.SiteNavStaffMapShell\?\.mountAuthenticatedMapNav\?\.\(\);/);
   assert.equal((index.match(/mountAuthenticatedMapNav\?\.\(\)/g) || []).length, 1);
+});
+test('explicit report submission targets configured backend without changing startup transport', () => {
+  const viewer=fs.readFileSync('viewer3d.js','utf8');
+  assert.equal(
+    backendApiUrl(runtime, '/api/submissions'),
+    'https://api.example.test/api/submissions',
+  );
+  assert.match(viewer, /fetch\(_apiUrl\('\/api\/submissions'\), \{/);
+  assert.doesNotMatch(viewer, /fetch\('\/api\/submissions', \{/);
 });

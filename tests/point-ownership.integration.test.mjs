@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { once } from 'node:events';
 import { readFileSync } from 'node:fs';
 import './auth-concurrency.integration.test.mjs';
+import './browser-boundary.integration.mjs';
 const require = createRequire(import.meta.url);
 const { Client } = require('pg');
 const uid = n => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;

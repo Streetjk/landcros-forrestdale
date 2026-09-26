@@ -1456,7 +1456,7 @@ function showSubmitReportForm(title, position3d) {
     submitBtn.disabled = true;
     statusEl.textContent = 'Submitting…';
     try {
-      const r = await fetch('/api/submissions', {
+      const r = await fetch(_apiUrl('/api/submissions'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ pointLabel: title, position3d, meta: { notes: textarea.value } }),

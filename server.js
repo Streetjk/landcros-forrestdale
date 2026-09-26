@@ -180,6 +180,10 @@ function _requireSiteAdmin(req, res, slug, cb) {
 // /api/sites/:slug/submissions — rate-limited per-IP, gated on published,
 // with a no-existence-leak 404 shape.
 function _handleSubmissionPost(req, res, slug) {
+  // Public reports may originate from the static CDN, so every terminal
+  // response from this handler must be readable cross-origin. The endpoint is
+  // anonymous and credential-free, matching the global public API preflight.
+  res.setHeader('Access-Control-Allow-Origin', '*');
   if (_rateLimited(req, res, 'submission-create', 20, 3600000)) return;
   sceneDb.isSitePublished(slug).then(published => {
     if (!published) { res.writeHead(404, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ error: 'not found' })); }

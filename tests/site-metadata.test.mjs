@@ -113,3 +113,32 @@ test('GET /api/site serves the stable public metadata contract with short cachin
   assert.equal(Object.hasOwn(body, 'secret'), false);
   assert.equal(Object.hasOwn(body, 'privateNotes'), false);
 });
+
+test('public submission route exposes CORS on preflight and terminal POST responses', async (t) => {
+  const port = await getFreePort();
+  const origin = `http://127.0.0.1:${port}`;
+  const env = { ...process.env, PORT: String(port), SITE: 'landcros', PUBLIC_BASE_URL: origin };
+  delete env.SUPABASE_DB_URL;
+  const child = spawn(process.execPath, ['server.js'], {
+    cwd: new URL('..', import.meta.url),
+    env,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  t.after(() => { if (child.exitCode === null) child.kill('SIGTERM'); });
+
+  await waitUntilReady(origin, child);
+  const preflight = await fetch(`${origin}/api/submissions`, {
+    method: 'OPTIONS',
+    headers: { Origin: 'https://static.example.test', 'Access-Control-Request-Method': 'POST' },
+  });
+  assert.equal(preflight.status, 204);
+  assert.equal(preflight.headers.get('access-control-allow-origin'), '*');
+
+  const post = await fetch(`${origin}/api/submissions`, {
+    method: 'POST',
+    headers: { Origin: 'https://static.example.test', 'Content-Type': 'application/json' },
+    body: JSON.stringify({ pointLabel: 'Gate', meta: { notes: 'test' } }),
+    signal: AbortSignal.timeout(3000),
+  });
+  assert.equal(post.headers.get('access-control-allow-origin'), '*');
+});
