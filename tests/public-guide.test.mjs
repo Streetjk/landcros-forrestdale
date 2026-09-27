@@ -22,6 +22,7 @@ const {
   buildSiteDetailModel,
   buildPointDetailModel,
   hasSiteDetail,
+  hasBuildingDetailContent,
 } = await import(new URL('../location-details.js', import.meta.url));
 
 test('guide-url: buildPinUrl preserves pathname, query scene/s/d, and hash while setting id', () => {
@@ -179,6 +180,17 @@ test('location-details: validateBuildingDetails handles missing, complete, and s
   assert.equal(filtered.imageAlt, null);
 });
 
+test('location-details: public detail empty-state only appears when approved optional content is absent', () => {
+  assert.equal(hasBuildingDetailContent(null), false);
+  assert.equal(hasBuildingDetailContent({}), false);
+  assert.equal(hasBuildingDetailContent({ description: '  ' }), false);
+  assert.equal(hasBuildingDetailContent({ phone: 'javascript:bad' }), false);
+  assert.equal(hasBuildingDetailContent({ description: 'Reception building.' }), true);
+  assert.equal(hasBuildingDetailContent({ visitorInfo: 'Use the public entrance.' }), true);
+  assert.equal(hasBuildingDetailContent({ phone: '08 9000 0000' }), true);
+  assert.equal(hasBuildingDetailContent({ image: '/photos/building.webp' }), true);
+});
+
 
 test('location-details: visitorInfo is trimmed plain text and rejects non-strings', () => {
   assert.equal(validateBuildingDetails({ visitorInfo: '  Report to reception.  ' }).visitorInfo, 'Report to reception.');
@@ -205,8 +217,8 @@ test('site detail model reuses the public location contract without inventing op
   assert.equal(hasSiteDetail(model), false, 'model shape itself is not mistaken for API site metadata');
 });
 
-test('site detail availability requires a sanitized optional public detail', () => {
-  assert.equal(hasSiteDetail({ slug: 'landcros', name: 'LANDCROS', address: '107 Allen Rd' }), false);
+test('site detail availability accepts sanitized public metadata including address', () => {
+  assert.equal(hasSiteDetail({ slug: 'landcros', name: 'LANDCROS', address: '107 Allen Rd' }), true);
   assert.equal(hasSiteDetail({ slug: 'landcros', mainPhone: '08 9000 0000' }), true);
   assert.equal(hasSiteDetail({ slug: 'landcros', visitorInfo: 'Reception first.' }), true);
   assert.equal(hasSiteDetail({ slug: 'landcros', buildingPhoto: '/building.webp' }), true);

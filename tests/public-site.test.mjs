@@ -5,7 +5,7 @@ import { readFile } from 'node:fs/promises';
 const fileUrl = new URL('../public-site.js', import.meta.url);
 const code = await readFile(fileUrl, 'utf8');
 const dataUri = `data:text/javascript;base64,${Buffer.from(code).toString('base64')}`;
-const { loadPublicSiteMetadata, resolveSiteBranding, sanitizePublicLogoUrl, validatePublicSiteMetadata } = await import(dataUri);
+const { loadPublicSiteMetadata, resolvePublicSiteMetadata, resolveSiteBranding, sanitizePublicLogoUrl, validatePublicSiteMetadata } = await import(dataUri);
 
 test('public site client keeps the exact allowlist and trims strings', () => {
   assert.deepEqual(validatePublicSiteMetadata({
@@ -72,9 +72,69 @@ test('API branding overlays only shell fields and local config remains the fallb
   assert.equal('mainPhone' in resolveSiteBranding(local, remote), false);
 });
 
+test('static and Node site-detail paths resolve the same allowlisted metadata', () => {
+  const local = {
+    name: 'LANDCROS', title: 'Site Navigator', address: '107 Allen Rd',
+    mainPhone: ' 08 9000 0000 ', visitorInfo: ' Reception first. ',
+    buildingPhoto: '/building.webp', speedLimitSign: '/speed.png', privateNotes: 'never',
+  };
+  const remote = { slug: 'landcros', name: ' Published LANDCROS ', address: ' Published address ' };
+  assert.deepEqual(resolvePublicSiteMetadata(local, remote), {
+    slug: 'landcros',
+    name: 'Published LANDCROS',
+    title: 'Site Navigator',
+    address: 'Published address',
+    mainPhone: '08 9000 0000',
+    visitorInfo: 'Reception first.',
+    buildingPhoto: '/building.webp',
+  });
+});
+
+test('remote site metadata cannot erase approved local visitor details or import private fields', () => {
+  const resolved = resolvePublicSiteMetadata(
+    {
+      slug: 'landcros',
+      address: '107 Allen Rd',
+      visitorInfo: 'Use the signed public entrance.',
+      mainPhone: '08 9000 0000',
+    },
+    {
+      slug: 'landcros',
+      address: '   ',
+      visitorInfo: '',
+      mainPhone: null,
+      privateNotes: 'never',
+      staffEmail: 'private@example.test',
+    },
+  );
+  assert.deepEqual(resolved, {
+    slug: 'landcros',
+    address: '107 Allen Rd',
+    visitorInfo: 'Use the signed public entrance.',
+    mainPhone: '08 9000 0000',
+  });
+  assert.equal('privateNotes' in resolved, false);
+  assert.equal('staffEmail' in resolved, false);
+});
+
+test('LANDCROS static site metadata stays current without inventing optional visitor content', async () => {
+  const config = JSON.parse(await readFile(new URL('../sites/landcros/data/config.json', import.meta.url), 'utf8'));
+  const resolved = resolvePublicSiteMetadata(config.site, { slug: 'landcros' });
+
+  assert.equal(resolved.slug, 'landcros');
+  assert.equal(resolved.name, config.site.name.trim());
+  assert.equal(resolved.title, config.site.title.trim());
+  assert.equal(resolved.address, config.site.address.trim());
+  assert.equal(resolved.logo, config.site.logo.trim());
+  for (const field of ['mainPhone', 'visitorInfo', 'buildingPhoto']) {
+    const approved = typeof config.site[field] === 'string' && config.site[field].trim().length > 0;
+    assert.equal(field in resolved, approved, `${field} must come only from approved site config`);
+  }
+});
+
 test('viewer starts public site metadata without gating local config or renderer settings', async () => {
   const viewer = await readFile(new URL('../viewer3d.js', import.meta.url), 'utf8');
-  assert.match(viewer, /import \{ resolveSiteBranding, sanitizePublicLogoUrl \} from '\.\/public-site\.js';/);
+  assert.match(viewer, /import \{ resolvePublicSiteMetadata, resolveSiteBranding, sanitizePublicLogoUrl \} from '\.\/public-site\.js';/);
   assert.match(viewer, /loadPublicRuntimeConfig\(globalThis\.fetch\)[\s\S]*?loadPublicTransport\(_runtime, globalThis\.fetch\)[\s\S]*?const _publicSitePromise = _publicTransportPromise\.then\(result => result\.siteResult\);[\s\S]*?_cfg = await fetch\('\.\/data\/config\.json'/);
   assert.match(viewer, /_applyBranding\(_cfg\);[\s\S]*?_publicSitePromise\.then\(\(\{ data \}\) => \{[\s\S]*?if \(data\) _applyBranding\(_cfg, data\);/);
   assert.match(viewer, /_syncSiteInfoAction\(_publicSiteMetadata\)/);
@@ -95,9 +155,10 @@ test('site information action is detail-only and does not write browser history'
   const start = viewer.indexOf('function _syncSiteInfoAction(publicSite)');
   const end = viewer.indexOf('function _applyBranding(', start);
   const block = viewer.slice(start, end);
-  assert.match(block, /hasSiteDetail\(publicSite\)/);
+  assert.match(block, /resolvePublicSiteMetadata\(_cfg\?\.site, publicSite\)/);
+  assert.match(block, /hasSiteDetail\(siteDetail\)/);
   assert.match(block, /_cancelActiveTour\(\)/);
-  assert.match(block, /showSiteDetail\(publicSite, _openDetailPanel\)/);
+  assert.match(block, /showSiteDetail\(siteDetail, _openDetailPanel\)/);
   assert.doesNotMatch(block, /history\.(pushState|replaceState)/);
   assert.match(viewer, /const fromSiteInfo = _siteInfoDetailOpen;[\s\S]*?fromSiteInfo \? 'none' : 'push'/);
 

@@ -1,0 +1,46 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "fixture-complete",
+        "name": "Synthetic Workshop",
+        "pos3d": { "x": 1, "y": 2, "z": 3 },
+        "details": {
+          "description": "Synthetic description for preview only.",
+          "visitorInfo": "Synthetic visitors report to reception.",
+          "phone": "(08) 0000 0000",
+          "image": "/fixture/synthetic-workshop.webp",
+          "imageAlt": "Synthetic preview image"
+        }
+      },
+      "geometry": { "type": "Point", "coordinates": [115.95, -32.14] }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "fixture-missing",
+        "name": "Synthetic Missing Content",
+        "pos3d": { "x": 4, "y": 5, "z": 6 }
+      },
+      "geometry": { "type": "Point", "coordinates": [115.95, -32.14] }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "fixture-invalid",
+        "name": "Synthetic Invalid Content",
+        "pos3d": { "x": 7, "y": 8, "z": 9 },
+        "details": {
+          "description": "Synthetic description.",
+          "visitorInfo": "Synthetic visitor information.",
+          "phone": "not-a-phone",
+          "image": "javascript:alert(1)",
+          "imageAlt": "Synthetic alt text"
+        }
+      },
+      "geometry": { "type": "Point", "coordinates": [115.95, -32.14] }
+    }
+  ]
+}

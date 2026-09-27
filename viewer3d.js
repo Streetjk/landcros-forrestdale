@@ -10,7 +10,7 @@ import { initComparison, updateComparison, comparisonNeedsRender } from './splat
 import { buildPinUrl, clearPinUrl, buildMyPinShareUrl, buildMyPinPhotoUrl } from './guide-url.js';
 import { buildPointDetailModel, hasSiteDetail, showBuildingDetail, showSiteDetail } from './location-details.js';
 import { loadPublicArray, renderPublicDataNotice, isRenderablePoint, isRenderableContact, projectPublicPoint, projectPublicContact } from './public-data.js';
-import { resolveSiteBranding, sanitizePublicLogoUrl } from './public-site.js';
+import { resolvePublicSiteMetadata, resolveSiteBranding, sanitizePublicLogoUrl } from './public-site.js';
 import { loadPublicRuntimeConfig, loadPublicTransport, backendRedirectForScopedRoute, shouldProbeStaffSession, backendApiUrl } from './public-transport.js';
 import { getBasePublicVisitPointId } from './visit-analytics.js';
 import { createPointListItem } from './point-list-item.js';
@@ -192,16 +192,27 @@ function _isComparisonOnly() {
   return _cfg.scene?.type === 'comparison-only' || _cfg.comparison?.mode === 'only';
 }
 
-// Progressive base-guide reveal is deliberately limited to the plain public
-// viewer. Any unknown/special query capability fails closed; only the local
-// performance probe parameters are allowed through.
+// Progressive base-guide reveal is limited to the plain public viewer and an
+// exact, syntactically valid My Pins recipient route. The capability still
+// authorizes only its one point; revealing the already-public base guide does
+// not weaken that boundary. Unknown/special routes remain blocking.
 function _isVanillaProgressiveRoute() {
   if (_Q.skipSplat || _debugMode || _isComparisonOnly() || _cfg.comparison?.enabled) return false;
+  const hash = window.location.hash || '';
+
+  if (_publicMyPinActive) {
+    const allowedParams = new Set(['id', 'perf', 'perfHud', 'dragDpr']);
+    for (const key of _params.keys()) {
+      if (!allowedParams.has(key)) return false;
+    }
+    if (_params.getAll('id').length !== 1) return false;
+    return hash === `#myPin=${_publicMyPinToken}`;
+  }
+
   const allowedParams = new Set(['perf', 'perfHud', 'dragDpr']);
   for (const key of _params.keys()) {
     if (!allowedParams.has(key)) return false;
   }
-  const hash = window.location.hash || '';
   return hash === '' || hash === '#map';
 }
 function _resolveModels(route) {
@@ -757,14 +768,18 @@ function _buildCamButtons(cfg) {
 function _syncSiteInfoAction(publicSite) {
   const button = document.getElementById('site-info-item');
   if (!button) return;
-  const available = hasSiteDetail(publicSite);
+  // Node /api/site reads the deployed site config, while the static guide gets
+  // publication authority from Supabase. Merge only the same public allowlist
+  // so approved config-only visitor metadata behaves consistently on both.
+  const siteDetail = resolvePublicSiteMetadata(_cfg?.site, publicSite);
+  const available = hasSiteDetail(siteDetail);
   button.hidden = !available;
   button.onclick = available ? () => {
     _cancelActiveTour();
     _leavePinDetail();
     _siteInfoDetailOpen = true;
     updatePinHighlight(null);
-    showSiteDetail(publicSite, _openDetailPanel);
+    showSiteDetail(siteDetail, _openDetailPanel);
     if (window.innerWidth <= 1024) _openCompactPanelDetail({ full: true });
   } : null;
 }
@@ -1696,6 +1711,7 @@ async function selectPoint(pt, options = {}) {
   _siteInfoDetailOpen = false;
   const historyMode = options?.historyMode === 'none' ? 'none'
     : options?.historyMode === 'replace' ? 'replace' : 'push';
+  const focusCamera = options?.focusCamera !== false;
   // A direct second click is a user toggle. History restoration must be able
   // to re-apply the same detail without turning it back into the list view.
   if (_selectedId === pt.id && historyMode === 'push') {

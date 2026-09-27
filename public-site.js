@@ -62,7 +62,7 @@ export async function loadPublicSiteMetadata(fetchFn = globalThis.fetch) {
   }
 }
 
-export function resolveSiteBranding(localSite, publicSite) {
+export function resolvePublicSiteMetadata(localSite, publicSite) {
   const local = localSite && typeof localSite === 'object' && !Array.isArray(localSite)
     ? localSite
     : {};
@@ -70,11 +70,22 @@ export function resolveSiteBranding(localSite, publicSite) {
     ? publicSite
     : {};
   const out = {};
-  for (const field of BRAND_FIELDS) {
+  for (const field of PUBLIC_SITE_FIELDS) {
     const value = field === 'logo'
       ? sanitizePublicLogoUrl(remote[field]) ?? sanitizePublicLogoUrl(local[field])
       : cleanString(remote[field]) ?? cleanString(local[field]);
     if (value) out[field] = value;
+  }
+  const slug = cleanString(remote.slug) ?? cleanString(local.slug);
+  if (slug) out.slug = slug;
+  return out;
+}
+
+export function resolveSiteBranding(localSite, publicSite) {
+  const resolved = resolvePublicSiteMetadata(localSite, publicSite);
+  const out = {};
+  for (const field of BRAND_FIELDS) {
+    if (resolved[field]) out[field] = resolved[field];
   }
   return out;
 }
