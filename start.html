@@ -52,19 +52,55 @@
     </a>
   </div>
 
-  <footer>Pin admin: <a href="admin3d.html">admin3d.html</a> · Platform: <a href="portal.html">portal.html</a></footer>
+  <footer>Pin admin: <a id="link-pin-admin" href="admin3d.html">admin3d.html</a> · Platform: <a id="link-platform" href="portal.html">portal.html</a></footer>
 
   <script>
-    // Site slug: ?site=<slug> on this page, else whatever the server serves
-    // (/api/site); the hrefs above are the landcros fallback for static hosts.
+    function _safeStaffOrigin(value) {
+      if (typeof value !== 'string' || !value.trim()) return null;
+      try {
+        const url = new URL(value.trim());
+        if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash) return null;
+        return url.origin;
+      } catch { return null; }
+    }
+
+    async function _loadStartRuntime() {
+      try {
+        const response = await fetch('./data/public-runtime.json', { cache: 'no-store' });
+        if (!response.ok) return null;
+        const value = await response.json();
+        const apiOrigin = _safeStaffOrigin(value?.apiOrigin);
+        const siteSlug = typeof value?.siteSlug === 'string' && /^[a-z0-9][a-z0-9-]{1,62}$/.test(value.siteSlug)
+          ? value.siteSlug : null;
+        return apiOrigin && siteSlug ? { apiOrigin, siteSlug } : null;
+      } catch { return null; }
+    }
+
+    function _staffHref(origin, path, slug, extra = {}) {
+      const target = new URL(path, origin);
+      if (slug) target.searchParams.set('site', slug);
+      for (const [key, value] of Object.entries(extra)) target.searchParams.set(key, value);
+      return target.href;
+    }
+
+    // Static public hosting and the staff/auth Node service intentionally use
+    // different origins. Runtime config is the authority for the staff origin;
+    // if it is unavailable, the checked-in relative links remain as a safe
+    // same-origin fallback rather than guessing another host.
     (async () => {
+      const runtime = await _loadStartRuntime();
       let slug = new URLSearchParams(location.search).get('site');
+      if (!slug && runtime?.siteSlug) slug = runtime.siteSlug;
       if (!slug) {
         try { const c = await fetch('/api/site').then(r => r.ok ? r.json() : null); slug = c?.slug || null; } catch {}
       }
       if (!slug || !/^[a-z0-9][a-z0-9-]{1,62}$/.test(slug)) return;
-      document.getElementById('link-admin').href = `editor.html?site=${encodeURIComponent(slug)}`;
-      document.getElementById('link-hazard').href = `editor.html?site=${encodeURIComponent(slug)}&mode=hazard`;
+
+      const staffOrigin = runtime?.apiOrigin || location.origin;
+      document.getElementById('link-admin').href = _staffHref(staffOrigin, '/editor.html', slug);
+      document.getElementById('link-hazard').href = _staffHref(staffOrigin, '/editor.html', slug, { mode: 'hazard' });
+      document.getElementById('link-pin-admin').href = _staffHref(staffOrigin, '/admin3d.html', slug);
+      document.getElementById('link-platform').href = _staffHref(staffOrigin, '/portal.html', slug);
     })();
   </script>
 </body>

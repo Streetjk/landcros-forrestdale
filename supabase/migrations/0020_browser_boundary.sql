@@ -18,6 +18,26 @@ grant select (
 grant select (id, site_id, name, role, phone, active)
   on table public.contacts to anon;
 
+-- Production may still carry the pre-0015 helper body because 0015 was applied
+-- outside normal migration history. Reassert the exact shared BASE predicate
+-- here so 0020 cannot preserve legacy/unreferenced-contact visibility drift.
+create or replace function public.contact_is_base_visible(cid uuid, sid uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+  select exists (
+    select 1
+    from public.points p
+    where p.site_id = sid
+      and p.scene_id is null
+      and p.scope = 'shared'
+      and cid = any(p.contact_ids)
+  );
+$$;
+
 -- Preserve the 0019 self-profile display projection only.
 grant select (id, email, display_name, status, created_at)
   on table public.profiles to authenticated;
