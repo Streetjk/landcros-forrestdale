@@ -22,6 +22,14 @@ test('account My Pins publish/revoke a per-pin capability and never fall back to
   assert.match(admin, /_accountShareTokens\.clear\(\)/);
 });
 
+test('switching editor pins clears any QR from the previous pin', () => {
+  const start = admin.indexOf('function openEditor(');
+  const end = admin.indexOf('window.closeEditor = function()', start);
+  assert.ok(start >= 0 && end > start);
+  const body = admin.slice(start, end);
+  assert.match(body, /_clearShareQr\(\);[\s\S]*?_editingPoint = _copy\(pt\)/);
+});
+
 test('ordinary share-link access never implicitly rotates a distributed capability', () => {
   const helperStart = admin.indexOf('async function _buildShareUrl');
   const helperEnd = admin.indexOf('// ── Share link (inline display)', helperStart);

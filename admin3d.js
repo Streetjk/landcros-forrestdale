@@ -507,6 +507,10 @@ window.filterPins = val => renderPointList(val);
 function openEditor(pt, account = Boolean(pt?.sceneId), legacy = false) {
   if (!pt || _saving || !_accountReady) return;
   if (_isNewPoint && _editingPoint && _editingPoint.id !== pt.id) _v3d?.removePin(_editingPoint.id);
+  // QR content is rendered outside the drawer. Always clear it before
+  // switching editor context so a previous pin's scoped link cannot remain
+  // visible under another pin's title/details.
+  _clearShareQr();
   _isNewPoint = !legacy && !_points.some(p => p.id === pt.id) && !_personalPins.some(p => p.id === pt.id);
   _editingPoint = _copy(pt);
   _editingIsAccount = account;
