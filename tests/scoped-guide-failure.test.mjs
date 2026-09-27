@@ -15,3 +15,20 @@ test('scene share failures show a generic notice while hazard 401 still hands of
   assert.match(source, /_scopedGuideUnavailable\s*\?\s*'This shared guide is temporarily unavailable\. The site map is still available\.'/);
   assert.doesNotMatch(source, /temporarily unavailable[^\n]*(?:_publicMyPinToken|_sceneCode|response\.status)/);
 });
+
+test('valid My Pins recipient route uses progressive base-guide reveal without broadening other scoped routes', () => {
+  const start = source.indexOf('function _isVanillaProgressiveRoute()');
+  const end = source.indexOf('function _resolveModels', start);
+  assert.ok(start >= 0 && end > start);
+  const block = source.slice(start, end);
+  assert.ok(block.includes('if (_publicMyPinActive)'));
+  assert.ok(block.includes("new Set(['id', 'perf', 'perfHud', 'dragDpr'])"));
+  assert.ok(block.includes("_params.getAll('id').length !== 1"));
+  assert.ok(block.includes('hash === `#myPin=${_publicMyPinToken}`'));
+  assert.equal(block.includes('scene'), false);
+  assert.equal(block.includes('share'), false);
+  assert.equal(block.includes('code'), false);
+  assert.ok(source.includes('const _progressivePublic = !_compOnly && _isVanillaProgressiveRoute();'));
+  assert.ok(source.includes("if (_progressivePublic && _splatStatus !== 'ready')"));
+  assert.ok(source.includes('fetch(`/api/my-pins/points/${encodeURIComponent(_deepId)}`'));
+});

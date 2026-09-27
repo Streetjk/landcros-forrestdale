@@ -1,8 +1,9 @@
 """Local-only browser qualification for progressive public guide loading.
 
 Headless Chromium is regression evidence only, not physical-phone performance.
-The fixture holds the local splat request to prove the vanilla guide becomes
-usable first while deep/share-style routes retain blocking behaviour.
+The fixture holds the local splat request to prove the vanilla guide and an
+exact valid My Pins recipient route become usable first while malformed or
+other scoped routes retain blocking behaviour.
 """
 import argparse
 import json
@@ -24,6 +25,8 @@ SCENE = {
     'scene': {'id': 'fixture-scene', 'kind': 'admin', 'name': 'Fixture guide', 'status': 'open'},
     'objects': [], 'pins': [], 'contacts': [], 'photos': [], 'viewer': {'signedIn': False},
 }
+MY_PIN_ID = '00000000-0000-4000-8000-000000000003'
+MY_PIN_TOKEN = 'A' * 43
 
 results = []
 with sync_playwright() as p:
@@ -37,6 +40,7 @@ Object.defineProperty(navigator,'connection',{configurable:true,get:()=>({effect
     page = context.new_page()
     state = {'mode': 'hold'}
     held = []
+    capability_requests = []
     errors = []
     page.on('pageerror', lambda e: errors.append(str(e)))
 
@@ -53,6 +57,19 @@ Object.defineProperty(navigator,'connection',{configurable:true,get:()=>({effect
             if state['mode'] == 'fail':
                 route.fulfill(status=503, body='fixture splat unavailable')
                 return
+        if path.endswith('/data/public-runtime.json'):
+            # Keep qualification local-only. An invalid runtime config forces
+            # the historical local API transport instead of production Supabase
+            # reads or a scoped-route redirect to the configured Render origin.
+            reply(route, {})
+            return
+        if path.startswith('/api/my-pins/points/') and request.method == 'GET':
+            capability_requests.append({
+                'path': path,
+                'authorization': request.headers.get('authorization'),
+            })
+            reply(route, SCENE)
+            return
         if path.startswith('/api/scenes/by-code/'):
             reply(route, SCENE)
             return
@@ -115,6 +132,58 @@ Object.defineProperty(navigator,'connection',{configurable:true,get:()=>({effect
         assert 'fixture splat unavailable' not in page.locator('#splat-msg').inner_text()
         assert page.locator('#labels-wrap [role=button]').count() > 0
         results.append({'case': 'vanilla-progressive-failure', 'status': 'passed', 'synthetic': True})
+
+        # Exact valid My Pins recipient route: the public base guide may become
+        # usable while the splat is still held, but the bearer is sent only to
+        # the point-qualified capability endpoint.
+        state['mode'] = 'hold'
+        before_capability_requests = len(capability_requests)
+        page.goto(
+            args.base_url + f'/?id={MY_PIN_ID}&perf=1&perfHud=0#myPin={MY_PIN_TOKEN}',
+            wait_until='domcontentloaded',
+            timeout=30000,
+        )
+        page.wait_for_function("window.__sitenavPerf && typeof window.__sitenavPerf.snapshot==='function'", timeout=15000)
+        page.wait_for_selector('#app.scene-ready', timeout=10000)
+        assert held, 'valid My Pins route did not hold the splat request'
+        deadline = time.monotonic() + 5
+        while len(capability_requests) == before_capability_requests and time.monotonic() < deadline:
+            page.wait_for_timeout(100)
+        assert len(capability_requests) == before_capability_requests + 1, capability_requests
+        request = capability_requests[-1]
+        assert request['path'] == f'/api/my-pins/points/{MY_PIN_ID}', request
+        assert request['authorization'] == f'Bearer {MY_PIN_TOKEN}', request
+        events = perf_events()
+        assert 'baseGuideReady' in events and 'visualReady' in events
+        assert 'splatReady' not in events
+        release_held()
+        page.wait_for_function("window.__sitenavPerf.snapshot().events.some(e => e.name === 'splatReady')", timeout=30000)
+        results.append({'case': 'my-pins-progressive-success', 'status': 'passed', 'synthetic': True})
+
+        # Malformed bearer: remain blocking and fail closed without making a
+        # capability request. The ordinary public guide appears only after the
+        # held splat settles, with scoped-unavailable messaging handled by UI.
+        state['mode'] = 'hold'
+        before_capability_requests = len(capability_requests)
+        malformed_token = MY_PIN_TOKEN[:-1]
+        page.goto(
+            args.base_url + f'/?id={MY_PIN_ID}&perf=1&perfHud=0#myPin={malformed_token}',
+            wait_until='domcontentloaded',
+            timeout=30000,
+        )
+        page.wait_for_function("window.__sitenavPerf && typeof window.__sitenavPerf.snapshot==='function'", timeout=15000)
+        deadline = time.monotonic() + 5
+        while not held and time.monotonic() < deadline:
+            page.wait_for_timeout(100)
+        assert held, 'malformed My Pins route did not hold the splat request'
+        page.wait_for_timeout(1600)
+        assert page.locator('#app.scene-ready').count() == 0, 'malformed My Pins route revealed before splat settled'
+        assert len(capability_requests) == before_capability_requests, capability_requests
+        release_held()
+        page.wait_for_selector('#app.scene-ready', timeout=30000)
+        assert len(capability_requests) == before_capability_requests, capability_requests
+        results.append({'case': 'my-pins-malformed-remains-blocking', 'status': 'passed', 'synthetic': True})
+
         # Deep scene route: still blocks scene-ready until the real splat settles.
         state['mode'] = 'hold'
         page.goto(args.base_url + '/?scene=abcde12345&perf=1&perfHud=0', wait_until='domcontentloaded', timeout=30000)

@@ -3,6 +3,17 @@ import { createDetailPhoneLink } from './detail-card.js';
 
 const RASTER_EXT_RE = /\.(jpe?g|png|webp|avif|gif)$/i;
 
+// This is the complete source-field contract for a building's optional public
+// detail card. Keep this list separate from the renderer so readiness tooling
+// can report what approved content is still absent without inventing values.
+export const PUBLIC_BUILDING_DETAIL_FIELDS = Object.freeze([
+  'description',
+  'visitorInfo',
+  'phone',
+  'image',
+  'imageAlt',
+]);
+
 /**
  * Sanitizes a telephone string into a safe tel: URL and display value.
  * Rejects control characters, HTML tags, protocol injections, or non-phone input.
@@ -95,6 +106,69 @@ export function validateBuildingDetails(details) {
   };
 }
 
+function buildingProperties(building) {
+  if (!building || typeof building !== 'object' || Array.isArray(building)) return {};
+  const properties = building.properties;
+  return properties && typeof properties === 'object' && !Array.isArray(properties)
+    ? properties
+    : building;
+}
+
+function hasDetailValue(field, value) {
+  if (field === 'phone') return Boolean(sanitizePhone(value));
+  if (field === 'image') return Boolean(sanitizeImageUrl(value));
+  return typeof value === 'string' && value.trim() !== '';
+}
+
+/**
+ * Reports public-content completeness for one building without changing it.
+ * A field is "missing" when it is absent/blank; malformed present values are
+ * reported separately so the content owner gets an exact remediation list.
+ *
+ * The contract remains optional at runtime, so this is deliberately a
+ * readiness report rather than a renderer gate. `ready` means every approved
+ * contract field is present and valid; no synthetic value is ever returned.
+ * @param {unknown} building - GeoJSON feature or properties object
+ */
+export function assessBuildingDetailReadiness(building) {
+  const properties = buildingProperties(building);
+  const details = properties.details;
+  const source = details && typeof details === 'object' && !Array.isArray(details)
+    ? details
+    : {};
+  const missingFields = [];
+  const invalidFields = [];
+  const presentFields = [];
+
+  for (const field of PUBLIC_BUILDING_DETAIL_FIELDS) {
+    const value = source[field];
+    if (!hasDetailValue(field, value)) {
+      if (value === undefined || value === null || (typeof value === 'string' && value.trim() === '')) {
+        missingFields.push(field);
+      } else {
+        invalidFields.push(field);
+      }
+      continue;
+    }
+    presentFields.push(field);
+  }
+
+  const id = typeof properties.id === 'string' && properties.id.trim() ? properties.id.trim() : null;
+  const name = typeof properties.name === 'string' && properties.name.trim()
+    ? properties.name.trim()
+    : (typeof properties.labelText === 'string' && properties.labelText.trim() ? properties.labelText.trim() : null);
+
+  return {
+    id,
+    name,
+    detailsPresent: Object.keys(source).length > 0,
+    ready: missingFields.length === 0 && invalidFields.length === 0,
+    presentFields,
+    missingFields,
+    invalidFields,
+  };
+}
+
 function cleanDisplayText(value) {
   if (typeof value !== 'string') return null;
   const trimmed = value.trim();
@@ -122,7 +196,14 @@ export function buildSiteDetailModel(site) {
 
 export function hasSiteDetail(site) {
   const details = validateBuildingDetails(buildSiteDetailModel(site).details);
-  return Boolean(details.visitorInfo || details.phone || details.image);
+  // Address is approved public site metadata and is useful visitor information
+  // even when optional phone/instructions/photo content has not been approved.
+  return Boolean(details.description || details.visitorInfo || details.phone || details.image);
+}
+
+export function hasBuildingDetailContent(details) {
+  const value = validateBuildingDetails(details);
+  return Boolean(value.description || value.visitorInfo || value.phone || value.image);
 }
 
 /** Build a safe read-only point detail model from projected public data. */
@@ -175,7 +256,9 @@ export function showBuildingDetail(building, openDetailPanel) {
 
   const notes = document.getElementById('detail-notes');
   if (notes) {
-    notes.textContent = details.description || '';
+    const empty = !hasBuildingDetailContent(p.details);
+    notes.textContent = details.description || (empty ? 'Visitor information is not available for this location.' : '');
+    notes.classList.toggle('detail-empty-state', empty);
   }
 
   let visitorBlock = document.getElementById('detail-visitor-info');
