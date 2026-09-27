@@ -21,6 +21,7 @@ let _isNewPoint    = false;
 let _placing        = false;
 let _accountSession = null;
 let _accountShareTokens = new Map(); // plaintext capabilities live in memory only
+let _accountShareRecovery = new Map(); // transient owner-only recovery state; never stores a bearer
 let _accountReady = false;
 let _legacyPins = [];       // read-only browser backup until explicitly imported
 let _editingIsLegacy = false;
@@ -191,7 +192,10 @@ async function _maybeInitAdmin() {
   }
   const epoch = ++_initEpoch;
   const email = window._snAdminIdentity.email;
-  if (_accountEmail && _accountEmail !== email) _accountShareTokens.clear();
+  if (_accountEmail && _accountEmail !== email) {
+    _accountShareTokens.clear();
+    _accountShareRecovery.clear();
+  }
   _accountReady = false; _setBusy(false); _setAccountStatus('Loading account pins…');
   _initPromise = (async () => {
     const [bounds, site] = await Promise.all([
@@ -235,7 +239,8 @@ window.addEventListener('sitenav:auth-ready', () => _maybeInitAdmin());
 window.addEventListener('sitenav:auth-cleared', () => {
   _setEditorPanel(false);
   window.SiteNavStaffNav?.unmount?.();
-  ++_initEpoch; _accountReady = false; _accountSession = null; _accountEmail = null; _accountShareTokens.clear();
+  ++_initEpoch; _accountReady = false; _accountSession = null; _accountEmail = null;
+  _accountShareTokens.clear(); _accountShareRecovery.clear();
   _personalPins = []; _legacyPins = []; _contacts = []; _contactsAll = []; _editingContactIds = [];
   _editingPoint = null; _editingIsLegacy = false; _isNewPoint = false;
   _pinPhotos = []; _pinPhotosFor = null;
@@ -573,12 +578,26 @@ function renderDrawerBody() {
 
   // unassigned contacts used by the search autocomplete (attached after innerHTML)
 
+  const shareRecovery = _editingIsAccount ? (_accountShareRecovery.get(pt.id) || null) : null;
   const actionButtons = _editingIsAccount
     ? isPersonal
       ? `<button class="pin-action-btn action" type="button" ${_isNewPoint ? 'disabled' : ''} onclick="window._adminSetAccountPublished(true)">Publish guide</button>`
-      : `<button class="pin-action-btn action" type="button" onclick="window._adminToggleQR()">QR</button>
+      : _accountShareTokens.has(pt.id)
+      ? `<button class="pin-action-btn action" type="button" onclick="window._adminToggleQR()">QR</button>
          <button class="pin-action-btn action" type="button" onclick="window._adminShowShareLink()">Share link</button>
+         <button class="pin-action-btn action" type="button" onclick="window._adminPreviewRecipient()">Preview recipient</button>
          <button class="pin-action-btn" type="button" onclick="window._adminSetAccountPublished(false)">Stop sharing</button>`
+      : shareRecovery === 'uncertain'
+      ? `<button class="pin-action-btn action" type="button" onclick="window._adminReplaceShareCapability()">Recover with new link</button>
+         <button class="pin-action-btn" type="button" onclick="window._adminSetAccountPublished(false)">Stop sharing</button>
+         <div class="full" style="font-size:11px;color:var(--text-secondary);margin-top:4px">The last link replacement could not be confirmed. The previous link may already be revoked and the new secret cannot be recovered. Create a new link only when you are ready to replace any link that may still work.</div>`
+      : shareRecovery === 'revoked'
+      ? `<button class="pin-action-btn action" type="button" onclick="window._adminReplaceShareCapability()">Create new share link</button>
+         <button class="pin-action-btn" type="button" onclick="window._adminSetAccountPublished(false)">Stop sharing</button>
+         <div class="full" style="font-size:11px;color:var(--text-secondary);margin-top:4px">The previous scoped link is known to be revoked. Create a new link only if this guide should remain published.</div>`
+      : `<button class="pin-action-btn action" type="button" onclick="window._adminReplaceShareCapability()">Replace share link</button>
+         <button class="pin-action-btn" type="button" onclick="window._adminSetAccountPublished(false)">Stop sharing</button>
+         <div class="full" style="font-size:11px;color:var(--text-secondary);margin-top:4px">A previously distributed link may still be active. This browser cannot verify or recover its secret after reload. Replace it only when you intentionally want a known new link/QR; replacement revokes the previous link.</div>`
     : isPersonal
     ? `<button class="pin-action-btn action" onclick="window._adminShowShareLink()">Share link</button>`
     : `<button class="pin-action-btn action" onclick="window._adminToggleQR()">QR</button>
@@ -964,13 +983,19 @@ window._adminRemoveContact = id => {
 };
 
 // ── Save / Delete ─────────────────────────────────────────────────────────────
-window._adminSave = async (accountScope = null) => {
-  if (!_editingPoint || _saving || !_accountReady) return;
-  if (_editingIsLegacy) return showToast('Import this device-only pin before editing it');
+window._adminSave = async (accountScope = null, options = {}) => {
+  const operationLock = options?.operationLock === true;
+  if (!_editingPoint || (_saving && !operationLock) || !_accountReady) return null;
+  if (_editingIsLegacy) {
+    showToast('Import this device-only pin before editing it');
+    return null;
+  }
   _captureDraft();
   const snapshot = _copy(_editingPoint);
   const account = _editingIsAccount;
   const epoch = _initEpoch;
+  if (operationLock && options?.expectedPointId && snapshot.id !== options.expectedPointId) return null;
+  if (operationLock && options?.expectedSession && _accountSession !== options.expectedSession) return null;
   snapshot.label = String(snapshot.label || '').trim();
   if (snapshot.label.length < 2) { showToast('Label must be at least 2 characters'); return; }
   snapshot.notes = String(snapshot.notes || '').trim();
@@ -991,7 +1016,8 @@ window._adminSave = async (accountScope = null) => {
   const existingAccountScope = _personalPins.find(p => p.id === snapshot.id)?.scope || 'personal';
   const requestedAccountScope = accountScope === 'shared' || accountScope === 'personal' ? accountScope : null;
   snapshot.scope = account ? (requestedAccountScope || existingAccountScope) : _editingScope;
-  _saving = true; _setBusy(true);
+  if (!operationLock) _saving = true;
+  _setBusy(true);
   try {
     const saved = account ? await _accountSession.save(snapshot) : await savePoint(snapshot);
     if (epoch !== _initEpoch) return;
@@ -1004,6 +1030,7 @@ window._adminSave = async (accountScope = null) => {
     _editingPoint = _copy(saved); _editingScope = saved.scope || _editingScope; _isNewPoint = false;
     _v3d.upsertPin(saved); _v3d.updatePinHighlight(saved.id);
     renderPointList(); renderDrawerBody();
+    if (operationLock) _setBusy(true);
     document.getElementById('drawer-title').textContent = saved.label;
     if (_slug && (account || saved.scope === 'shared')) _loadPinPhotos(saved.id);
     if (account && requestedAccountScope === 'shared') showToast('Guide published. Creating secure share capability…');
@@ -1013,9 +1040,16 @@ window._adminSave = async (accountScope = null) => {
       document.getElementById('qr-section').style.display = 'none';
     }
     if (account) _setAccountStatus(`My pins are saved to ${_accountEmail}.`);
+    return saved;
   } catch (error) {
     showToast(account ? _handleAccountFailure(error) : 'Save failed. Your draft is still open.');
-  } finally { _saving = false; _setBusy(false); }
+    return null;
+  } finally {
+    if (!operationLock) {
+      _saving = false;
+      _setBusy(false);
+    }
+  }
 };
 
 window._adminPromoteToShared = async () => {
@@ -1029,40 +1063,156 @@ window._adminPromoteToShared = async () => {
 window._adminSetAccountPublished = async (publish) => {
   if (_saving || !_editingPoint || !_editingIsAccount || _editingIsLegacy || !_accountReady) return;
   if (_isNewPoint) return showToast('Save this pin to your account before publishing it.');
+
+  _captureDraft();
   const pointId = _editingPoint.id;
+  const session = _accountSession;
+  const epoch = _initEpoch;
+  const email = _accountEmail;
   const target = publish ? 'shared' : 'personal';
   if ((_editingPoint.scope || _editingScope) === target) return;
 
-  if (publish) {
-    // Revoke first while the point is still private. This prevents an old
-    // plaintext capability from becoming live during a republish race.
-    try { await _accountSession.revokeShareCapability(pointId); }
-    catch (error) { return showToast(_handleAccountFailure(error)); }
-    _accountShareTokens.delete(pointId);
-    await window._adminSave('shared');
-    if (_editingPoint?.id !== pointId || _editingPoint.scope !== 'shared') return;
-    try {
-      const cap = await _accountSession.issueShareCapability(pointId);
-      _accountShareTokens.set(pointId, cap.token);
-      showToast('Guide published with a new revocable scoped link.');
-    } catch (error) {
-      showToast('Guide is published, but secure sharing is unavailable. No public link was issued.');
-    }
-    return;
-  }
+  const stillCurrent = () => (
+    _saving
+    && _accountReady
+    && _accountSession === session
+    && _initEpoch === epoch
+    && _accountEmail === email
+    && window._snAdminIdentity?.email === email
+    && _editingIsAccount
+    && _editingPoint?.id === pointId
+  );
 
-  // Revoke while still shared so the operation is explicit and durable before
-  // the point becomes private. If revocation fails, do not pretend sharing
-  // stopped; leave the guide unchanged and let the owner retry.
+  // Publishing/revocation is one owner operation. Hold the editor lock across
+  // capability mutation and point-scope persistence so a delayed response
+  // cannot save whichever different pin happens to be open later.
+  _saving = true;
+  _setBusy(true);
   try {
-    await _accountSession.revokeShareCapability(pointId);
-  } catch (error) {
-    return showToast(_handleAccountFailure(error));
+    if (publish) {
+      // Revoke first while the point is still private. This prevents an old
+      // plaintext capability from becoming live during a republish race.
+      _clearShareQr();
+      try {
+        await session.revokeShareCapability(pointId);
+      } catch (error) {
+        _accountShareTokens.delete(pointId);
+        if (error?.status === 401 || error?.code === 'SESSION_CHANGED') {
+          showToast(_handleAccountFailure(error));
+        } else {
+          _accountShareRecovery.set(pointId, 'uncertain');
+          showToast('Publication could not confirm the old-link revocation. The guide remains private; retry publishing only when the connection is stable.');
+        }
+        return;
+      }
+      if (!stillCurrent()) return;
+
+      _accountShareTokens.delete(pointId);
+      _accountShareRecovery.set(pointId, 'revoked');
+      const saved = await window._adminSave('shared', {
+        operationLock: true,
+        expectedPointId: pointId,
+        expectedSession: session,
+      });
+      if (!saved || !stillCurrent() || saved.id !== pointId || saved.scope !== 'shared') return;
+
+      try {
+        const cap = await session.issueShareCapability(pointId);
+        if (!stillCurrent()) return;
+        _accountShareTokens.set(pointId, cap.token);
+        _accountShareRecovery.delete(pointId);
+        renderDrawerBody();
+        _setBusy(true);
+        showToast('Guide published with a new revocable scoped link.');
+      } catch (error) {
+        _accountShareTokens.delete(pointId);
+        if (error?.status === 401 || error?.code === 'SESSION_CHANGED') {
+          showToast(_handleAccountFailure(error));
+        } else if (stillCurrent()) {
+          _accountShareRecovery.set(pointId, 'uncertain');
+          renderDrawerBody();
+          _setBusy(true);
+          showToast('Guide is published, but link issuance could not be confirmed. A link may have been created; recover with a new link only when you need a known URL.');
+        }
+      }
+      return;
+    }
+
+    // Revoke while still shared. A lost response is ambiguous: the server may
+    // already have revoked the bearer, so never keep presenting the cached URL
+    // as usable and never continue to a scope save without confirmation.
+    _clearShareQr();
+    try {
+      await session.revokeShareCapability(pointId);
+    } catch (error) {
+      _accountShareTokens.delete(pointId);
+      if (error?.status === 401 || error?.code === 'SESSION_CHANGED') {
+        showToast(_handleAccountFailure(error));
+      } else if (stillCurrent()) {
+        _accountShareRecovery.set(pointId, 'uncertain');
+        renderDrawerBody();
+        _setBusy(true);
+        showToast('Stop-sharing could not be confirmed. The previous link may already be revoked; no cached link will be shown until you explicitly recover or retry.');
+      }
+      return;
+    }
+    if (!stillCurrent()) return;
+
+    _accountShareTokens.delete(pointId);
+    _accountShareRecovery.set(pointId, 'revoked');
+    const saved = await window._adminSave('personal', {
+      operationLock: true,
+      expectedPointId: pointId,
+      expectedSession: session,
+    });
+    if (!stillCurrent()) return;
+    if (saved?.id === pointId && saved.scope === 'personal') {
+      _accountShareRecovery.delete(pointId);
+      showToast('Sharing stopped. Existing scoped links are revoked.');
+    } else {
+      // Revocation succeeded but the point-scope save did not. Keep the guide
+      // shared in storage while making the known-revoked link state explicit.
+      renderDrawerBody();
+      _setBusy(true);
+      showToast('The share link is revoked, but making the guide private was not confirmed. Retry Stop sharing.');
+    }
+  } finally {
+    _saving = false;
+    _setBusy(false);
   }
-  _accountShareTokens.delete(pointId);
-  await window._adminSave('personal');
-  if (_editingPoint?.id === pointId && _editingPoint.scope === 'personal') {
-    showToast('Sharing stopped. Existing scoped links are revoked.');
+};
+
+window._adminReplaceShareCapability = async () => {
+  if (_saving || !_editingPoint || !_editingIsAccount || _editingIsLegacy || !_accountReady) return;
+  if (_isNewPoint || _editingPoint.scope !== 'shared') return showToast('Publish this guide before replacing its share link.');
+  const pointId = _editingPoint.id;
+  const ok = window.confirm('Replace this share link? The currently distributed link and printed QR will stop working immediately.');
+  if (!ok) return;
+  _captureDraft();
+  // Replacement invalidates the previously distributed bearer if the server
+  // commits, and a lost response is ambiguous. Never leave an old QR visible
+  // while that capability is known or possibly revoked.
+  _clearShareQr();
+  _saving = true; _setBusy(true);
+  try {
+    const cap = await _accountSession.issueShareCapability(pointId);
+    if (_editingPoint?.id !== pointId) return;
+    _accountShareTokens.set(pointId, cap.token);
+    _accountShareRecovery.delete(pointId);
+    renderDrawerBody();
+    showToast('Share link replaced. The previous link and QR are now revoked.');
+  } catch (error) {
+    const failure = _handleAccountFailure(error);
+    _accountShareTokens.delete(pointId);
+    if (error?.status === 401 || error?.code === 'SESSION_CHANGED') {
+      showToast(failure);
+    } else {
+      _accountShareRecovery.set(pointId, 'uncertain');
+      if (_editingPoint?.id === pointId) renderDrawerBody();
+      showToast('Share-link replacement could not be confirmed. The previous link may already be revoked and the new secret cannot be recovered. Recover with a new link only when you need a known URL.');
+    }
+  } finally {
+    _saving = false; _setBusy(false);
   }
 };
 
@@ -1075,7 +1225,12 @@ window._adminDelete = async () => {
   _saving = true; _setBusy(true);
   try {
     if (!_isNewPoint) {
-      if (account) { await _accountSession.remove(snapshot.id); _accountShareTokens.delete(snapshot.id); _syncAccountPins(); }
+      if (account) {
+        await _accountSession.remove(snapshot.id);
+        _accountShareTokens.delete(snapshot.id);
+        _accountShareRecovery.delete(snapshot.id);
+        _syncAccountPins();
+      }
       else { await deletePoint(snapshot.id); _points = _points.filter(p => p.id !== snapshot.id); }
     }
     if (epoch !== _initEpoch) return;
@@ -1093,17 +1248,24 @@ window._adminDelete = async () => {
 };
 
 // ── Share link helpers ────────────────────────────────────────────────────────
+function _clearShareQr() {
+  const section = document.getElementById('qr-section');
+  if (section) section.style.display = 'none';
+  document.getElementById('qr-canvas-wrap')?.replaceChildren();
+}
+
 async function _buildShareUrl(pt) {
   if (pt?.sceneId || _editingIsAccount) {
     if (!_editingIsAccount || pt?.scope !== 'shared') throw new Error('Publish this account pin before sharing');
     if (!_accountSession?.getState().scene?.id) throw new Error('Account guide workspace is unavailable');
-    let token = _accountShareTokens.get(pt.id) || null;
-    if (!token) {
-      const cap = await _accountSession.issueShareCapability(pt.id);
-      token = cap?.token || null;
-      if (!token) throw new Error('Account share capability is unavailable');
-      _accountShareTokens.set(pt.id, token);
-    }
+    // The bearer is returned only when an owner explicitly publishes or
+    // rotates a pin. Ordinary link/QR access must never issue a replacement:
+    // the API POST revokes the currently distributed capability before it
+    // creates the next one. After a reload the owner can keep using an
+    // already-distributed URL, or explicitly rotate it; the old token is not
+    // recoverable from the hash-only database representation.
+    const token = _accountShareTokens.get(pt.id) || null;
+    if (!token) throw new Error('Account share capability is unavailable; explicitly rotate the link to create a new one');
     return buildMyPinShareUrl(location.origin, token, pt.id);
   }
   const allContacts = await getContacts();
@@ -1134,6 +1296,18 @@ window._adminShowShareLink = async () => {
   const input = document.getElementById('share-url-input');
   if (input) input.value = url;
   row.style.display = 'block';
+};
+
+window._adminPreviewRecipient = () => {
+  if (!_editingPoint || _editingIsLegacy || _saving || !_editingIsAccount || _editingPoint.scope !== 'shared') return;
+  const token = _accountShareTokens.get(_editingPoint.id) || null;
+  if (!token) return showToast('Recipient preview is unavailable in this browser. Replace the share link only if you intentionally want a new one.');
+  const url = buildMyPinShareUrl(location.origin, token, _editingPoint.id);
+  const link = document.createElement('a');
+  link.href = url;
+  link.target = '_blank';
+  link.rel = 'noopener noreferrer';
+  link.click();
 };
 
 window._adminCopyShareUrl = () => {

@@ -23,6 +23,7 @@ def uid(n):return f'00000000-0000-4000-8000-{n:012d}'
 SCENE=uid(10);P1=uid(21);P2=uid(22);BASEPIN=uid(23);LOCAL1=uid(31);LOCAL2=uid(32);CONTACT=uid(41);PHOTO1=uid(51)
 EMAIL='synthetic-a@example.test'
 CAP_TOKEN='A'*43
+ROTATED_CAP_TOKEN='B'*43
 PNG=base64.b64decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jS1cAAAAASUVORK5CYII=')
 JPEG=base64.b64decode('/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAUDBAQEAwUEBAQFBQUGBwwIBwcHBw8LCwkMEQ8SEhEPERETFhwXExQaFRERGCEYGh0dHx8fExciJCIeJBweHx7/2wBDAQUFBQcGBw4ICA4eFBEUHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh4eHh7/wAARCAAgACADASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwAooooAKKKKACiiigAooooA/9k=')
 def pin(id,label,scope='personal',scene=SCENE):
@@ -50,7 +51,7 @@ class Fixture:
         self.viewer_delay=0;self.fail_load=False;self.fail_save=False;self.fail_import=False;self.fail_delete=False
         self.pins={P1:pin(P1,'Account A'),P2:pin(P2,'Account shared','shared')} if workspace else {}
         self.contact={'id':CONTACT,'name':'Synthetic staff','role':'Fixture role','phone':'0000','active':True}
-        self.photos={P1:[],P2:[]};self.capabilities={}
+        self.photos={P1:[],P2:[]};self.capabilities={};self.capability_issues=0
         self.requests=[];self.hold=None;self.confirmations=[]
     async def route(self,route):
         req=route.request;url=urlsplit(req.url);path=url.path;method=req.method
@@ -105,9 +106,17 @@ class Fixture:
                 revoked=point_id in self.capabilities;self.capabilities.pop(point_id,None);await reply({'ok':True,'revoked':revoked});return
             if method=='POST':
                 if point_id not in self.pins or self.pins[point_id].get('scope')!='shared':await reply({'error':'MY_PIN_NOT_SHARED'},409);return
-                self.capabilities[point_id]=CAP_TOKEN
-                await reply({'pointId':point_id,'sceneId':SCENE,'purpose':'my-pins-v1','token':CAP_TOKEN,'capabilityId':uid(61),'issuedAt':'2026-09-23T00:00:00Z'});return
+                token=CAP_TOKEN if self.capability_issues==0 else ROTATED_CAP_TOKEN
+                self.capability_issues+=1;self.capabilities[point_id]=token
+                await reply({'pointId':point_id,'sceneId':SCENE,'purpose':'my-pins-v1','token':token,'capabilityId':uid(60+self.capability_issues),'issuedAt':'2026-09-23T00:00:00Z'});return
             await reply({'error':'METHOD_NOT_ALLOWED'},405);return
+        public_match=re.fullmatch(r'/api/my-pins/points/([^/]+)',path)
+        if public_match and method=='GET':
+            point_id=public_match.group(1);auth=req.headers.get('authorization','')
+            bearer=re.fullmatch(r'Bearer ([A-Za-z0-9_-]{43})',auth)
+            if point_id not in self.pins or self.pins[point_id].get('scope')!='shared' or not bearer or self.capabilities.get(point_id)!=bearer.group(1):
+                await reply({'error':'not found'},404);return
+            await reply({'pins':[copy.deepcopy(self.pins[point_id])],'contacts':[],'photos':[]});return
         match=re.fullmatch(r'/api/sites/landcros/scenes/'+SCENE+r'/points(?:/([^/]+))?',path)
         if match:
             if method=='GET':await reply(copy.deepcopy(list(self.pins.values())));return
@@ -156,6 +165,22 @@ async def confirm(page,accept,fixture):
         else:await dialog.dismiss()
     page.once('dialog',handle)
 async def settle_save(page):await expect(page.locator('#pin-save-button')).to_be_enabled(timeout=10000)
+
+async def read_public_share(browser,fixture,share_url):
+    ctx=await browser.new_context(viewport={'width':390,'height':844},device_scale_factor=1)
+    await ctx.route('**/*',fixture.route);page=await ctx.new_page();errors=[]
+    page.on('pageerror',lambda e:errors.append(str(e)))
+    await page.goto(share_url,wait_until='domcontentloaded')
+    result=await page.evaluate("""async () => {
+      const pointId=new URL(location.href).searchParams.get('id');
+      const token=new URLSearchParams((location.hash||'').slice(1)).get('myPin');
+      const response=await fetch(`/api/my-pins/points/${encodeURIComponent(pointId)}`,{
+        headers:{Authorization:`Bearer ${token}`},cache:'no-store',referrerPolicy:'no-referrer'
+      });
+      return {status:response.status,body:await response.json()};
+    }""")
+    await ctx.unroute_all(behavior='ignoreErrors');await ctx.close()
+    return result,errors
 
 async def main():
     results=[]
@@ -250,9 +275,75 @@ async def main():
                 await page.evaluate('window._adminToggleQR()')
                 await page.wait_for_function('window.__qrTexts?.length > 0')
                 assert await page.evaluate('window.__qrTexts.at(-1)')==share_url
+                preview_issue_count=f.capability_issues
+                async with page.expect_popup() as popup_info:
+                    await page.get_by_text('Preview recipient',exact=True).click()
+                preview=await popup_info.value
+                await preview.wait_for_load_state('domcontentloaded')
+                assert preview.url==share_url
+                assert await preview.evaluate('window.opener===null')
+                assert f.capability_issues==preview_issue_count
+                await preview.close()
+                checks.append('recipient preview reuses current distributed link without rotation')
                 cap_path=f'/api/sites/landcros/scenes/{SCENE}/points/{P1}/share-capability'
                 assert any(r['method']=='POST' and r['path']==cap_path for r in f.requests)
                 checks.append('explicit publish emits bearer-fragment point link and QR without workspace share code')
+
+                # The distributed URL is the only portable copy of the bearer.
+                # Reload must keep that URL valid and must not silently rotate it.
+                issue_count=f.capability_issues
+                await page.reload(wait_until='domcontentloaded');await ready(page);await openpin(page,P1)
+                await expect(page.locator('.pin-action-row')).to_contain_text('Replace share link')
+                await expect(page.locator('.pin-action-row')).to_contain_text('previously distributed link may still be active')
+                before=len([r for r in f.requests if r['method']=='POST' and r['path']==cap_path])
+                assert f.capability_issues==issue_count and f.capabilities.get(P1)==CAP_TOKEN
+                second_result,second_errors=await read_public_share(browser,f,share_url)
+                assert second_result['status']==200 and second_result['body']['pins'][0]['id']==P1
+                assert not second_errors
+                checks.append('owner reload preserves distributed link and shows explicit replacement recovery')
+
+                # A second owner browser recovers publication state from the server,
+                # but never recovers or rotates the bearer capability secret.
+                owner2_before=len([r for r in f.requests if r['method']=='POST' and r['path']==cap_path])
+                owner2,owner2page,owner2errors=await boot(browser,f,width,height,legacy=False)
+                await ready(owner2page);await openpin(owner2page,P1)
+                assert f.pins[P1]['scope']=='shared'
+                await expect(owner2page.locator('.pin-action-row').get_by_text('Replace share link',exact=True)).to_have_count(1)
+                assert await owner2page.locator('.pin-action-row').get_by_text('Share link',exact=True).count()==0
+                assert await owner2page.locator('.pin-action-row').get_by_text('Preview recipient',exact=True).count()==0
+                assert await owner2page.locator('.pin-action-row').get_by_text('QR',exact=True).count()==0
+                assert await owner2page.evaluate('!localStorage.getItem("myPin") && !sessionStorage.getItem("myPin")')
+                assert f.capability_issues==issue_count and f.capabilities.get(P1)==CAP_TOKEN
+                assert len([r for r in f.requests if r['method']=='POST' and r['path']==cap_path])==owner2_before
+                await owner2.close();assert not owner2errors
+                checks.append('second owner browser recovers published state without bearer recovery or rotation')
+
+                # Replacement is destructive and therefore requires an
+                # explicit owner confirmation. Cancelling changes nothing.
+                await confirm(page,False,f)
+                await page.get_by_text('Replace share link',exact=True).click()
+                assert len([r for r in f.requests if r['method']=='POST' and r['path']==cap_path])==before
+                assert f.capabilities.get(P1)==CAP_TOKEN
+
+                await page.locator('#field-label').fill('Unsaved replacement draft')
+                await page.locator('#field-notes').fill('Keep this unsaved note')
+                await page.locator('#field-phone-override').fill('+61 400 000 111')
+                await confirm(page,True,f)
+                await page.get_by_text('Replace share link',exact=True).click()
+                await page.wait_for_timeout(30)
+                assert f.capabilities.get(P1)==ROTATED_CAP_TOKEN and f.capability_issues==issue_count+1
+                assert await page.locator('#field-label').input_value()=='Unsaved replacement draft'
+                assert await page.locator('#field-notes').input_value()=='Keep this unsaved note'
+                assert await page.locator('#field-phone-override').input_value()=='+61 400 000 111'
+                await expect(page.locator('.pin-action-row')).to_contain_text('Share link')
+                await page.evaluate('window._adminShowShareLink()');await expect(page.locator('#share-link-row')).to_be_visible()
+                rotated_url=await page.locator('#share-url-input').input_value()
+                assert rotated_url!=share_url
+                old_after_rotate,_=await read_public_share(browser,f,share_url)
+                new_after_rotate,new_errors=await read_public_share(browser,f,rotated_url)
+                assert old_after_rotate['status']==404
+                assert new_after_rotate['status']==200 and not new_errors
+                checks.append('explicit confirmed replacement revokes old QR and issues a new durable link')
 
                 await page.evaluate('window._adminSetAccountPublished(false)');await settle_save(page)
                 assert P1 not in f.capabilities
