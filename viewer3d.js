@@ -2906,7 +2906,11 @@ async function boot() {
   if (!_Q.skipSplat && !_compOnly) {
     document.getElementById('load-fill').style.width = '55%';
     document.getElementById('load-msg').textContent = 'Loading 3D model…';
-    await Promise.race([splatPromise, new Promise(r => setTimeout(r, 30000))]);
+    // Shared scene links should become usable promptly even if GS3D sorting
+    // or an optional model is slow. The splat promise continues in the
+    // background and inserts the 3D model when ready.
+    const splatWaitMs = _params.get('scene') ? 2500 : 30000;
+    await Promise.race([splatPromise, new Promise(r => setTimeout(r, splatWaitMs))]);
   } else if (_compOnly) {
     document.getElementById('load-fill').style.width = '55%';
     document.getElementById('load-msg').textContent = 'Loading comparison…';
