@@ -1012,14 +1012,15 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  // ── Scene permanent short-link: /s/<code> → /?scene=<code> ────────────
-  // The QR encodes this. Separate /s/ namespace + 10-char length so it can
-  // never collide with the legacy bare /<8char> pin share codes below. The
-  // redirect is unconditional (doesn't confirm the code exists) — the viewer
-  // resolves it via /api/scenes/by-code and shows vanilla if it's invalid.
+  // ── Scene permanent short-link: /s/<code> → static viewer ────────────
+  // The QR/copy URL remains on the stable landcros-forrestdale host, but the
+  // actual public scene is rendered by the current CDN-backed static viewer.
+  // That viewer reads the anonymous scene bundle from this backend API.
   const _sceneShortMatch = /^\/s\/([a-z0-9]{10})$/.exec(pathname);
   if (_sceneShortMatch && (req.method === 'GET' || req.method === 'HEAD')) {
-    res.writeHead(302, { 'Location': `/?scene=${encodeURIComponent(_sceneShortMatch[1])}` });
+    const sceneUrl = new URL('https://landcros-forrestdale-static.onrender.com/');
+    sceneUrl.searchParams.set('scene', _sceneShortMatch[1]);
+    res.writeHead(302, { 'Location': sceneUrl.href, 'Cache-Control': 'no-store' });
     return res.end();
   }
 
