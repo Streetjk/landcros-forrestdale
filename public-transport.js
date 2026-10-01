@@ -166,7 +166,10 @@ export function backendRedirectForScopedRoute(runtime, locationLike = globalThis
   try { current = new URL(locationLike.href); } catch { return null; }
   if (current.origin === runtime.apiOrigin) return null;
   const hash = new URLSearchParams((current.hash || '').replace(/^#/, ''));
-  const needsBackend = current.searchParams.has('scene') || current.searchParams.has('s') || hash.has('myPin');
+  // Public scene links can stay on the static viewer: their read-by-code API
+  // is an anonymous CORS-enabled GET on the backend. Legacy ?s= capability
+  // links and My Pin bearer links still need the backend origin.
+  const needsBackend = current.searchParams.has('s') || hash.has('myPin');
   if (!needsBackend) return null;
   const target = new URL(runtime.apiOrigin);
   target.pathname = current.pathname.startsWith('/') ? current.pathname : `/${current.pathname}`;

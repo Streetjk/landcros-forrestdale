@@ -66,12 +66,12 @@ test('configured Supabase outage fails closed without contacting backend', async
 });
 
 
-test('static host redirects only scoped/capability URLs to backend and never probes staff session', () => {
+test('static host keeps public scene URLs local but redirects backend-only capabilities', () => {
   const plain={href:'https://static.example.test/'};
   const scene={href:'https://static.example.test/?scene=abcde23456'};
   const pin={href:'https://static.example.test/?id=123#myPin='+'A'.repeat(43)};
   assert.equal(backendRedirectForScopedRoute(runtime,plain),null);
-  assert.equal(backendRedirectForScopedRoute(runtime,scene),'https://api.example.test/?scene=abcde23456');
+  assert.equal(backendRedirectForScopedRoute(runtime,scene),null);
   assert.match(backendRedirectForScopedRoute(runtime,pin),/^https:\/\/api\.example\.test\/\?id=123#myPin=/);
   assert.equal(shouldProbeStaffSession(runtime,plain),false);
   assert.equal(shouldProbeStaffSession(runtime,{href:'https://api.example.test/'}),true);
