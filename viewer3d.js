@@ -288,9 +288,9 @@ function _buildingLabelPriority(properties = {}) {
   return priority;
 }
 
-function _updatePublicBuildingLabels(now, force = false) {
-  if (!_publicLabelLayout) return;
-  if (!force && !_labelLayoutDirty && now - _lastLabelLayoutMs < 80) return;
+function _updatePublicBuildingLabels(now) {
+  if (!_publicLabelLayout || !_labelLayoutDirty) return;
+  if (now - _lastLabelLayoutMs < 80) return;
   const width = renderer.domElement.clientWidth;
   const height = renderer.domElement.clientHeight;
   if (!width || !height) return;
@@ -693,9 +693,10 @@ function animate() {
     }
     renderer.render(scene, camera);
   }
+  if (_publicLabelLayout && (moved || _camAnimating)) _labelLayoutDirty = true;
   css2d.render(scene, camera);
-  if (_publicLabelLayout && (moved || _camAnimating || _labelLayoutDirty)) {
-    _updatePublicBuildingLabels(now, _labelLayoutDirty);
+  if (_publicLabelLayout && _labelLayoutDirty) {
+    _updatePublicBuildingLabels(now);
   }
   _perf.frame({ rendered: true, moving: moved || _camAnimating, splatUpdateMs: _splatUpdateMs });
   _perf.refreshHud();
