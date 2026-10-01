@@ -2418,31 +2418,36 @@ vec4 _triTex(sampler2D t, vec3 p, vec3 w) {
 
   } // end _Q.soilPBR
 
-  // Fossil — skipped on LOW tier (reduces boot fetch count and scene complexity)
+  // Fossil is decorative and must never block first paint. Older builds
+  // awaited the STL request/parse inside _addGroundPlane(), leaving the whole
+  // viewer stuck on "Loading satellite…" if that optional asset stalled.
+  // Load it after boot-critical work has yielded instead.
   if (_Q.scenery) {
-  // ── T-Rex STL ──────────────────────────────────────────────────────────────
-  const savedTrex = null; // position locked — edit defaults in code to reposition
-  let _trex = null;
-
-  const { STLLoader } = await import('three/addons/loaders/STLLoader.js');
-  const stlGeo = await new STLLoader().loadAsync('./assets/Trex.stl');
-  stlGeo.computeVertexNormals();
-  stlGeo.computeBoundingBox();
-  const stlScale = savedTrex?.s ?? 0.0132;
-
-  _trex = new THREE.Mesh(
-    stlGeo,
-    new THREE.MeshStandardMaterial({ color: 0xd4b483, roughness: 0.75, metalness: 0.05 })
-  );
-  _trex.scale.setScalar(stlScale);
-  _trex.position.set(
-    savedTrex?.x ?? -1.59,
-    savedTrex?.y ?? -1.00,
-    savedTrex?.z ??  15.18
-  );
-  _trex.rotation.y = savedTrex?.ry ?? THREE.MathUtils.degToRad(-361.0);
-  scene.add(_trex);
-  } // end _Q.scenery
+    setTimeout(async () => {
+      try {
+        const savedTrex = null; // position locked — edit defaults in code to reposition
+        const { STLLoader } = await import('three/addons/loaders/STLLoader.js');
+        const stlGeo = await new STLLoader().loadAsync('./assets/Trex.stl');
+        stlGeo.computeVertexNormals();
+        stlGeo.computeBoundingBox();
+        const stlScale = savedTrex?.s ?? 0.0132;
+        const trex = new THREE.Mesh(
+          stlGeo,
+          new THREE.MeshStandardMaterial({ color: 0xd4b483, roughness: 0.75, metalness: 0.05 })
+        );
+        trex.scale.setScalar(stlScale);
+        trex.position.set(
+          savedTrex?.x ?? -1.59,
+          savedTrex?.y ?? -1.00,
+          savedTrex?.z ?? 15.18
+        );
+        trex.rotation.y = savedTrex?.ry ?? THREE.MathUtils.degToRad(-361.0);
+        scene.add(trex);
+      } catch (err) {
+        console.warn('Optional T-Rex scenery unavailable:', err);
+      }
+    }, 1500);
+  }
 
 
   // ── Plane adjust HUD ──────────────────────────────────────────────────────
