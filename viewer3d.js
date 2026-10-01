@@ -16,6 +16,7 @@ import { getBasePublicVisitPointId } from './visit-analytics.js';
 import { createPointListItem } from './point-list-item.js';
 import { renderDetailContacts } from './detail-card.js';
 import { mapControlLabel, syncPressedButton, syncPressedButtons } from './map-controls.js';
+import { labelScaleForZoom, layoutLabels, forwardWheelToTarget } from './label-layout.js';
 
 // ── Site config (loaded from data/config.json in boot()) ──────────────────
 let _cfg = {};
@@ -266,13 +267,87 @@ function _flushBackendVisitIfLocal() {
   }).catch(() => {});
 }
 
-const _bldRefs = {}; // id → { css2d, name, x, y, z }
-const _allScaleEls = []; // inner elements for all CSS2D labels — zoom scaling target
-// Last scale() written to the label layer. animate() skips the per-frame write
-// when unchanged; _invalidateLabelScale() forces one on the next frame so a
-// label added after that write still gets scaled.
+const _bldRefs = {}; // id → { css2d, name, x, y, z, layoutManaged?, layoutSlot? }
+const _allScaleEls = []; // non-building CSS2D labels — pin/zone/debug zoom-scaling targets
+const _publicLabelLayout = !_debugMode && !!document.getElementById('point-detail');
+let _labelLayoutDirty = true;
+let _lastLabelLayoutMs = 0;
+const _labelWorld = new THREE.Vector3();
+// Last scale() written to generic label layers. Public building labels use
+// collision-aware screen-space layout instead.
 let _lastLabelScale = null;
-function _invalidateLabelScale() { _lastLabelScale = null; }
+function _invalidateLabelScale() {
+  _lastLabelScale = null;
+  _labelLayoutDirty = true;
+}
+
+function _buildingLabelPriority(properties = {}) {
+  let priority = properties.labelLarge ? 40 : properties.labelSmall ? 10 : 24;
+  const text = String(properties.name || properties.labelText || '');
+  if (/gate|reception|office|visitor/i.test(text)) priority += 5;
+  return priority;
+}
+
+function _updatePublicBuildingLabels(now, force = false) {
+  if (!_publicLabelLayout) return;
+  if (!force && !_labelLayoutDirty && now - _lastLabelLayoutMs < 80) return;
+  const width = renderer.domElement.clientWidth;
+  const height = renderer.domElement.clientHeight;
+  if (!width || !height) return;
+
+  const zoom = camera.position.distanceTo(controls.target);
+  const scale = labelScaleForZoom(zoom);
+  const items = [];
+
+  for (const [id, ref] of Object.entries(_bldRefs)) {
+    if (!ref.layoutManaged || !ref.css2d?._scaleEl) continue;
+    const el = ref.css2d._scaleEl;
+    if (!el.isConnected) continue;
+    ref.css2d.getWorldPosition(_labelWorld);
+    _labelWorld.project(camera);
+    if (_labelWorld.z < -1 || _labelWorld.z > 1) {
+      items.push({ id, x: -1000, y: -1000, width: 1, height: 1, scale, priority: ref.priority, previousSlot: ref.layoutSlot });
+      continue;
+    }
+    const baseWidth = el.offsetWidth || ref.baseWidth || 80;
+    const baseHeight = el.offsetHeight || ref.baseHeight || 32;
+    ref.baseWidth = baseWidth;
+    ref.baseHeight = baseHeight;
+    items.push({
+      id,
+      x: (_labelWorld.x * 0.5 + 0.5) * width,
+      y: (-_labelWorld.y * 0.5 + 0.5) * height,
+      width: baseWidth,
+      height: baseHeight,
+      scale,
+      priority: ref.priority,
+      previousSlot: ref.layoutSlot,
+    });
+  }
+
+  const layout = layoutLabels(items, { width, height }, { gap: 7, margin: 8, minScale: 0.44 });
+  for (const [id, ref] of Object.entries(_bldRefs)) {
+    if (!ref.layoutManaged || !ref.css2d?._scaleEl) continue;
+    const el = ref.css2d._scaleEl;
+    const next = layout.get(id);
+    if (!next?.visible) {
+      el.style.visibility = 'hidden';
+      el.style.opacity = '0';
+      el.style.pointerEvents = 'none';
+      if (el.getAttribute('role') === 'button') el.setAttribute('tabindex', '-1');
+      ref.layoutSlot = -1;
+      continue;
+    }
+    ref.layoutSlot = next.slot;
+    el.style.visibility = 'visible';
+    el.style.opacity = '1';
+    el.style.pointerEvents = 'auto';
+    if (el.getAttribute('role') === 'button') el.setAttribute('tabindex', '0');
+    el.style.transform = `translate(${next.dx.toFixed(1)}px, ${next.dy.toFixed(1)}px) scale(${next.scale.toFixed(3)})`;
+  }
+  _labelLayoutDirty = false;
+  _lastLabelLayoutMs = now;
+}
 // Label positions are baked into buildings.geojson — localStorage overrides
 // are only applied in debug mode so desktop/mobile always share the same source.
 let _labelPos     = _debugMode ? _lsGet(_LS_LABELS, {}) : {};
@@ -385,6 +460,7 @@ function resize() {
   css2d.setSize(w, h);
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
+  _labelLayoutDirty = true;
 }
 
 // ── Dynamic resolution while the camera moves ──────────────────────────────
@@ -618,6 +694,9 @@ function animate() {
     renderer.render(scene, camera);
   }
   css2d.render(scene, camera);
+  if (_publicLabelLayout && (moved || _camAnimating || _labelLayoutDirty)) {
+    _updatePublicBuildingLabels(now, _labelLayoutDirty);
+  }
   _perf.frame({ rendered: true, moving: moved || _camAnimating, splatUpdateMs: _splatUpdateMs });
   _perf.refreshHud();
 }
@@ -2151,13 +2230,20 @@ async function renderBuildings(geoData) {
     const lz = ovr?.z ?? pos3d.z;
     label.position.set(lx, ly, lz);
     scene.add(label);
-    _bldRefs[p.id] = { css2d: label, name: p.name, x: lx, y: ly, z: lz };
-    if (label._scaleEl) _allScaleEls.push(label._scaleEl);
+    _bldRefs[p.id] = {
+      css2d: label, name: p.name, x: lx, y: ly, z: lz,
+      layoutManaged: _publicLabelLayout,
+      priority: _buildingLabelPriority(p),
+      layoutSlot: 0,
+    };
+    if (label._scaleEl && !_publicLabelLayout) _allScaleEls.push(label._scaleEl);
     _invalidateLabelScale();
 
-    const isPublicGuide = !_debugMode && !!document.getElementById('point-detail');
+    const isPublicGuide = _publicLabelLayout;
     if (isPublicGuide && label.element && label._scaleEl) {
-      label.element.style.pointerEvents = 'auto';
+      // Only the painted orange card should receive pointer input. The CSS2D
+      // wrapper is larger and otherwise creates invisible wheel dead-zones.
+      label.element.style.pointerEvents = 'none';
       label._scaleEl.style.pointerEvents = 'auto';
       label._scaleEl.style.cursor = 'pointer';
       label._scaleEl.setAttribute('role', 'button');
@@ -2181,6 +2267,11 @@ async function renderBuildings(geoData) {
         if (window.innerWidth <= 1024 && p.details) _openCompactPanelDetail({ full: true });
       };
       label._scaleEl.addEventListener('click', onOpenBuilding);
+      // OrbitControls listens on the WebGL canvas, so bridge wheel input from
+      // interactive CSS2D cards instead of swallowing zoom over a label.
+      label._scaleEl.addEventListener('wheel', (e) => {
+        forwardWheelToTarget(e, renderer.domElement);
+      }, { passive: false });
       label._scaleEl.addEventListener('keydown', (e) => {
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault();
