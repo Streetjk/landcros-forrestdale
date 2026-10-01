@@ -309,6 +309,7 @@ const server = http.createServer((req, res) => {
   // this service, but send the public map to the current CDN-backed static
   // build. Short admin routes remain same-origin so existing HttpOnly/Lax
   // session cookies and API calls continue to work without CORS changes.
+  let entryFile = null;
   if (req.method === 'GET' || req.method === 'HEAD') {
     if (pathname === '/') {
       const publicUrl = new URL('https://landcros-forrestdale-static.onrender.com/');
@@ -324,11 +325,7 @@ const server = http.createServer((req, res) => {
       '/admin': '/admin3d.html',
       '/admin/': '/admin3d.html',
     };
-    const target = entryAliases[pathname];
-    if (target) {
-      res.writeHead(302, { Location: target + url.search, 'Cache-Control': 'no-store' });
-      return res.end();
-    }
+    entryFile = entryAliases[pathname] || null;
   }
 
   // ── Write API ─────────────────────────────────────────────────────────
@@ -1046,8 +1043,11 @@ const server = http.createServer((req, res) => {
     filePath = fs.existsSync(siteAsset) ? siteAsset : path.join(ROOT, pathname);
   } else {
     // Engine files (HTML, JS, CSS) — also check site root for branding files (logo.png, etc.)
-    const enginePath = path.join(ROOT, pathname === '/' ? '/index.html' : pathname);
-    const sitePath   = path.join(SITE_DIR, pathname.replace(/^\//, ''));
+    // Short human-facing admin aliases resolve internally so /portal, /editor
+    // and /admin remain visible in the browser address bar.
+    const staticPath = entryFile || pathname;
+    const enginePath = path.join(ROOT, staticPath === '/' ? '/index.html' : staticPath);
+    const sitePath   = path.join(SITE_DIR, staticPath.replace(/^\//, ''));
     filePath = fs.existsSync(enginePath) ? enginePath : sitePath;
   }
 
