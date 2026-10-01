@@ -311,7 +311,12 @@ const server = http.createServer((req, res) => {
   // session cookies and API calls continue to work without CORS changes.
   let entryFile = null;
   if (req.method === 'GET' || req.method === 'HEAD') {
-    if (pathname === '/') {
+    // Only the unscoped public entrance redirects to the CDN. Scene/share
+    // queries must stay on this backend origin: the static viewer deliberately
+    // hands scoped routes back here for same-origin auth/API access. Redirecting
+    // them again creates an infinite static <-> backend loop.
+    const isScopedViewer = url.searchParams.has('scene') || url.searchParams.has('s');
+    if (pathname === '/' && !isScopedViewer) {
       const publicUrl = new URL('https://landcros-forrestdale-static.onrender.com/');
       publicUrl.search = url.search;
       res.writeHead(302, { Location: publicUrl.href, 'Cache-Control': 'no-store' });
