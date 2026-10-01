@@ -305,6 +305,32 @@ const server = http.createServer((req, res) => {
   const url  = new URL(req.url, `http://localhost`);
   const pathname = url.pathname;
 
+  // Stable human-facing entry routes. Keep the existing Node API/backend on
+  // this service, but send the public map to the current CDN-backed static
+  // build. Short admin routes remain same-origin so existing HttpOnly/Lax
+  // session cookies and API calls continue to work without CORS changes.
+  if (req.method === 'GET' || req.method === 'HEAD') {
+    if (pathname === '/') {
+      const publicUrl = new URL('https://landcros-forrestdale-static.onrender.com/');
+      publicUrl.search = url.search;
+      res.writeHead(302, { Location: publicUrl.href, 'Cache-Control': 'no-store' });
+      return res.end();
+    }
+    const entryAliases = {
+      '/portal': '/portal.html',
+      '/portal/': '/portal.html',
+      '/editor': '/editor.html',
+      '/editor/': '/editor.html',
+      '/admin': '/admin3d.html',
+      '/admin/': '/admin3d.html',
+    };
+    const target = entryAliases[pathname];
+    if (target) {
+      res.writeHead(302, { Location: target + url.search, 'Cache-Control': 'no-store' });
+      return res.end();
+    }
+  }
+
   // ── Write API ─────────────────────────────────────────────────────────
   if (req.method === 'OPTIONS') {
     res.writeHead(204, {
