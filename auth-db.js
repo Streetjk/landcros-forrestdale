@@ -39,8 +39,9 @@ const AUTH_SITE_SLUG = process.env.AUTH_SITE_SLUG || 'landcros';
 // Explicit platform-admin override emails (comma-separated env). These may log
 // in regardless of domain and are seeded as 'owner' on the auth site — used to
 // bootstrap a platform owner whose email is outside the corporate domain.
-// SECURITY NOTE: login is email-only (no verification), so anyone who knows a
-// listed email could impersonate that owner. Keep this list minimal.
+// SECURITY NOTE: the first PIN for any account is set via an emailed link, so
+// listing an email here only helps someone who also controls that inbox.
+// Keep this list minimal regardless.
 const PLATFORM_ADMIN_EMAILS = new Set(
   (process.env.PLATFORM_ADMIN_EMAILS || '')
     .split(',').map((s) => s.trim().toLowerCase()).filter(Boolean)
@@ -243,6 +244,170 @@ async function withClaims(profileId, email, fn) {
   }
 }
 
+// ── Login PINs ───────────────────────────────────────────────────────────
+// 6-digit PIN required on every login (0009_login_pins.sql). Stored as
+// scrypt("<salt>$<hash>") in profile_pins — a table with RLS enabled and no
+// policies, so only this service-role pool can read it. The PIN space is
+// only 10^6, so the real brute-force defence is the per-profile lockout in
+// verifyPin(), not the hash cost.
+
+const PIN_RE = /^\d{6}$/;
+const PIN_MAX_FAILURES = 5;
+const PIN_LOCK_MS = 15 * 60 * 1000;      // 15 min
+const PIN_TOKEN_TTL_MS = 30 * 60 * 1000; // setup/reset link validity
+const SCRYPT_PARAMS = { N: 16384, r: 8, p: 1 };
+
+// Rejects the handful of PINs that a guesser tries first. Not a strength
+// meter — just enough to keep 000000 / 123456 out.
+function pinIsAcceptable(pin) {
+  if (typeof pin !== 'string' || !PIN_RE.test(pin)) return false;
+  if (/^(\d)\1{5}$/.test(pin)) return false;                   // 111111
+  if ('0123456789'.includes(pin) || '9876543210'.includes(pin)) return false; // 123456, 654321
+  return true;
+}
+
+function hashPin(pin) {
+  const salt = crypto.randomBytes(16);
+  const hash = crypto.scryptSync(pin, salt, 32, SCRYPT_PARAMS);
+  return `${_b64urlEncode(salt)}$${_b64urlEncode(hash)}`;
+}
+
+function verifyPinHash(pin, stored) {
+  if (typeof pin !== 'string' || typeof stored !== 'string') return false;
+  const [saltB64, hashB64] = stored.split('$');
+  if (!saltB64 || !hashB64) return false;
+  const expected = _b64urlDecode(hashB64);
+  const actual = crypto.scryptSync(pin, _b64urlDecode(saltB64), expected.length, SCRYPT_PARAMS);
+  return actual.length === expected.length && crypto.timingSafeEqual(actual, expected);
+}
+
+// { hasPin, lockedUntil: Date|null }
+async function getPinState(profileId) {
+  const { rows } = await _getPool().query(
+    'select locked_until from profile_pins where profile_id = $1', [profileId]
+  );
+  if (!rows.length) return { hasPin: false, lockedUntil: null };
+  const lu = rows[0].locked_until;
+  return { hasPin: true, lockedUntil: lu && lu > new Date() ? lu : null };
+}
+
+// Sets (or replaces) the PIN and clears any lockout. Callers must have
+// already proven identity — a consumed reset token, or the current PIN.
+async function setPin(profileId, pin, client = null) {
+  if (!pinIsAcceptable(pin)) throw new PinError('pin-unacceptable');
+  await (client || _getPool()).query(
+    `insert into profile_pins (profile_id, pin_hash, set_at, failed_attempts, locked_until)
+     values ($1, $2, now(), 0, null)
+     on conflict (profile_id) do update
+       set pin_hash = excluded.pin_hash, set_at = now(), failed_attempts = 0, locked_until = null`,
+    [profileId, hashPin(pin)]
+  );
+}
+
+class PinError extends Error {
+  constructor(code, extra = {}) { super(code); this.code = code; Object.assign(this, extra); }
+}
+
+// Resolves { ok: true } or { ok: false, reason: 'no-pin' | 'locked' | 'invalid',
+// remaining?, lockedUntil? }. Failures are counted in the same statement that
+// reads the row, so concurrent guesses cannot race past the limit.
+async function verifyPin(profileId, pin) {
+  const pool = _getPool();
+  const { rows } = await pool.query(
+    'select pin_hash, failed_attempts, locked_until from profile_pins where profile_id = $1',
+    [profileId]
+  );
+  if (!rows.length) return { ok: false, reason: 'no-pin' };
+  const row = rows[0];
+  if (row.locked_until && row.locked_until > new Date()) {
+    return { ok: false, reason: 'locked', lockedUntil: row.locked_until };
+  }
+  if (PIN_RE.test(String(pin)) && verifyPinHash(String(pin), row.pin_hash)) {
+    if (row.failed_attempts) {
+      await pool.query(
+        'update profile_pins set failed_attempts = 0, locked_until = null where profile_id = $1',
+        [profileId]
+      );
+    }
+    return { ok: true };
+  }
+  const { rows: upd } = await pool.query(
+    `update profile_pins
+       set failed_attempts = failed_attempts + 1,
+           locked_until = case when failed_attempts + 1 >= $2
+                               then now() + ($3 || ' milliseconds')::interval
+                               else locked_until end
+     where profile_id = $1
+     returning failed_attempts, locked_until`,
+    [profileId, PIN_MAX_FAILURES, String(PIN_LOCK_MS)]
+  );
+  const after = upd[0];
+  if (after.locked_until && after.locked_until > new Date()) {
+    return { ok: false, reason: 'locked', lockedUntil: after.locked_until };
+  }
+  return { ok: false, reason: 'invalid', remaining: Math.max(0, PIN_MAX_FAILURES - after.failed_attempts) };
+}
+
+function _sha256b64url(s) {
+  return _b64urlEncode(crypto.createHash('sha256').update(s).digest());
+}
+
+// Issues a single-use setup/reset token for the profile and returns the RAW
+// token (only its hash is stored). Any earlier unused tokens for the same
+// profile are invalidated so a forgotten old email can't be replayed later.
+async function createPinToken(profileId) {
+  const raw = _b64urlEncode(crypto.randomBytes(32));
+  const client = await _getPool().connect();
+  try {
+    await client.query('BEGIN');
+    await client.query(
+      'update pin_reset_tokens set used_at = now() where profile_id = $1 and used_at is null',
+      [profileId]
+    );
+    await client.query(
+      `insert into pin_reset_tokens (token_hash, profile_id, expires_at)
+       values ($1, $2, now() + ($3 || ' milliseconds')::interval)`,
+      [_sha256b64url(raw), profileId, String(PIN_TOKEN_TTL_MS)]
+    );
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+  return { token: raw, ttlMinutes: PIN_TOKEN_TTL_MS / 60000 };
+}
+
+// Validates + burns the token and sets the new PIN atomically. Resolves
+// { profileId, email } for the caller to open a session with, or throws
+// PinError('token-invalid' | 'pin-unacceptable').
+async function consumePinToken(rawToken, newPin) {
+  if (typeof rawToken !== 'string' || rawToken.length < 20) throw new PinError('token-invalid');
+  if (!pinIsAcceptable(newPin)) throw new PinError('pin-unacceptable');
+  const client = await _getPool().connect();
+  try {
+    await client.query('BEGIN');
+    const { rows } = await client.query(
+      `update pin_reset_tokens t set used_at = now()
+       from profiles p
+       where t.token_hash = $1 and t.used_at is null and t.expires_at > now()
+         and p.id = t.profile_id
+       returning t.profile_id, p.email`,
+      [_sha256b64url(rawToken)]
+    );
+    if (!rows.length) throw new PinError('token-invalid');
+    await setPin(rows[0].profile_id, newPin, client);
+    await client.query('COMMIT');
+    return { profileId: rows[0].profile_id, email: rows[0].email };
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
 // ── Session tokens ───────────────────────────────────────────────────────
 // No external dep: base64url(payload) + HMAC-SHA256(SESSION_SECRET), with an
 // expiry embedded in the payload. Not a JWT (no alg negotiation, no header) —
@@ -315,4 +480,14 @@ module.exports = {
   withClaims,
   signSession,
   verifySession,
+  // PINs
+  PinError,
+  pinIsAcceptable,
+  hashPin,
+  verifyPinHash,
+  getPinState,
+  setPin,
+  verifyPin,
+  createPinToken,
+  consumePinToken,
 };

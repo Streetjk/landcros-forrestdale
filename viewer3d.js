@@ -176,6 +176,11 @@ const _LS_PT_VISITS   = 'sn_point_visits';
 
 const _bldRefs = {}; // id → { css2d, name, x, y, z }
 const _allScaleEls = []; // inner elements for all CSS2D labels — zoom scaling target
+// Last scale() written to the label layer. animate() skips the per-frame write
+// when unchanged; _invalidateLabelScale() forces one on the next frame so a
+// label added after that write still gets scaled.
+let _lastLabelScale = null;
+function _invalidateLabelScale() { _lastLabelScale = null; }
 // Label positions are baked into buildings.geojson — localStorage overrides
 // are only applied in debug mode so desktop/mobile always share the same source.
 let _labelPos     = _debugMode ? _lsGet(_LS_LABELS, {}) : {};
@@ -229,7 +234,7 @@ function startAutoOrbit(target, radius, elevDeg) {
       _camAnimating = false;
       controls.enabled         = true;
       controls.autoRotate      = true;
-      controls.autoRotateSpeed = 0.3; // ~200 s per orbit, matches old speed
+      controls.autoRotateSpeed = 0.45; // ~133 s per orbit (+50% over the old 0.3/200s)
       controls.target.copy(target);
       controls.update();
       window._syncRotateBtn?.();
@@ -282,6 +287,46 @@ function resize() {
   css2d.setSize(w, h);
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
+}
+
+// ── Dynamic resolution while the camera moves ──────────────────────────────
+// Splat rasterisation is fragment-bound: cost scales with the number of
+// pixels drawn, so dropping the pixel ratio during a drag/orbit is the one
+// lever that meaningfully changes frame time. Measured on real hardware
+// (not the headless software renderer, which misled an earlier pass): zero
+// main-thread long tasks, ~42-47ms frames — the time is on the GPU, not in
+// JS or DOM label work.
+//
+// setPixelRatio alone does not reallocate the drawing buffer, so each switch
+// is paired with a resize(). That reallocation is a real GPU hitch, so
+// switching must be rare.
+//
+// The first version restored after only 8 idle frames (~130ms), which was
+// fine for dragging (continuous motion, so it stays low-res throughout) but
+// wrong for wheel zoom: each tick produces a short damped burst
+// (dampingFactor 0.06) and then a pause, so a normal scroll cadence sat
+// right on that threshold and thrashed low->full->low, reallocating the
+// framebuffer on nearly every tick. That showed up as zoom-specific lag
+// while dragging stayed smooth.
+//
+// Two guards now: restore only after a much longer idle, and never switch
+// twice inside a cooldown window. The cooldown can only ever delay a switch
+// — the restore is re-attempted every idle frame, so it cannot get stuck at
+// low resolution.
+const _DRAG_PIXEL_RATIO = Math.min(_Q.pixelRatio, 1.0);
+const _RESTORE_AFTER_IDLE_FRAMES = 45;  // ~750ms, well past a wheel-tick gap
+const _MIN_SWITCH_INTERVAL_MS = 400;
+let _lowResActive = false;
+let _lastResSwitchMs = 0;
+function _setLowRes(on) {
+  if (on === _lowResActive) return;
+  if (on && _DRAG_PIXEL_RATIO >= _Q.pixelRatio) return; // nothing to gain
+  const now = performance.now();
+  if (now - _lastResSwitchMs < _MIN_SWITCH_INTERVAL_MS) return;
+  _lastResSwitchMs = now;
+  _lowResActive = on;
+  renderer.setPixelRatio(on ? _DRAG_PIXEL_RATIO : _Q.pixelRatio);
+  resize();
 }
 
 window.addEventListener('resize', resize);
@@ -383,6 +428,10 @@ let _lastRenderMs = 0;
 const IDLE_AFTER = _Q.idleAfter;
 const IDLE_INTERVAL = _Q.idleInterval;
 let _pins = {}; // id → { group, pinGroup, sphere, icon, label, squareMat, squareGroup, pt }
+// How far above the ground square the pin marker floats, in scene units.
+// The square is ~0.9 units across, so this reads as clearly airborne without
+// detaching the marker from the spot it labels.
+const PIN_FLOAT_HEIGHT = 1.3;
 let _selectedId = null;
 const _sceneWidgets = new Map(); // id → { obj, anchor, raycastMesh } — read-only 'button' scene_objects (Phase 2 SLICE 4)
 
@@ -399,8 +448,12 @@ function animate() {
     _idleFrames = 0;
     _prevCamPos.copy(camera.position);
     _prevCamQuat.copy(camera.quaternion);
+    _setLowRes(true);
   } else {
     _idleFrames++;
+    // Restore full resolution once the camera has actually settled, so the
+    // still image the user reads detail from is always full quality.
+    if (_lowResActive && _idleFrames >= _RESTORE_AFTER_IDLE_FRAMES) _setLowRes(false);
   }
 
   const now = performance.now();
@@ -415,7 +468,16 @@ function animate() {
   const _zoomScale = _zoom >= 20 ? Math.max(0.5, 20 / _zoom) : 1.0;
   const _finalScale = (_zoomScale * _mobileScale).toFixed(3);
   // Apply to all label types (buildings, pins, zones) via unified array.
-  for (const el of _allScaleEls) el.style.transform = `scale(${_finalScale})`;
+  // Only when it actually changed: this value depends solely on zoom
+  // distance, so during an orbit/drag (the case that felt laggiest) it is
+  // constant, and writing style.transform to every label every frame was
+  // invalidating style for the whole label layer for no reason. Measured:
+  // labels accounted for ~9x more main-thread long-task time than the rest
+  // of the frame, which is what a drag actually feels like.
+  if (_finalScale !== _lastLabelScale) {
+    _lastLabelScale = _finalScale;
+    for (const el of _allScaleEls) el.style.transform = `scale(${_finalScale})`;
+  }
 
 
   // Pulse ground squares on all pins (smooth sine, no abs bounce)
@@ -481,7 +543,7 @@ function _buildCamButtons(cfg) {
     } else {
       if (_orbitActive) stopAutoOrbit();
       controls.autoRotate      = true;
-      controls.autoRotateSpeed = 0.3;
+      controls.autoRotateSpeed = 0.45;
       window._syncRotateBtn?.();
     }
   };
@@ -541,11 +603,28 @@ function _buildCamButtons(cfg) {
   mBtn.style.display = 'none';
   wrap.appendChild(mBtn);
 
-  // Speed limit sign — decorative, site-specific (omitted when config lacks speedLimitSign)
+  // Speed limit sign — decorative, site-specific (omitted when config lacks
+  // speedLimitSign). The "10" is outlined vector paths, not live text, for
+  // two reasons:
+  //
+  // Typeface: Australian road signs follow AS 1744, derived from Highway
+  // Gothic. Overpass is the closest freely-licensed match (it was drawn
+  // after Highway Gothic), so its Bold digits are used — converted to paths
+  // so the sign needs no webfont, can't flash unstyled, and renders
+  // identically regardless of what fonts a viewer has.
+  //
+  // Centering: <text> with text-anchor="middle" centres the ADVANCE width,
+  // not the visible ink. For "10" in this face those differ by 38 font
+  // units (ink centre 1019.5 vs advance centre 1057.5 of 2000upem), which
+  // pushed the digits visibly right — the residual offset reported after
+  // the earlier dominant-baseline fix. These outlines are positioned on the
+  // measured ink bounding box instead, so the digits are optically centred
+  // on the circle rather than metrically centred.
   if (_cfg.site?.speedLimitSign) {
     const speedBtn = document.createElement('div');
     speedBtn.className = 'cam-preset-btn speed-limit-sign';
-    speedBtn.innerHTML = `<div class="icon-wrap"><img src="${_cfg.site.speedLimitSign}" alt="Speed limit 10"></div><span class="label-wrap">Speed limit</span>`;
+    speedBtn.innerHTML = `<div class="icon-wrap"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10.4" fill="#fff" stroke="#C0392B" stroke-width="1.3"/><path d="M6.67 17.08V9.5H5.11V8.03Q5.59 8.03 5.98 7.92Q6.38 7.82 6.65 7.58Q6.92 7.34 7.06 6.92H8.54V17.08ZM15.18 17.25Q14.09 17.25 13.37 16.79Q12.66 16.33 12.24 15.56Q11.82 14.79 11.64 13.86Q11.46 12.94 11.46 12Q11.46 11.26 11.57 10.51Q11.68 9.76 11.93 9.08Q12.18 8.41 12.61 7.88Q13.03 7.36 13.67 7.05Q14.3 6.75 15.18 6.75Q16.26 6.75 16.98 7.21Q17.7 7.66 18.12 8.43Q18.54 9.19 18.71 10.12Q18.89 11.05 18.89 12Q18.89 12.74 18.78 13.49Q18.67 14.23 18.42 14.91Q18.17 15.58 17.74 16.11Q17.31 16.64 16.68 16.95Q16.05 17.25 15.18 17.25ZM15.18 15.48Q15.72 15.48 16.07 15.18Q16.42 14.88 16.63 14.38Q16.83 13.88 16.92 13.26Q17.01 12.65 17.01 12Q17.01 11.35 16.92 10.73Q16.83 10.11 16.62 9.61Q16.42 9.11 16.07 8.81Q15.72 8.52 15.18 8.52Q14.64 8.52 14.28 8.82Q13.93 9.11 13.71 9.62Q13.5 10.12 13.42 10.74Q13.33 11.35 13.33 12Q13.33 12.65 13.42 13.27Q13.5 13.89 13.71 14.39Q13.93 14.89 14.28 15.18Q14.64 15.48 15.18 15.48Z" fill="#161616"/></svg></div><span class="label-wrap">Speed limit</span>`;
+    speedBtn.title = 'Speed limit 10 km/h';
     wrap.appendChild(speedBtn);
   }
 
@@ -723,10 +802,14 @@ function _addPinToScene(pt) {
     selectPoint(pt);
   });
   iconWrap.appendChild(labelDiv);
-  _allScaleEls.push(labelInner);
+  _allScaleEls.push(labelInner); _invalidateLabelScale();
 
   const icon = new CSS2DObject(iconWrap);
-  icon.position.set(0, 0, 0);
+  // Float the marker above the ground square rather than sitting flat on it:
+  // the square stays on the floor marking the spot, the pin hovers over it.
+  // (The block comment above already specified y=1.3 as the anchor; the code
+  // had drifted to 0, which is why pins read as lying on the ground.)
+  icon.position.set(0, PIN_FLOAT_HEIGHT, 0);
   group.add(icon);
 
   scene.add(group);
@@ -776,11 +859,15 @@ function removePin(id) {
 // scene-editor.js; this renderer is skipped there (see the add-label-btn
 // guard at call site) to avoid double-rendering the same objects.
 function _sceneObjDisplayText(obj) {
+  if (obj.kind === 'hazard') return obj.props?.title ?? 'Hazard';
   if (obj.kind === 'button' || obj.kind === 'widget') return obj.props?.label ?? '';
   return obj.props?.text ?? '';
 }
+// Photo index for the open hazard scene (from the by-code bundle); bytes are
+// fetched through the login-gated /api/hazard-photos/:id proxy.
+let _scenePhotos = [];
 
-const _WIDGET_COLORS = { button: 0x0f766e, widget: 0x7c3aed };
+const _WIDGET_COLORS = { button: 0x0f766e, widget: 0x7c3aed, hazard: 0xf59e0b };
 
 function _renderSceneWidget(obj) {
   const [x, y, z] = obj.transform?.position ?? [0, 0, 0];
@@ -788,7 +875,14 @@ function _renderSceneWidget(obj) {
   anchor.position.set(x, y, z);
 
   let raycastMesh = null;
-  if (obj.kind === 'button' || obj.kind === 'widget') {
+  if (obj.kind === 'hazard') {
+    raycastMesh = new THREE.Mesh(
+      new THREE.ConeGeometry(0.3, 0.7, 12),
+      new THREE.MeshStandardMaterial({ color: _WIDGET_COLORS.hazard, emissive: 0x7c2d12, emissiveIntensity: 0.25 })
+    );
+    raycastMesh.position.y = 0.35;
+    anchor.add(raycastMesh);
+  } else if (obj.kind === 'button' || obj.kind === 'widget') {
     raycastMesh = new THREE.Mesh(
       new THREE.BoxGeometry(0.4, 0.4, 0.4),
       new THREE.MeshStandardMaterial({ color: _WIDGET_COLORS[obj.kind] })
@@ -799,11 +893,11 @@ function _renderSceneWidget(obj) {
 
   const div = document.createElement('div');
   div.className = 'scene-obj-label';
-  const bg = obj.kind === 'widget' ? 'rgba(124,58,237,0.88)' : obj.kind === 'button' ? 'rgba(15,118,110,0.88)' : 'rgba(24,95,165,0.88)';
+  const bg = obj.kind === 'hazard' ? 'rgba(180,83,9,0.92)' : obj.kind === 'widget' ? 'rgba(124,58,237,0.88)' : obj.kind === 'button' ? 'rgba(15,118,110,0.88)' : 'rgba(24,95,165,0.88)';
   div.style.cssText = `pointer-events:none;white-space:nowrap;font:600 13px 'DM Sans',sans-serif;color:#fff;background:${bg};padding:3px 8px;border-radius:6px;transform:translate(-50%,-130%);`;
   div.textContent = _sceneObjDisplayText(obj);
   const css2dObj = new CSS2DObject(div);
-  css2dObj.position.set(0, (obj.kind === 'button' || obj.kind === 'widget') ? 0.4 : 0.1, 0);
+  css2dObj.position.set(0, obj.kind === 'hazard' ? 0.75 : (obj.kind === 'button' || obj.kind === 'widget') ? 0.4 : 0.1, 0);
   anchor.add(css2dObj);
 
   scene.add(anchor);
@@ -811,7 +905,123 @@ function _renderSceneWidget(obj) {
 }
 
 function renderSceneWidgets(list) {
-  list.filter(o => o.kind === 'label' || o.kind === 'button' || o.kind === 'widget').forEach(_renderSceneWidget);
+  list.filter(o => o.kind === 'label' || o.kind === 'button' || o.kind === 'widget' || o.kind === 'hazard').forEach(_renderSceneWidget);
+}
+
+// ── Scene status bar (both map kinds) ──────────────────────────────────
+// Shows the open scene's name + status. Signed-in viewers can resolve /
+// reopen / escalate (escalate = email @hcma.com.au recipients the link, and
+// for hazard scenes the pins + original photos). Anonymous viewers of an
+// admin-map link see the status and a sign-in link only.
+function renderSceneStatusBar(code, bundle) {
+  const scene = bundle.scene;
+  const signedIn = !!bundle.viewer?.signedIn;
+  let bar = document.getElementById('scene-status-bar');
+  if (!bar) {
+    bar = document.createElement('div');
+    bar.id = 'scene-status-bar';
+    bar.style.cssText = 'position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:41;display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:center;max-width:calc(100vw - 32px);padding:6px 10px 6px 12px;border-radius:12px;background:rgba(8,10,16,0.9);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border:1px solid rgba(255,255,255,0.1);color:#eef0f4;font:500 12px Inter,system-ui,sans-serif;box-shadow:0 4px 16px rgba(0,0,0,0.35);';
+    document.body.appendChild(bar);
+  }
+  bar.replaceChildren();
+  const name = document.createElement('span');
+  name.textContent = (scene.kind === 'hazard' ? '⚠ ' : '') + scene.name;
+  name.style.cssText = 'font-weight:600;max-width:40vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+  const colors = { open: '#3b82f6', escalated: '#f59e0b', resolved: '#10b981' };
+  const badge = document.createElement('span');
+  badge.id = 'scene-status-badge';
+  badge.textContent = scene.status || 'open';
+  badge.style.cssText = `text-transform:uppercase;font-size:10px;font-weight:700;letter-spacing:0.06em;padding:2px 7px;border-radius:6px;background:${colors[scene.status] || colors.open}22;color:${colors[scene.status] || colors.open};`;
+  bar.append(name, badge);
+  const btn = (label, onClick, accent) => {
+    const b = document.createElement('button');
+    b.textContent = label;
+    b.style.cssText = `padding:5px 10px;border-radius:8px;border:1px solid rgba(255,255,255,0.14);background:${accent ? 'rgba(180,83,9,0.35)' : 'rgba(255,255,255,0.06)'};color:#fff;font:600 11px Inter,system-ui,sans-serif;cursor:pointer;min-height:28px;`;
+    b.addEventListener('click', onClick);
+    return b;
+  };
+  if (!signedIn) {
+    const a = document.createElement('a');
+    a.href = '#'; a.textContent = 'Sign in to update';
+    a.style.cssText = 'color:#93c5fd;font-size:11px;';
+    a.addEventListener('click', e => { e.preventDefault(); window._snHazardLoginRequired?.({ name: scene.name, kind: scene.kind }); });
+    bar.appendChild(a);
+    return;
+  }
+  const post = async (body) => {
+    const r = await fetch(`/api/scenes/by-code/${encodeURIComponent(code)}/status`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify(body),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (r.status === 401) { window._snHazardLoginRequired?.({ name: scene.name, kind: scene.kind }); return null; }
+    if (!r.ok) { alert(d.error || `Update failed (${r.status})`); return null; }
+    scene.status = d.status; scene.statusChangedAt = d.statusChangedAt;
+    renderSceneStatusBar(code, bundle);
+    return d;
+  };
+  bar.appendChild(btn(scene.status === 'resolved' ? 'Reopen' : 'Mark resolved', () => post({ status: scene.status === 'resolved' ? 'open' : 'resolved' })));
+  bar.appendChild(btn('Escalate…', () => _openEscalateDialog(post), true));
+}
+
+function _openEscalateDialog(post) {
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'position:fixed;inset:0;z-index:10000;background:rgba(8,10,16,0.8);display:flex;align-items:center;justify-content:center;padding:16px;font-family:Inter,system-ui,sans-serif;color:#fff;';
+  wrap.innerHTML = `
+    <form style="background:#192134;border:1px solid rgba(255,255,255,0.1);border-radius:12px;padding:20px;width:100%;max-width:340px;display:flex;flex-direction:column;gap:10px;">
+      <h3 style="margin:0;font-size:1rem;">Escalate to</h3>
+      <input name="to" placeholder="name@hcma.com.au, other@hcma.com.au" autocomplete="off" style="padding:9px 12px;border:1px solid rgba(255,255,255,0.12);border-radius:8px;background:#0F172A;color:#fff;font-size:0.9rem;">
+      <textarea name="msg" rows="3" maxlength="4000" placeholder="Optional note" style="padding:9px 12px;border:1px solid rgba(255,255,255,0.12);border-radius:8px;background:#0F172A;color:#fff;font-size:0.9rem;resize:vertical;"></textarea>
+      <p data-err style="margin:0;color:#f87171;font-size:0.8rem;display:none;"></p>
+      <button type="submit" style="padding:9px;background:#b45309;border:none;border-radius:8px;color:#fff;font-weight:600;cursor:pointer;">Escalate &amp; send</button>
+      <a href="#" data-cancel style="color:#94A3B8;font-size:0.8rem;text-align:center;">Cancel</a>
+    </form>`;
+  document.body.appendChild(wrap);
+  const form = wrap.querySelector('form'), err = wrap.querySelector('[data-err]');
+  wrap.querySelector('[data-cancel]').onclick = (e) => { e.preventDefault(); wrap.remove(); };
+  form.onsubmit = async (e) => {
+    e.preventDefault();
+    const recipients = form.to.value.split(/[\s,;]+/).map(x => x.trim().toLowerCase()).filter(Boolean);
+    const bad = recipients.filter(r => !/^[^@\s]+@hcma\.com\.au$/.test(r));
+    if (!recipients.length || bad.length) { err.textContent = bad.length ? `Only @hcma.com.au addresses: ${bad.join(', ')}` : 'Add at least one @hcma.com.au address.'; err.style.display = 'block'; return; }
+    form.querySelector('button').disabled = true;
+    const d = await post({ status: 'escalated', recipients, message: form.msg.value.trim() || null });
+    if (d) wrap.remove(); else form.querySelector('button').disabled = false;
+  };
+  form.to.focus();
+}
+
+// Hazard pin detail: title + description + photo thumbnails. Text goes in via
+// textContent; the <img> src is our own proxy URL built from a UUID.
+function showHazardDetail(obj) {
+  if (!document.getElementById('point-detail')) return;
+  showWidgetDetail(obj.props?.title ?? 'Hazard', obj.props?.description ?? '');
+  const chip = document.getElementById('detail-chip');
+  chip.className = 'chip chip-both';
+  chip.textContent = 'Hazard';
+  const notes = document.getElementById('detail-notes');
+  let grid = document.getElementById('detail-photos');
+  if (!grid) {
+    grid = document.createElement('div');
+    grid.id = 'detail-photos';
+    grid.style.cssText = 'display:grid;grid-template-columns:repeat(2,1fr);gap:6px;margin-top:10px;';
+    notes.insertAdjacentElement('afterend', grid);
+  }
+  grid.replaceChildren();
+  _scenePhotos.filter(p => p.objectId === obj.id).forEach(p => {
+    const a = document.createElement('a');
+    a.href = `/api/hazard-photos/${encodeURIComponent(p.id)}?original=1`;
+    a.target = '_blank'; a.rel = 'noopener';
+    a.title = p.originalName || 'Open original photo';
+    a.style.cssText = 'display:block;aspect-ratio:1;border-radius:8px;overflow:hidden;background:rgba(255,255,255,0.06);';
+    const img = document.createElement('img');
+    img.src = `/api/hazard-photos/${encodeURIComponent(p.id)}`;
+    img.alt = p.originalName || 'Hazard photo';
+    img.loading = 'lazy';
+    img.style.cssText = 'width:100%;height:100%;object-fit:cover;display:block;';
+    a.appendChild(img);
+    grid.appendChild(a);
+  });
+  grid.style.display = grid.children.length ? 'grid' : 'none';
 }
 
 // Only http/https may be opened — blocks javascript:/data:/other schemes
@@ -1026,6 +1236,8 @@ function showWidgetDetail(title, body) {
   document.getElementById('detail-chip').textContent = '';
   document.getElementById('detail-label').textContent = title;
   document.getElementById('detail-notes').textContent = body;
+  const photoGrid = document.getElementById('detail-photos');
+  if (photoGrid) photoGrid.style.display = 'none';
   const navSection = document.getElementById('detail-nav-section');
   if (navSection) navSection.style.display = 'none';
   const contactsSection = document.getElementById('detail-contacts')?.closest('.detail-section');
@@ -1206,7 +1418,9 @@ renderer.domElement.addEventListener('click', e => {
   if (widgetHits.length) {
     const hitMesh = widgetHits[0].object;
     const widget = Array.from(_sceneWidgets.values()).find(w => w.raycastMesh === hitMesh);
-    if (widget && widget.obj.kind === 'widget' && widget.obj.scriptSource) {
+    if (widget && widget.obj.kind === 'hazard') {
+      showHazardDetail(widget.obj);
+    } else if (widget && widget.obj.kind === 'widget' && widget.obj.scriptSource) {
       _runWidgetScript(widget.obj.scriptSource, widget.obj);
     } else if (widget) {
       _runWidgetAction(widget.obj.props?.action, widget.obj);
@@ -1215,6 +1429,56 @@ renderer.domElement.addEventListener('click', e => {
 });
 
 // ── Point selection & panel ────────────────────────────────────────────────
+
+// Photos attached to an admin-map pin, shown to anyone opening the pin —
+// including anonymous share-link visitors, which is why /api/point-photos is
+// public. The grid element is shared with the hazard path, so it must be
+// explicitly hidden again when a pin has no photos.
+let _pointPhotoSlug = null;
+let _photoReqPt = null;   // pin whose photos are currently being fetched
+async function _renderPointPhotos(pt) {
+  _photoReqPt = pt.id;
+  const notes = document.getElementById('detail-notes');
+  let grid = document.getElementById('detail-photos');
+  if (!grid) {
+    if (!notes) return;
+    grid = document.createElement('div');
+    grid.id = 'detail-photos';
+    grid.style.cssText = 'display:grid;grid-template-columns:repeat(2,1fr);gap:6px;margin-top:10px;';
+    notes.insertAdjacentElement('afterend', grid);
+  }
+  grid.replaceChildren();
+  grid.style.display = 'none';
+  // Personal pins live only in localStorage and have no server row, so they
+  // can never carry photos — skip the request entirely.
+  if (pt.scope === 'personal') return;
+  try {
+    if (_pointPhotoSlug === null) {
+      _pointPhotoSlug = await fetch('/api/site').then(r => r.ok ? r.json() : null).then(d => d?.slug ?? '').catch(() => '');
+    }
+    if (!_pointPhotoSlug) return;
+    const list = await fetch(`/api/sites/${encodeURIComponent(_pointPhotoSlug)}/points/${encodeURIComponent(pt.id)}/photos`)
+      .then(r => r.ok ? r.json() : []).catch(() => []);
+    if (!Array.isArray(list) || !list.length) return;
+    // The panel may have moved on to another pin while this was in flight;
+    // _photoReqPt is set by the caller on every selectPoint().
+    if (_photoReqPt !== pt.id) return;
+    list.forEach(ph => {
+      const a = document.createElement('a');
+      a.href = `/api/point-photos/${encodeURIComponent(ph.id)}?original=1`;
+      a.target = '_blank';
+      a.rel = 'noopener';
+      const img = document.createElement('img');
+      img.src = `/api/point-photos/${encodeURIComponent(ph.id)}`;
+      img.alt = ph.originalName || 'Pin photo';
+      img.loading = 'lazy';
+      img.style.cssText = 'width:100%;height:80px;object-fit:cover;border-radius:6px;display:block;';
+      a.appendChild(img);
+      grid.appendChild(a);
+    });
+    grid.style.display = 'grid';
+  } catch {}
+}
 
 async function selectPoint(pt) {
   // Second click on same pin deselects it
@@ -1233,6 +1497,7 @@ async function selectPoint(pt) {
   document.getElementById('detail-chip').textContent = chipLabel[pt.type] ?? pt.type;
   document.getElementById('detail-label').textContent = pt.label;
   document.getElementById('detail-notes').textContent = pt.notes ?? '';
+  _renderPointPhotos(pt);
 
   const navSection = document.getElementById('detail-nav-section');
   if (navSection) {
@@ -1348,7 +1613,7 @@ async function selectPoint(pt) {
 
   // Orbit starts immediately from click — theta offset accumulates during fly-to.
   const orbitStartTime   = performance.now();
-  const orbitRadsPerSec  = 2 * Math.PI * 0.3 / 60; // same speed as controls.autoRotateSpeed 0.3
+  const orbitRadsPerSec  = 2 * Math.PI * 0.45 / 60; // same speed as controls.autoRotateSpeed 0.45
 
   const prog = { t: 0 };
   _camTween = gsap.to(prog, {
@@ -1378,7 +1643,7 @@ async function selectPoint(pt) {
       _orbitActive = true;
       _orbitTarget.copy(pinPos);
       controls.autoRotate      = true;
-      controls.autoRotateSpeed = 0.3;
+      controls.autoRotateSpeed = 0.45;
       controls.update();
     },
   });
@@ -1580,7 +1845,7 @@ async function renderBuildings(geoData) {
     label.position.set(lx, ly, lz);
     scene.add(label);
     _bldRefs[p.id] = { css2d: label, name: p.name, x: lx, y: ly, z: lz };
-    if (label._scaleEl) _allScaleEls.push(label._scaleEl);
+    if (label._scaleEl) _allScaleEls.push(label._scaleEl); _invalidateLabelScale();
 
     // Loading zone floor patch
     const zone = p.loadingZone;
@@ -1615,7 +1880,7 @@ async function renderBuildings(geoData) {
       zoneWrapper.appendChild(zoneDiv);
       const zoneLabel = new CSS2DObject(zoneWrapper);
       zoneLabel._scaleEl = zoneDiv;
-      _allScaleEls.push(zoneDiv);
+      _allScaleEls.push(zoneDiv); _invalidateLabelScale();
       zoneLabel.position.set(cx, 0.5, cz);
       scene.add(zoneLabel);
     }
@@ -1877,7 +2142,7 @@ function _restoreCustomLabels() {
     label.position.set(data.x, data.y, data.z);
     scene.add(label);
     _bldRefs[id] = { css2d: label, name: data.name, x: data.x, y: data.y, z: data.z, isCustom: true };
-    if (label._scaleEl) _allScaleEls.push(label._scaleEl);
+    if (label._scaleEl) _allScaleEls.push(label._scaleEl); _invalidateLabelScale();
   }
 }
 
@@ -1890,7 +2155,7 @@ function _addCustomLabel() {
   label.position.set(x, 1.5, z);
   scene.add(label);
   _bldRefs[id] = { css2d: label, name: 'New Label', x, y: 1.5, z, isCustom: true };
-  if (label._scaleEl) _allScaleEls.push(label._scaleEl);
+  if (label._scaleEl) _allScaleEls.push(label._scaleEl); _invalidateLabelScale();
   const panel = document.getElementById('sn-editor-panel');
   if (panel) _renderEdPanel(panel);
 }
@@ -2663,7 +2928,7 @@ function _doIntroAnimation() {
       _camTween = null;
       controls.update();
       controls.autoRotate      = true;
-      controls.autoRotateSpeed = 0.3;
+      controls.autoRotateSpeed = 0.45;
       window._syncRotateBtn?.();
     },
   });
@@ -2724,13 +2989,48 @@ async function loadSplatBackground(opts = {}) {
 
     if (!onProgress && msg) msg.textContent = `Loading ${ext}… 0%`;
     const GS3D = await import('@mkkellogg/gaussian-splats-3d');
+    // gpuAcceleratedSort computes per-splat distances on the GPU via WebGL2
+    // transform feedback + a fence-sync readback, every frame. Confirmed
+    // live (2026-09-07) that this broke splat loading entirely on both Edge
+    // and Brave, while genuinely improving rotation smoothness elsewhere.
+    // Brave's own docs: it deliberately randomizes WebGL readback per
+    // session as an anti-fingerprinting measure — exactly the operation
+    // this needs every frame. Feature-detect rather than block outright:
+    // navigator.brave.isBrave() is Brave's own documented, supported
+    // detection API (not fingerprinting-adjacent — this exists to route
+    // Brave to the WORKING path, the opposite of discriminating against
+    // it). Edge has no equivalent API; the "Edg/" UA token is the
+    // established way to identify Chromium Edge specifically (distinct
+    // from legacy EdgeHTML's "Edge/" token). If detection itself fails for
+    // any reason, fail toward the slower-but-always-correct CPU path.
+    let _gpuSortOk = true;
+    try {
+      if (navigator.brave && await navigator.brave.isBrave()) _gpuSortOk = false;
+      else if (/Edg\//.test(navigator.userAgent)) _gpuSortOk = false;
+    } catch { _gpuSortOk = false; }
+    // These two are INDEPENDENT and were wrongly tied together when the
+    // Brave/Edge detection went in:
+    //   gpuAcceleratedSort    — precomputes splat distances on the GPU and
+    //                           reads them back. Brave randomises WebGL
+    //                           readback to defeat fingerprinting, which
+    //                           corrupts exactly that, so it stays off there.
+    //   sharedMemoryForWorkers — a SharedArrayBuffer shared with the sort
+    //                           worker. Nothing to do with WebGL readback, so
+    //                           Brave/Edge don't affect it at all. With it
+    //                           off, every sort structured-clones the whole
+    //                           splat buffer to the worker and back — megabytes
+    //                           per sort at this splat count.
+    // false/true is also the library's own default combination on mobile, so
+    // it is a supported pairing rather than an exotic one. Gated on real
+    // cross-origin isolation because SharedArrayBuffer requires it.
+    const _sharedMemOk = typeof SharedArrayBuffer !== 'undefined' && self.crossOriginIsolated === true;
     const sv = new GS3D.Viewer({
       selfDrivenMode: false,
       useBuiltInControls: false,
       renderer,
       camera,
-      gpuAcceleratedSort: false,
-      sharedMemoryForWorkers: false,
+      gpuAcceleratedSort: _gpuSortOk,
+      sharedMemoryForWorkers: _sharedMemOk,
       splatAlphaRemovalThreshold: 1,
     });
 
@@ -2943,8 +3243,16 @@ async function boot() {
   const _sceneCode = _params.get('scene');
   if (_sceneCode && !document.getElementById('add-label-btn')) {
     _sceneBundle = await fetch(`/api/scenes/by-code/${encodeURIComponent(_sceneCode)}`)
-      .then(r => r.ok ? r.json() : null).catch(() => null);
+      .then(async r => {
+        if (r.ok) return r.json();
+        // Hazard report links need an @hcma.com.au session: hand off to the
+        // page's login gate (index.html), which reloads once signed in.
+        if (r.status === 401) { const d = await r.json().catch(() => ({})); window._snHazardLoginRequired?.(d); }
+        return null;
+      }).catch(() => null);
+    _scenePhotos = _sceneBundle?.photos ?? [];
     if (_sceneBundle?.objects) renderSceneWidgets(_sceneBundle.objects);
+    if (_sceneBundle?.scene) renderSceneStatusBar(_sceneCode, _sceneBundle);
   }
 
   // viewer3d.html: load pins/contacts

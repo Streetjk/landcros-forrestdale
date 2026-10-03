@@ -1,0 +1,12 @@
+node_modules
+.git
+.github
+.env
+.claude
+dist-*
+sites/*/private
+# Source files for the shipped .splat assets — not served at runtime
+sites/*/assets/*.ply
+sites/*/assets/*.psd
+assets/*.zip
+*.md
