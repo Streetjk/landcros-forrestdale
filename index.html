@@ -808,6 +808,19 @@
       }
       #app.sheet-open #cam-presets { bottom: calc(var(--sn-sheet-mid) + var(--safe-bottom) + 10px) !important; }
 
+      /* Fullscreen is detached from the left control cluster and pinned to
+         the far-right map edge while staying level with the row. */
+      #btn-fullscreen {
+        position: fixed !important;
+        left: auto !important;
+        right: 16px !important;
+        bottom: calc(var(--sn-sheet-peek) + var(--safe-bottom) + 10px) !important;
+        z-index: 201;
+      }
+      #app.sheet-open #btn-fullscreen {
+        bottom: calc(var(--sn-sheet-mid) + var(--safe-bottom) + 10px) !important;
+      }
+
       /* 44px keeps the tap target at the accessible minimum and matches
          viewer3d.html, which already forces 44px across this range. */
       .cam-preset-btn,
@@ -837,6 +850,12 @@
         bottom: calc(var(--sn-sheet-peek) + var(--sn-map-staff-nav-lift) + 10px) !important;
       }
       body[data-staff-nav-mounted="true"] #app.sheet-open #cam-presets {
+        bottom: calc(var(--sn-sheet-mid) + var(--sn-map-staff-nav-lift) + 10px) !important;
+      }
+      body[data-staff-nav-mounted="true"] #btn-fullscreen {
+        bottom: calc(var(--sn-sheet-peek) + var(--sn-map-staff-nav-lift) + 10px) !important;
+      }
+      body[data-staff-nav-mounted="true"] #app.sheet-open #btn-fullscreen {
         bottom: calc(var(--sn-sheet-mid) + var(--sn-map-staff-nav-lift) + 10px) !important;
       }
       body[data-staff-nav-mounted="true"] #nav-progress { bottom: calc(var(--sn-sheet-peek) + var(--sn-map-staff-nav-lift) + 10px); }
@@ -905,6 +924,14 @@
       #app.sheet-open #cam-presets {
         bottom: calc(16px + var(--safe-bottom)) !important;
       }
+      #btn-fullscreen,
+      #app.sheet-open #btn-fullscreen {
+        right: 16px !important;
+        bottom: calc(16px + var(--safe-bottom)) !important;
+      }
+      #app.sheet-open #btn-fullscreen {
+        right: calc(var(--sn-landscape-panel-width) + 16px) !important;
+      }
       #nav-progress,
       #app.sheet-open #nav-progress {
         bottom: calc(20px + var(--safe-bottom)) !important;
@@ -930,6 +957,13 @@
       body[data-staff-nav-mounted="true"] #cam-presets,
       body[data-staff-nav-mounted="true"] #app.sheet-open #cam-presets {
         bottom: calc(var(--sn-map-staff-nav-lift) + 16px) !important;
+      }
+      body[data-staff-nav-mounted="true"] #btn-fullscreen,
+      body[data-staff-nav-mounted="true"] #app.sheet-open #btn-fullscreen {
+        bottom: calc(var(--sn-map-staff-nav-lift) + 16px) !important;
+      }
+      body[data-staff-nav-mounted="true"] #app.sheet-open #btn-fullscreen {
+        right: calc(var(--sn-landscape-panel-width) + 16px) !important;
       }
     }
 

@@ -24,6 +24,8 @@ test('index mobile sheet uses dynamic viewport tokens and a visible peek dock', 
   assert.match(index, /#side-panel\.sheet-mid\s*\{\s*transform:\s*translateY\(calc\(100% - var\(--sn-sheet-mid\) - var\(--safe-bottom\)\)\);\s*\}/);
   assert.match(index, /#cam-presets\s*\{[\s\S]*?bottom:\s*calc\(var\(--sn-sheet-peek\) \+ var\(--safe-bottom\) \+ 10px\) !important;/);
   assert.match(index, /#app\.sheet-open #cam-presets\s*\{\s*bottom:\s*calc\(var\(--sn-sheet-mid\) \+ var\(--safe-bottom\) \+ 10px\) !important;\s*\}/);
+  assert.match(index, /#btn-fullscreen\s*\{[\s\S]*?position:\s*fixed !important;[\s\S]*?right:\s*16px !important;[\s\S]*?bottom:\s*calc\(var\(--sn-sheet-peek\) \+ var\(--safe-bottom\) \+ 10px\) !important;/);
+  assert.match(index, /#app\.sheet-open #btn-fullscreen\s*\{\s*bottom:\s*calc\(var\(--sn-sheet-mid\) \+ var\(--safe-bottom\) \+ 10px\) !important;\s*\}/);
   assert.match(index, /#point-detail\s*\{[\s\S]*?min-height:\s*0;[\s\S]*?overflow-y:\s*auto;[\s\S]*?overscroll-behavior:\s*contain;[\s\S]*?-webkit-overflow-scrolling:\s*touch;/);
   assert.match(index, /#side-panel\.detail-open #panel-header\s*\{[\s\S]*?min-height:\s*24px;[\s\S]*?padding:\s*2px 18px 2px !important;/);
   assert.match(index, /#side-panel\.detail-open #panel-header-text\s*\{\s*display:\s*none !important;\s*\}/);
@@ -52,6 +54,8 @@ test('landscape compact layout moves the info panel to a desktop-style right dra
   assert.match(index, /#panel-tab\s*\{[\s\S]*?display:\s*flex !important;[\s\S]*?right:\s*0 !important;/);
   assert.match(index, /#app\.sheet-open #panel-tab\s*\{\s*right:\s*var\(--sn-landscape-panel-width\) !important;\s*\}/);
   assert.match(index, /#side-panel\.detail-open #panel-header\s*\{\s*display:\s*none !important;\s*\}/);
+  assert.match(index, /#btn-fullscreen,[\s\S]*?#app\.sheet-open #btn-fullscreen\s*\{[\s\S]*?right:\s*16px !important;[\s\S]*?bottom:\s*calc\(16px \+ var\(--safe-bottom\)\) !important;/);
+  assert.match(index, /#app\.sheet-open #btn-fullscreen\s*\{\s*right:\s*calc\(var\(--sn-landscape-panel-width\) \+ 16px\) !important;\s*\}/);
   assert.match(index, /window\._snLandscapeCompact = \(\) =>[\s\S]*?orientation: landscape[\s\S]*?window\.togglePanelOpen = \(\) => window\._snLandscapeCompact\(\)[\s\S]*?SiteNavPanelState\.toggle\(\)[\s\S]*?SiteNavPanelState\.toggleDesktop\(\)/);
 });
 
