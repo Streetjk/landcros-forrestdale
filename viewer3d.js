@@ -3368,6 +3368,50 @@ function _doIntroAnimation() {
   });
 }
 
+async function _fetchWithTimeout(url, init = {}, timeoutMs = 10000, consume = null) {
+  const controller = typeof AbortController === 'function' ? new AbortController() : null;
+  let timer = null;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      try { controller?.abort(); } catch {}
+      reject(new Error(`Network timeout after ${timeoutMs}ms`));
+    }, timeoutMs);
+  });
+  const request = (async () => {
+    const response = await fetch(url, controller ? { ...init, signal: controller.signal } : init);
+    return typeof consume === 'function' ? consume(response) : response;
+  })();
+  try {
+    return await Promise.race([request, timeout]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+async function _fetchSplatBytes(path) {
+  let lastError = null;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      return await _fetchWithTimeout(
+        path,
+        { cache: attempt === 0 ? 'default' : 'reload' },
+        30000,
+        async (response) => {
+          if (!response.ok) throw new Error('3D model fetch failed');
+          return response.arrayBuffer();
+        },
+      );
+    } catch (error) {
+      lastError = error;
+      if (attempt === 0) {
+        _perf.asset({ path, bytes: null, phase: 'retry', status: 'error' });
+        await new Promise(resolve => setTimeout(resolve, 350));
+      }
+    }
+  }
+  throw lastError || new Error('3D model fetch failed');
+}
+
 async function loadSplatBackground(opts = {}) {
   const { onProgress, onStatus } = opts;
   let terminalSent = false;
@@ -3389,7 +3433,7 @@ async function loadSplatBackground(opts = {}) {
   let splatPath = null;
   for (const path of candidates) {
     try {
-      const r = await fetch(path, { method: 'HEAD' });
+      const r = await _fetchWithTimeout(path, { method: 'HEAD', cache: 'no-store' }, 8000);
       if (r.ok) {
         splatPath = path;
         const contentLength = Number.parseInt(r.headers.get('content-length') || '', 10);
@@ -3419,10 +3463,7 @@ async function loadSplatBackground(opts = {}) {
     if (!onProgress && msg) msg.textContent = `Scanning ${ext}…`;
     let _endSplatFetch = null;
     if (ext === 'SPLAT') _endSplatFetch = _perf.begin('splatFetch', { asset: splatPath.split('/').pop() });
-    rawBuf = ext === 'SPLAT' ? await fetch(splatPath).then(r => {
-      if (!r.ok) throw new Error('3D model fetch failed');
-      return r.arrayBuffer();
-    }) : null;
+    rawBuf = ext === 'SPLAT' ? await _fetchSplatBytes(splatPath) : null;
     if (_endSplatFetch) {
       _endSplatFetch({ bytes: rawBuf?.byteLength ?? 0 });
       _perf.asset({ path: splatPath, bytes: rawBuf?.byteLength ?? null, phase: 'fetched', status: 'ok' });
