@@ -853,7 +853,6 @@ function _buildCamButtons(cfg) {
   document.addEventListener('fullscreenchange', syncFullscreenButton);
   document.addEventListener('webkitfullscreenchange', syncFullscreenButton);
   syncFullscreenButton();
-  wrap.appendChild(fsBtn);
 
   // Speed limit sign — decorative, site-specific (omitted when config lacks
   // speedLimitSign). The "10" is outlined vector paths, not live text, for
@@ -880,6 +879,9 @@ function _buildCamButtons(cfg) {
     wrap.appendChild(speedBtn);
   }
 
+  // Fullscreen is deliberately appended last so it always sits to the right
+  // of the speed-limit sign when that sign is present.
+  wrap.appendChild(fsBtn);
 }
 
 function _syncSiteInfoAction(publicSite) {

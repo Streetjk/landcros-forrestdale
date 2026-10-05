@@ -44,6 +44,17 @@ test('selected mobile detail removes the Site Navigator title and Back row while
   assert.match(index, /#panel-toggle\s*\{\s*display:\s*flex !important;/);
 });
 
+test('landscape compact layout moves the info panel to a desktop-style right drawer', () => {
+  assert.match(index, /@media \(max-width: 1024px\) and \(orientation: landscape\)/);
+  assert.match(index, /--sn-landscape-panel-width:\s*clamp\(190px, 30vw, 240px\);/);
+  assert.match(index, /#side-panel\s*\{[\s\S]*?right:\s*0 !important;[\s\S]*?left:\s*auto !important;[\s\S]*?width:\s*var\(--sn-landscape-panel-width\) !important;[\s\S]*?height:\s*100dvh !important;[\s\S]*?transform:\s*translateX\(100%\) !important;/);
+  assert.match(index, /#side-panel\.sheet-mid,[\s\S]*?#side-panel\.sheet-full\s*\{\s*transform:\s*translateX\(0\) !important;\s*\}/);
+  assert.match(index, /#panel-tab\s*\{[\s\S]*?display:\s*flex !important;[\s\S]*?right:\s*0 !important;/);
+  assert.match(index, /#app\.sheet-open #panel-tab\s*\{\s*right:\s*var\(--sn-landscape-panel-width\) !important;\s*\}/);
+  assert.match(index, /#side-panel\.detail-open #panel-header\s*\{\s*display:\s*none !important;\s*\}/);
+  assert.match(index, /window\._snLandscapeCompact = \(\) =>[\s\S]*?orientation: landscape[\s\S]*?window\.togglePanelOpen = \(\) => window\._snLandscapeCompact\(\)[\s\S]*?SiteNavPanelState\.toggle\(\)[\s\S]*?SiteNavPanelState\.toggleDesktop\(\)/);
+});
+
 test('mobile camera controls snap immediately when the information panel changes height', () => {
   assert.match(style, /#cam-presets\s*\{[\s\S]*?transition:\s*none !important;/);
   assert.doesNotMatch(style, /#cam-presets\s*\{[\s\S]*?transition:[^;}]*bottom/);

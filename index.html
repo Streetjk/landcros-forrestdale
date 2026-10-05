@@ -854,6 +854,85 @@
       #site-address { font-size: 11px !important; text-align: center !important; }
     }
 
+    /* Landscape phones/tablets use a desktop-style right-side drawer
+       instead of the portrait bottom sheet. The same sheet state classes are
+       reused, so rotating the device preserves the selected location/state. */
+    @media (max-width: 1024px) and (orientation: landscape) {
+      #app {
+        --sn-landscape-panel-width: clamp(190px, 30vw, 240px);
+      }
+
+      #side-panel {
+        top: 0 !important;
+        right: 0 !important;
+        bottom: 0 !important;
+        left: auto !important;
+        width: var(--sn-landscape-panel-width) !important;
+        height: 100dvh !important;
+        padding-bottom: var(--safe-bottom) !important;
+        border-radius: 0 !important;
+        border-top: none !important;
+        border-left: 1px solid rgba(255,255,255,0.1) !important;
+        box-shadow: -8px 0 32px rgba(0,0,0,0.5) !important;
+        transform: translateX(100%) !important;
+        transition: transform 0.35s cubic-bezier(0.2, 0.8, 0.2, 1) !important;
+      }
+      #side-panel.sheet-mid,
+      #side-panel.sheet-full {
+        transform: translateX(0) !important;
+      }
+
+      .sheet-peek-cta,
+      .panel-handle { display: none !important; }
+
+      #panel-tab {
+        display: flex !important;
+        right: 0 !important;
+      }
+      #app.sheet-open #panel-tab {
+        right: var(--sn-landscape-panel-width) !important;
+      }
+      #app.sheet-open #panel-tab svg {
+        transform: rotate(180deg);
+      }
+
+      /* Landscape uses the side tab to close/open the drawer; keep the detail
+         body dedicated to content rather than another vertical fold control. */
+      #panel-toggle { display: none !important; }
+      #side-panel.detail-open #panel-header { display: none !important; }
+
+      #cam-presets,
+      #app.sheet-open #cam-presets {
+        bottom: calc(16px + var(--safe-bottom)) !important;
+      }
+      #nav-progress,
+      #app.sheet-open #nav-progress {
+        bottom: calc(20px + var(--safe-bottom)) !important;
+      }
+
+      #app.sheet-open #site-brand {
+        right: calc(var(--sn-landscape-panel-width) + 16px) !important;
+      }
+
+      body[data-staff-nav-mounted="true"] #side-panel {
+        top: 0 !important;
+        right: 0 !important;
+        bottom: var(--sn-map-staff-nav-lift) !important;
+        left: auto !important;
+        width: var(--sn-landscape-panel-width) !important;
+        height: calc(100dvh - var(--sn-map-staff-nav-lift)) !important;
+        transform: translateX(100%) !important;
+      }
+      body[data-staff-nav-mounted="true"] #side-panel.sheet-mid,
+      body[data-staff-nav-mounted="true"] #side-panel.sheet-full {
+        transform: translateX(0) !important;
+      }
+      body[data-staff-nav-mounted="true"] #cam-presets,
+      body[data-staff-nav-mounted="true"] #app.sheet-open #cam-presets {
+        bottom: calc(var(--sn-map-staff-nav-lift) + 16px) !important;
+      }
+    }
+
     /* style.css hides #site-brand/#site-address by ID across the whole
        ≤1024px range (shared with viewer3d.html/admin3d.html); this page wants
        both visible at every width, so restore them over the same range. */
@@ -1018,7 +1097,11 @@
   window.SiteNavPanelState.init({ mode: 'sheet' });
   window._updateCamPresetsBottom = () => window.SiteNavPanelState.sync();
   window.togglePanel = () => window.SiteNavPanelState.toggle();
-  window.togglePanelOpen = () => window.SiteNavPanelState.toggleDesktop();
+  window._snLandscapeCompact = () =>
+    window.innerWidth <= 1024 && !!window.matchMedia?.('(orientation: landscape)').matches;
+  window.togglePanelOpen = () => window._snLandscapeCompact()
+    ? window.SiteNavPanelState.toggle()
+    : window.SiteNavPanelState.toggleDesktop();
 
   window.addEventListener('error', e => {
     const el = document.getElementById('load-msg');

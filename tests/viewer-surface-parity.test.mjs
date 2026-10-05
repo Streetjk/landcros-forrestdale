@@ -53,12 +53,13 @@ test('detail mode removes redundant mobile title/back chrome and resets when the
   assert.match(index, /#side-panel\.detail-open \.back-link\s*\{\s*display:\s*none !important;\s*\}/);
 });
 
-test('shared fullscreen control is transparent and sits in the common button row', () => {
+test('shared fullscreen control is transparent and sits to the right of the speed-limit sign', () => {
   const viewer = read('viewer3d.js');
   const style = read('style.css');
 
   assert.match(viewer, /fsBtn\.className = 'cam-preset-btn fullscreen-map-btn'/);
-  assert.ok(viewer.indexOf('wrap.appendChild(fsBtn)') < viewer.indexOf('// Speed limit sign'));
+  assert.ok(viewer.indexOf("wrap.appendChild(speedBtn)") < viewer.indexOf('wrap.appendChild(fsBtn)'));
+  assert.match(viewer, /Fullscreen is deliberately appended last/);
   assert.match(style, /#btn-fullscreen\s*\{[\s\S]*?background:\s*transparent !important;[\s\S]*?border-color:\s*transparent !important;[\s\S]*?box-shadow:\s*none !important;/);
   assert.match(style, /#btn-fullscreen:hover,[\s\S]*?#btn-fullscreen\.active,[\s\S]*?#btn-fullscreen\[aria-pressed="true"\][\s\S]*?background:\s*transparent !important;/);
 });
