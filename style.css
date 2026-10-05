@@ -82,6 +82,12 @@ html, body {
   overflow: hidden;
 }
 
+/* Shared 3D label viewport. Labels keep their designed anchor and the
+   off-screen portion is visually clipped instead of relocating or hiding. */
+#labels-wrap {
+  overflow: hidden;
+}
+
 /* Reduced motion */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; }
@@ -289,13 +295,14 @@ textarea.form-input      { resize: vertical; min-height: 68px; }
   line-height: 1.5;
   color: var(--text-secondary);
 }
-@media (max-width: 1024px) {
-  /* Camera controls are not useful over an expanded reading card. */
-  #app:has(#point-detail.public-location-detail.visible) #cam-presets {
-    opacity: 0 !important;
-    pointer-events: none !important;
-  }
-}
+/* Keep map controls available while a public building detail is open.
+   The controls already track the sheet edge, so selecting a label should not
+   remove navigation controls from the map. */
+
+/* Labels stay anchored to their designed world positions. The layout helper
+   keeps a partially visible label rendered; this viewport clips only the part
+   that actually extends off-screen. */
+#labels-wrap { overflow: hidden; }
 
 /* ── SiteNav shared shell visual primitives ────────────────────────────────
    Public + staff viewer pages opt in with .sitenav-shell. Keep interaction

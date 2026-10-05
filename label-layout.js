@@ -1,7 +1,8 @@
 // Screen-space visibility helpers for public SiteNav labels.
 // Building labels stay at their designed world-space anchors. We never move,
-// reprioritise, or suppress a label because another label overlaps it. A label
-// hides only when its own designed card would be clipped by the viewport.
+// reprioritise, or suppress a label because another label overlaps it. Labels
+// remain rendered while any part of their designed card intersects the viewport;
+// the label layer clips the off-screen portion visually.
 
 export function labelScaleForZoom(zoom) {
   const z = Number.isFinite(zoom) ? Math.max(0, zoom) : 26;
@@ -22,29 +23,26 @@ function rectFor(item, scale) {
   };
 }
 
-function inside(rect, viewport, margin) {
-  return rect.left >= margin &&
-    rect.top >= margin &&
-    rect.right <= viewport.width - margin &&
-    rect.bottom <= viewport.height - margin;
+function intersectsViewport(rect, viewport) {
+  return rect.right > 0 &&
+    rect.bottom > 0 &&
+    rect.left < viewport.width &&
+    rect.top < viewport.height;
 }
 
 export function layoutLabels(items, viewport, options = {}) {
-  const margin = Number.isFinite(options.margin) ? options.margin : 8;
   if (!viewport || viewport.width <= 0 || viewport.height <= 0) return new Map();
 
   const out = new Map();
 
   for (const item of items) {
-    if (!Number.isFinite(item.x) || !Number.isFinite(item.y) ||
-        item.x < -100 || item.y < -100 ||
-        item.x > viewport.width + 100 || item.y > viewport.height + 100) {
+    if (!Number.isFinite(item.x) || !Number.isFinite(item.y)) {
       out.set(item.id, { visible: false, scale: item.scale, dx: 0, dy: 0, slot: -1 });
       continue;
     }
 
     const rect = rectFor(item, item.scale);
-    if (!inside(rect, viewport, margin)) {
+    if (!intersectsViewport(rect, viewport)) {
       out.set(item.id, { visible: false, scale: item.scale, dx: 0, dy: 0, slot: -1 });
       continue;
     }

@@ -41,12 +41,13 @@ test('overlapping labels stay visible at their designed anchors', () => {
   }
 });
 
-test('a label that would be cut off at the viewport edge hides instead of moving', () => {
+test('a partially off-screen label stays visible at its designed anchor for visual clipping', () => {
   const item = { id:'edge', x:45, y:120, width:100, height:40, scale:1, priority:20 };
   const result = layoutLabels([item], {width:320,height:240}, {gap:7,margin:8}).get('edge');
-  assert.equal(result.visible, false);
+  assert.equal(result.visible, true);
   assert.equal(result.dx, 0);
   assert.equal(result.dy, 0);
+  assert.equal(result.slot, 0);
 });
 
 test('a label fully inside the viewport keeps its exact designed position', () => {
@@ -56,19 +57,26 @@ test('a label fully inside the viewport keeps its exact designed position', () =
   assert.deepEqual(rect(item, result), { left:10, right:110, top:100, bottom:140 });
 });
 
-test('labels are hidden only by their own viewport clipping, not by crowding', () => {
+test('labels hide only once the entire designed card is outside the viewport', () => {
   const items = Array.from({length:12}, (_,i) => ({
     id:String(i), x:50, y:30, width:90, height:40, scale:0.66, priority:12-i,
   }));
   const out = layoutLabels(items, {width:100,height:60}, {gap:7,margin:8});
   assert.ok([...out.values()].every(v => v.visible === true));
 
-  const clipped = layoutLabels(
-    [{ id:'edge', x:5, y:30, width:90, height:40, scale:0.66 }],
+  const partlyClipped = layoutLabels(
+    [{ id:'partial', x:5, y:30, width:90, height:40, scale:0.66 }],
     {width:100,height:60},
     {gap:7,margin:8},
   );
-  assert.equal(clipped.get('edge').visible, false);
+  assert.equal(partlyClipped.get('partial').visible, true);
+
+  const fullyOutside = layoutLabels(
+    [{ id:'outside', x:-40, y:30, width:90, height:40, scale:0.66 }],
+    {width:100,height:60},
+    {gap:7,margin:8},
+  );
+  assert.equal(fullyOutside.get('outside').visible, false);
 });
 
 test('wheel bridge preserves wheel deltas and modifier keys', () => {

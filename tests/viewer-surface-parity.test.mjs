@@ -17,8 +17,9 @@ test('shared viewer keeps labels fixed and splat network loading bounded for eve
   const viewer = read('viewer3d.js');
   const labels = read('label-layout.js');
 
-  assert.doesNotMatch(labels, /previousSlot|offsetsFor|orderedSlots|clampedPlacement|function overlaps/);
-  assert.match(labels, /if \(!inside\(rect, viewport, margin\)\)/);
+  assert.doesNotMatch(labels, /previousSlot|offsetsFor|orderedSlots|clampedPlacement|function overlaps|function inside/);
+  assert.match(labels, /function intersectsViewport\(rect, viewport\)/);
+  assert.match(labels, /if \(!intersectsViewport\(rect, viewport\)\)/);
   assert.match(labels, /visible:\s*true,[\s\S]*?dx:\s*0,[\s\S]*?dy:\s*0,[\s\S]*?slot:\s*0/);
 
   assert.match(viewer, /_fetchWithTimeout\(path, \{ method: 'HEAD', cache: 'no-store' \}, 8000\)/);
@@ -26,14 +27,20 @@ test('shared viewer keeps labels fixed and splat network loading bounded for eve
   assert.match(viewer, /30000,[\s\S]*return response\.arrayBuffer\(\)/);
 });
 
-test('shared mobile camera controls snap rather than animate their vertical movement', () => {
+test('shared mobile camera controls snap and remain available while a building detail is selected', () => {
   const style = read('style.css');
   const index = read('index.html');
 
   assert.match(style, /#cam-presets\s*\{[\s\S]*?transition:\s*none !important;/);
   assert.doesNotMatch(style, /#cam-presets\s*\{[\s\S]*?transition:[^;}]*bottom/);
+  assert.doesNotMatch(style, /public-location-detail\.visible[^}]*#cam-presets|#app:has\(#point-detail\.public-location-detail\.visible\) #cam-presets/);
   assert.match(index, /#cam-presets\s*\{[\s\S]*?transition:\s*opacity 0\.4s ease !important;/);
   assert.doesNotMatch(index, /#cam-presets\s*\{[\s\S]*?transition:[^;}]*bottom/);
+});
+
+test('shared label layer clips partially off-screen cards instead of hiding or moving them', () => {
+  const style = read('style.css');
+  assert.match(style, /#labels-wrap\s*\{\s*overflow:\s*hidden;\s*\}/);
 });
 
 test('loading address remains visible until the loading overlay itself finishes', () => {
