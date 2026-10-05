@@ -36,6 +36,18 @@ test('shared mobile camera controls snap rather than animate their vertical move
   assert.doesNotMatch(index, /#cam-presets\s*\{[\s\S]*?transition:[^;}]*bottom/);
 });
 
+test('loading address remains visible until the loading overlay itself finishes', () => {
+  const viewer = read('viewer3d.js');
+  const index = read('index.html');
+  const standalone = read('viewer3d.html');
+
+  assert.match(index, /id="load-site-sub"/);
+  assert.match(standalone, /id="load-site-sub"/);
+  assert.doesNotMatch(viewer, /load-site-sub[\s\S]{0,180}style\.opacity\s*=\s*['"]0['"]/);
+  assert.doesNotMatch(viewer, /_siteSub[\s\S]{0,120}opacity/);
+  assert.match(viewer, /document\.getElementById\('loading'\)\.classList\.add\('done'\)/);
+});
+
 test('portal opens the shared editor surface rather than a separate viewer implementation', () => {
   const portal = read('portal.html');
   assert.match(portal, /openLink\.href = `\/editor\.html\?site=\$\{encodeURIComponent\(slug\)\}`;/);

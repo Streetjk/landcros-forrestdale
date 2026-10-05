@@ -3819,11 +3819,8 @@ async function boot() {
     ]);
   }
 
-  // Fade out the site name — "erased by the divider" before screen closes.
-  const _siteSub = document.querySelector('.load-site-sub');
-  if (_siteSub) _siteSub.style.opacity = '0';
-  await new Promise(r => setTimeout(r, 450));
-
+  // Keep the site address visible for the entire loading overlay.
+  // It should disappear only when the loading screen itself fades away.
   _perf.mark('coreSceneBuilt');
   _perf.sampleMemory('core-scene-built');
   document.getElementById('load-fill').style.width = '100%';
