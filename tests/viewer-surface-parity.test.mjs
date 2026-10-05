@@ -43,6 +43,16 @@ test('shared label layer clips partially off-screen cards instead of hiding or m
   assert.match(style, /#labels-wrap\s*\{\s*overflow:\s*hidden;\s*\}/);
 });
 
+test('detail mode removes redundant mobile title/back chrome and resets when the list returns', () => {
+  const viewer = read('viewer3d.js');
+  const index = read('index.html');
+
+  assert.match(viewer, /point-detail'\)\.classList\.add\('visible'\);\s*document\.getElementById\('side-panel'\)\?\.classList\.add\('detail-open'\)/);
+  assert.match(viewer, /point-detail'\)\.classList\.remove\('visible'\);\s*document\.getElementById\('side-panel'\)\?\.classList\.remove\('detail-open'\)/);
+  assert.match(index, /#side-panel\.detail-open #panel-header-text\s*\{\s*display:\s*none !important;\s*\}/);
+  assert.match(index, /#side-panel\.detail-open \.back-link\s*\{\s*display:\s*none !important;\s*\}/);
+});
+
 test('loading address remains visible until the loading overlay itself finishes', () => {
   const viewer = read('viewer3d.js');
   const index = read('index.html');

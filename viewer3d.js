@@ -1480,6 +1480,7 @@ function _collapseCompactPanelList() {
 function _openDetailPanel() {
   document.getElementById('point-list').style.display = 'none';
   document.getElementById('point-detail').classList.add('visible');
+  document.getElementById('side-panel')?.classList.add('detail-open');
   if (window.innerWidth <= 1024) _openCompactPanelDetail();
   if (window.innerWidth > 1024) document.getElementById('app')?.classList.add('panel-open');
 }
@@ -1846,6 +1847,7 @@ async function selectPoint(pt, options = {}) {
 
   document.getElementById('point-list').style.display = 'none';
   document.getElementById('point-detail').classList.add('visible');
+  document.getElementById('side-panel')?.classList.add('detail-open');
 
   // On mobile + tablet — expand panel so detail is visible
   if (window.innerWidth <= 1024) _openCompactPanelDetail();
@@ -1961,6 +1963,7 @@ window.showPointList = function(options = {}) {
   if (contactsEl) contactsEl.replaceChildren();
   document.getElementById('point-list').style.display = '';
   document.getElementById('point-detail').classList.remove('visible');
+  document.getElementById('side-panel')?.classList.remove('detail-open');
   // Collapse the public sheet back to its list/peek state. Fold-mode viewers
   // intentionally preserve their current unfolded list behavior.
   _collapseCompactPanelList();

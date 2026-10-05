@@ -778,6 +778,18 @@
       #side-panel.sheet-mid #panel-toggle,
       #side-panel.sheet-full #panel-toggle { transform: rotate(180deg); }
 
+      /* Selected location/building detail: keep only a compact fold control.
+         The content starts immediately below it; the old title and Back row
+         remain in the DOM for desktop/history semantics but are not shown here. */
+      #side-panel.detail-open #panel-header {
+        min-height: 24px;
+        padding: 2px 18px 2px !important;
+        border-bottom: 0 !important;
+      }
+      #side-panel.detail-open #panel-header-text { display: none !important; }
+      #side-panel.detail-open .back-link { display: none !important; }
+      #side-panel.detail-open .detail-hero { padding-top: 4px !important; }
+
       /* style.css sets `bottom: calc(16vh/19vh + 8px) !important` for the
          panel-folded height model used by viewer3d.html/admin3d.html. This
          page uses the translateY sheet model instead, so every value here

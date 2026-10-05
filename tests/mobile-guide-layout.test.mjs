@@ -25,12 +25,24 @@ test('index mobile sheet uses dynamic viewport tokens and a visible peek dock', 
   assert.match(index, /#cam-presets\s*\{[\s\S]*?bottom:\s*calc\(var\(--sn-sheet-peek\) \+ var\(--safe-bottom\) \+ 10px\) !important;/);
   assert.match(index, /#app\.sheet-open #cam-presets\s*\{\s*bottom:\s*calc\(var\(--sn-sheet-mid\) \+ var\(--safe-bottom\) \+ 10px\) !important;\s*\}/);
   assert.match(index, /#point-detail\s*\{[\s\S]*?min-height:\s*0;[\s\S]*?overflow-y:\s*auto;[\s\S]*?overscroll-behavior:\s*contain;[\s\S]*?-webkit-overflow-scrolling:\s*touch;/);
+  assert.match(index, /#side-panel\.detail-open #panel-header\s*\{[\s\S]*?min-height:\s*24px;[\s\S]*?padding:\s*2px 18px 2px !important;/);
+  assert.match(index, /#side-panel\.detail-open #panel-header-text\s*\{\s*display:\s*none !important;\s*\}/);
+  assert.match(index, /#side-panel\.detail-open \.back-link\s*\{\s*display:\s*none !important;\s*\}/);
+  assert.match(index, /#side-panel\.detail-open \.detail-hero\s*\{\s*padding-top:\s*4px !important;\s*\}/);
   assert.match(index, /#cam-presets\s*\{[\s\S]*?transition:\s*opacity 0\.4s ease !important;/);
   assert.doesNotMatch(index, /#cam-presets\s*\{[\s\S]*?transition:[^;}]*bottom/);
   assert.match(index, /font-size:\s*12px;/);
   assert.match(index, /<button[^>]*id="sheet-peek-toggle"[^>]*aria-controls="side-panel"[^>]*aria-expanded="false"[^>]*>[\s\S]*?Locations[\s\S]*?<\/button>/);
 });
 
+
+test('selected mobile detail removes the Site Navigator title and Back row while preserving fold control', () => {
+  assert.match(index, /#side-panel\.detail-open #panel-header-text\s*\{\s*display:\s*none !important;\s*\}/);
+  assert.match(index, /#side-panel\.detail-open \.back-link\s*\{\s*display:\s*none !important;\s*\}/);
+  assert.match(index, /#side-panel\.detail-open #panel-header\s*\{[\s\S]*?min-height:\s*24px;[\s\S]*?padding:\s*2px 18px 2px !important;/);
+  assert.match(index, /#side-panel\.detail-open \.detail-hero\s*\{\s*padding-top:\s*4px !important;\s*\}/);
+  assert.match(index, /#panel-toggle\s*\{\s*display:\s*flex !important;/);
+});
 
 test('mobile camera controls snap immediately when the information panel changes height', () => {
   assert.match(style, /#cam-presets\s*\{[\s\S]*?transition:\s*none !important;/);
