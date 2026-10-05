@@ -755,7 +755,7 @@ function _buildCamButtons(cfg) {
   };
   wrap.appendChild(rotBtn);
 
-  (cfg.camera?.presets ?? []).forEach((p, i) => {
+  (cfg.camera?.presets ?? []).filter(p => p.action !== 'fullscreen').forEach((p, i) => {
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'cam-preset-btn';
@@ -817,6 +817,43 @@ function _buildCamButtons(cfg) {
   mBtn.onclick = () => _toggleMeasure(!_measureMode);
   mBtn.style.display = 'none';
   wrap.appendChild(mBtn);
+
+  // Fullscreen — always available as a shared viewer control. Keep this out
+  // of site config so public/viewer/admin surfaces cannot silently diverge.
+  // The transparent treatment keeps it visually level with the row without
+  // adding another dark filled circle.
+  const fsBtn = document.createElement('button');
+  fsBtn.type = 'button';
+  fsBtn.className = 'cam-preset-btn fullscreen-map-btn';
+  fsBtn.id = 'btn-fullscreen';
+  fsBtn.title = 'Fullscreen map';
+  fsBtn.setAttribute('aria-label', 'Fullscreen map');
+  fsBtn.innerHTML = `<div class="icon-wrap">${icons.fullscreen}</div><span class="label-wrap">Fullscreen</span>`;
+
+  const fullscreenElement = () => document.fullscreenElement || document.webkitFullscreenElement || null;
+  const syncFullscreenButton = () => {
+    const active = !!fullscreenElement();
+    fsBtn.classList.toggle('active', active);
+    fsBtn.setAttribute('aria-label', active ? 'Exit fullscreen' : 'Fullscreen map');
+    fsBtn.title = active ? 'Exit fullscreen' : 'Fullscreen map';
+  };
+  fsBtn.onclick = async () => {
+    try {
+      if (fullscreenElement()) {
+        if (document.exitFullscreen) await document.exitFullscreen();
+        else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+      } else {
+        const root = document.documentElement;
+        if (root.requestFullscreen) await root.requestFullscreen();
+        else if (root.webkitRequestFullscreen) root.webkitRequestFullscreen();
+      }
+    } catch {}
+    syncFullscreenButton();
+  };
+  document.addEventListener('fullscreenchange', syncFullscreenButton);
+  document.addEventListener('webkitfullscreenchange', syncFullscreenButton);
+  syncFullscreenButton();
+  wrap.appendChild(fsBtn);
 
   // Speed limit sign — decorative, site-specific (omitted when config lacks
   // speedLimitSign). The "10" is outlined vector paths, not live text, for

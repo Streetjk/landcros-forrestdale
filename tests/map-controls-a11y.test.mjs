@@ -57,6 +57,8 @@ test('runtime-generated actionable camera controls are explicit named buttons', 
   assert.match(viewer, /mBtn\.setAttribute\('aria-label', 'Measure distance'\)/);
   assert.match(viewer, /btn\.type = 'button'/);
   assert.match(viewer, /btn\.setAttribute\('aria-label', mapControlLabel\(p\)\)/);
+  assert.match(viewer, /fsBtn\.type = 'button'/);
+  assert.match(viewer, /fsBtn\.setAttribute\('aria-label', 'Fullscreen map'\)/);
 });
 
 test('rotate, measure and autopan lifecycle paths call shared pressed-state synchronization', () => {
@@ -71,10 +73,10 @@ test('rotate, measure and autopan lifecycle paths call shared pressed-state sync
   assert.match(selectBlock, /_orbitActive = true;[\s\S]*?controls\.autoRotate\s*=\s*true;[\s\S]*?_syncAutoPanButtons\(\);[\s\S]*?window\._syncRotateBtn\?\.\(\)/);
 });
 
-test('fullscreen and ordinary presets remain non-toggle controls', () => {
-  const presetLoopStart = viewer.indexOf('(cfg.camera?.presets ?? []).forEach');
-  const measureStart = viewer.indexOf('// Measurement tool button', presetLoopStart);
-  const block = viewer.slice(presetLoopStart, measureStart);
-  assert.match(block, /if \(p\.action === 'autopan'\) \{[\s\S]*?syncPressedButton\(btn, _orbitActive\)/);
-  assert.doesNotMatch(block, /p\.action === 'fullscreen'[\s\S]{0,260}aria-pressed/);
+test('configured fullscreen presets are filtered and one shared fullscreen control is created', () => {
+  assert.match(viewer, /\(cfg\.camera\?\.presets \?\? \[\]\)\.filter\(p => p\.action !== 'fullscreen'\)\.forEach/);
+  assert.equal((viewer.match(/id = 'btn-fullscreen'/g) || []).length, 1);
+  assert.match(viewer, /fsBtn\.className = 'cam-preset-btn fullscreen-map-btn'/);
+  assert.match(viewer, /document\.fullscreenElement \|\| document\.webkitFullscreenElement/);
+  assert.match(viewer, /document\.addEventListener\('fullscreenchange', syncFullscreenButton\)/);
 });
