@@ -17,13 +17,14 @@ test('index mobile sheet uses dynamic viewport tokens and a visible peek dock', 
   assert.match(index, /height:\s*100vh;[\s\S]*?height:\s*100dvh;/);
   assert.match(index, /min-height:\s*100vh;[\s\S]*?min-height:\s*100svh;/);
   assert.match(index, /--sn-sheet-peek:\s*60px;/);
-  assert.match(index, /--sn-sheet-mid:\s*min\(42dvh, 360px\);/);
+  assert.match(index, /--sn-sheet-mid:\s*min\(21dvh, 180px\);/);
   assert.match(index, /--sn-sheet-full:\s*min\(88dvh, 760px\);/);
   assert.match(index, /height:\s*calc\(var\(--sn-sheet-full\) \+ var\(--safe-bottom\)\) !important;/);
   assert.match(index, /transform:\s*translateY\(calc\(100% - var\(--sn-sheet-peek\) - var\(--safe-bottom\)\)\);/);
   assert.match(index, /#side-panel\.sheet-mid\s*\{\s*transform:\s*translateY\(calc\(100% - var\(--sn-sheet-mid\) - var\(--safe-bottom\)\)\);\s*\}/);
   assert.match(index, /#cam-presets\s*\{[\s\S]*?bottom:\s*calc\(var\(--sn-sheet-peek\) \+ var\(--safe-bottom\) \+ 10px\) !important;/);
   assert.match(index, /#app\.sheet-open #cam-presets\s*\{\s*bottom:\s*calc\(var\(--sn-sheet-mid\) \+ var\(--safe-bottom\) \+ 10px\) !important;\s*\}/);
+  assert.match(index, /#point-detail\s*\{[\s\S]*?min-height:\s*0;[\s\S]*?overflow-y:\s*auto;[\s\S]*?overscroll-behavior:\s*contain;[\s\S]*?-webkit-overflow-scrolling:\s*touch;/);
   assert.match(index, /#cam-presets\s*\{[\s\S]*?transition:\s*opacity 0\.4s ease !important;/);
   assert.doesNotMatch(index, /#cam-presets\s*\{[\s\S]*?transition:[^;}]*bottom/);
   assert.match(index, /font-size:\s*12px;/);
