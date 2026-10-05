@@ -2,11 +2,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { labelScaleForZoom, layoutLabels, forwardWheelToTarget } from '../label-layout.js';
 
-function intersects(a, b, gap = 0) {
-  return !(a.right + gap <= b.left || a.left >= b.right + gap ||
-           a.bottom + gap <= b.top || a.top >= b.bottom + gap);
-}
-
 function rect(item, result) {
   const w = item.width * result.scale;
   const h = item.height * result.scale;
@@ -22,45 +17,46 @@ test('label zoom curve caps close labels and preserves readable overhead size', 
   assert.equal(labelScaleForZoom(50), 0.54);
   assert.ok(labelScaleForZoom(70) >= 0.44 && labelScaleForZoom(70) < 0.54);
 });
-test('screen-space layout separates colliding labels and preserves priority', () => {
+
+test('labels remain at their designed screen anchor with zero layout offset', () => {
+  const item = { id:'gate', x:400, y:250, width:110, height:42, scale:0.66, priority:40, previousSlot:6 };
+  const result = layoutLabels([item], {width:800,height:500}, {gap:7}).get('gate');
+  assert.equal(result.visible, true);
+  assert.equal(result.slot, 0);
+  assert.equal(result.dx, 0);
+  assert.equal(result.dy, 0);
+});
+
+test('a collision hides the lower-priority label instead of moving either label', () => {
   const items = [
-    { id:'gate', x:400, y:250, width:110, height:42, scale:0.66, priority:40, previousSlot:0 },
-    { id:'parts', x:400, y:250, width:120, height:42, scale:0.66, priority:20, previousSlot:0 },
+    { id:'gate', x:400, y:250, width:110, height:42, scale:0.66, priority:40 },
+    { id:'parts', x:400, y:250, width:120, height:42, scale:0.66, priority:20 },
   ];
   const out = layoutLabels(items, {width:800,height:500}, {gap:7});
-  const gate = out.get('gate');
-  const parts = out.get('parts');
-  assert.equal(gate.visible, true);
-  assert.equal(gate.slot, 0);
-  assert.equal(parts.visible, true);
-  assert.notEqual(parts.slot, 0);
-  assert.equal(intersects(rect(items[0],gate), rect(items[1],parts), 7), false);
+  assert.equal(out.get('gate').visible, true);
+  assert.equal(out.get('gate').dx, 0);
+  assert.equal(out.get('gate').dy, 0);
+  assert.equal(out.get('parts').visible, false);
 });
 
-test('layout keeps a previous non-overlapping slot to avoid label jitter', () => {
-  const item = { id:'a', x:300, y:200, width:100, height:40, scale:0.6, priority:20, previousSlot:2 };
-  const out = layoutLabels([item], {width:800,height:500}, {gap:7});
-  assert.equal(out.get('a').visible, true);
-  assert.equal(out.get('a').slot, 2);
+test('a label that would be cut off at the viewport edge hides instead of moving', () => {
+  const item = { id:'edge', x:45, y:120, width:100, height:40, scale:1, priority:20 };
+  const result = layoutLabels([item], {width:320,height:240}, {gap:7,margin:8}).get('edge');
+  assert.equal(result.visible, false);
+  assert.equal(result.dx, 0);
+  assert.equal(result.dy, 0);
 });
 
-test('layout clamps the same slot smoothly at a viewport edge instead of jumping slots', () => {
-  const viewport = { width: 320, height: 240 };
-  const base = { id:'edge', y:120, width:100, height:40, scale:1, priority:20, previousSlot:0 };
-  const first = layoutLabels([{ ...base, x:45 }], viewport, {gap:7,margin:8}).get('edge');
-  const second = layoutLabels([{ ...base, x:35 }], viewport, {gap:7,margin:8}).get('edge');
-
-  assert.equal(first.visible, true);
-  assert.equal(second.visible, true);
-  assert.equal(first.slot, 0);
-  assert.equal(second.slot, 0);
-  assert.equal(rect({ ...base, x:45 }, first).left, 8);
-  assert.equal(rect({ ...base, x:35 }, second).left, 8);
-  assert.equal(second.dx - first.dx, 10);
+test('a label fully inside the viewport keeps its exact designed position', () => {
+  const item = { id:'safe', x:60, y:120, width:100, height:40, scale:1, priority:20 };
+  const result = layoutLabels([item], {width:320,height:240}, {gap:7,margin:8}).get('safe');
+  assert.equal(result.visible, true);
+  assert.deepEqual(rect(item, result), { left:10, right:110, top:100, bottom:140 });
 });
-test('layout hides labels when no collision-free in-viewport placement exists', () => {
+
+test('layout hides labels when the designed placements cannot all fit', () => {
   const items = Array.from({length:12}, (_,i) => ({
-    id:String(i), x:50, y:30, width:90, height:40, scale:0.66, priority:12-i, previousSlot:0,
+    id:String(i), x:50, y:30, width:90, height:40, scale:0.66, priority:12-i,
   }));
   const out = layoutLabels(items, {width:100,height:60}, {gap:7,margin:8});
   assert.ok([...out.values()].some(v => !v.visible));

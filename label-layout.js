@@ -1,5 +1,7 @@
-// Screen-space layout helpers for public SiteNav labels.
-// Pure functions stay independent of Three.js so collision behaviour is cheap to test.
+// Screen-space visibility helpers for public SiteNav labels.
+// Building labels stay at their designed world-space anchors. We never move a
+// label to another screen position to avoid an edge or collision; lower-priority
+// labels simply hide until their designed position can be shown cleanly.
 
 export function labelScaleForZoom(zoom) {
   const z = Number.isFinite(zoom) ? Math.max(0, zoom) : 26;
@@ -18,61 +20,27 @@ function overlaps(a, b, gap) {
   );
 }
 
-function rectFor(item, scale, dx, dy) {
+function rectFor(item, scale) {
   const width = Math.max(1, item.width * scale);
   const height = Math.max(1, item.height * scale);
-  const cx = item.x + dx;
-  const cy = item.y + dy;
   return {
-    left: cx - width / 2,
-    right: cx + width / 2,
-    top: cy - height / 2,
-    bottom: cy + height / 2,
+    left: item.x - width / 2,
+    right: item.x + width / 2,
+    top: item.y - height / 2,
+    bottom: item.y + height / 2,
   };
 }
 
-function clampedPlacement(item, scale, dx, dy, viewport, margin) {
-  const width = Math.max(1, item.width * scale);
-  const height = Math.max(1, item.height * scale);
-  const minCx = margin + width / 2;
-  const maxCx = viewport.width - margin - width / 2;
-  const minCy = margin + height / 2;
-  const maxCy = viewport.height - margin - height / 2;
-  if (minCx > maxCx || minCy > maxCy) return null;
-
-  const cx = Math.min(maxCx, Math.max(minCx, item.x + dx));
-  const cy = Math.min(maxCy, Math.max(minCy, item.y + dy));
-  const nextDx = cx - item.x;
-  const nextDy = cy - item.y;
-  return { dx: nextDx, dy: nextDy, rect: rectFor(item, scale, nextDx, nextDy) };
-}
-
-function offsetsFor(width, height, gap) {
-  const x = width * 0.62 + gap;
-  const y = height + gap;
-  return [
-    [0, 0],
-    [0, -y],
-    [0, y],
-    [-x, -height * 0.55],
-    [x, -height * 0.55],
-    [-x, height * 0.55],
-    [x, height * 0.55],
-    [0, -2 * y],
-    [0, 2 * y],
-  ];
-}
-
-function orderedSlots(previousSlot, slotCount) {
-  const slots = Array.from({ length: slotCount }, (_, i) => i);
-  if (!Number.isInteger(previousSlot) || previousSlot < 0 || previousSlot >= slotCount) return slots;
-  return [previousSlot, ...slots.filter(i => i !== previousSlot)];
+function inside(rect, viewport, margin) {
+  return rect.left >= margin &&
+    rect.top >= margin &&
+    rect.right <= viewport.width - margin &&
+    rect.bottom <= viewport.height - margin;
 }
 
 export function layoutLabels(items, viewport, options = {}) {
   const gap = Number.isFinite(options.gap) ? options.gap : 7;
   const margin = Number.isFinite(options.margin) ? options.margin : 8;
-  const minScale = Number.isFinite(options.minScale) ? options.minScale : 0.44;
   if (!viewport || viewport.width <= 0 || viewport.height <= 0) return new Map();
 
   const placed = [];
@@ -90,49 +58,27 @@ export function layoutLabels(items, viewport, options = {}) {
       continue;
     }
 
-    const attempts = [item.scale, Math.max(minScale, item.scale * 0.88)];
-    let choice = null;
-    for (const scale of attempts) {
-      const scaledW = Math.max(1, item.width * scale);
-      const scaledH = Math.max(1, item.height * scale);
-      const offsets = offsetsFor(scaledW, scaledH, gap);
-      for (const slot of orderedSlots(item.previousSlot, offsets.length)) {
-        const [dx, dy] = offsets[slot];
-        // Keep the current slot stable at the screen edge. Instead of marking
-        // a slot invalid the instant part of the card would leave the viewport
-        // (which makes the layout jump to another slot), continuously clamp
-        // that slot's centre back inside the safe viewport.
-        const placement = clampedPlacement(item, scale, dx, dy, viewport, margin);
-        if (!placement) continue;
-        if (placed.some(p => overlaps(placement.rect, p.rect, gap))) continue;
-        choice = {
-          visible: true,
-          scale,
-          dx: placement.dx,
-          dy: placement.dy,
-          slot,
-          rect: placement.rect,
-        };
-        break;
-      }
-      if (choice) break;
-    }
+    const rect = rectFor(item, item.scale);
+    const blocked = !inside(rect, viewport, margin) ||
+      placed.some(p => overlaps(rect, p.rect, gap));
 
-    if (!choice) {
-      out.set(item.id, { visible: false, scale: Math.max(minScale, item.scale), dx: 0, dy: 0, slot: -1 });
+    if (blocked) {
+      out.set(item.id, { visible: false, scale: item.scale, dx: 0, dy: 0, slot: -1 });
       continue;
     }
-    placed.push({ id: item.id, rect: choice.rect });
+
+    placed.push({ id: item.id, rect });
     out.set(item.id, {
       visible: true,
-      scale: choice.scale,
-      dx: choice.dx,
-      dy: choice.dy,
-      slot: choice.slot,
+      scale: item.scale,
+      dx: 0,
+      dy: 0,
+      slot: 0,
     });
   }
   return out;
 }
+
 export function forwardWheelToTarget(sourceEvent, target, WheelEventCtor = globalThis.WheelEvent) {
   if (!sourceEvent || !target?.dispatchEvent || typeof WheelEventCtor !== 'function') return false;
   sourceEvent.preventDefault?.();
