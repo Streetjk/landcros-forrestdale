@@ -43,6 +43,21 @@ test('layout keeps a previous non-overlapping slot to avoid label jitter', () =>
   assert.equal(out.get('a').visible, true);
   assert.equal(out.get('a').slot, 2);
 });
+
+test('layout clamps the same slot smoothly at a viewport edge instead of jumping slots', () => {
+  const viewport = { width: 320, height: 240 };
+  const base = { id:'edge', y:120, width:100, height:40, scale:1, priority:20, previousSlot:0 };
+  const first = layoutLabels([{ ...base, x:45 }], viewport, {gap:7,margin:8}).get('edge');
+  const second = layoutLabels([{ ...base, x:35 }], viewport, {gap:7,margin:8}).get('edge');
+
+  assert.equal(first.visible, true);
+  assert.equal(second.visible, true);
+  assert.equal(first.slot, 0);
+  assert.equal(second.slot, 0);
+  assert.equal(rect({ ...base, x:45 }, first).left, 8);
+  assert.equal(rect({ ...base, x:35 }, second).left, 8);
+  assert.equal(second.dx - first.dx, 10);
+});
 test('layout hides labels when no collision-free in-viewport placement exists', () => {
   const items = Array.from({length:12}, (_,i) => ({
     id:String(i), x:50, y:30, width:90, height:40, scale:0.66, priority:12-i, previousSlot:0,

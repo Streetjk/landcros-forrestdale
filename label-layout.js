@@ -31,11 +31,20 @@ function rectFor(item, scale, dx, dy) {
   };
 }
 
-function inside(rect, viewport, margin) {
-  return rect.left >= margin &&
-    rect.top >= margin &&
-    rect.right <= viewport.width - margin &&
-    rect.bottom <= viewport.height - margin;
+function clampedPlacement(item, scale, dx, dy, viewport, margin) {
+  const width = Math.max(1, item.width * scale);
+  const height = Math.max(1, item.height * scale);
+  const minCx = margin + width / 2;
+  const maxCx = viewport.width - margin - width / 2;
+  const minCy = margin + height / 2;
+  const maxCy = viewport.height - margin - height / 2;
+  if (minCx > maxCx || minCy > maxCy) return null;
+
+  const cx = Math.min(maxCx, Math.max(minCx, item.x + dx));
+  const cy = Math.min(maxCy, Math.max(minCy, item.y + dy));
+  const nextDx = cx - item.x;
+  const nextDy = cy - item.y;
+  return { dx: nextDx, dy: nextDy, rect: rectFor(item, scale, nextDx, nextDy) };
 }
 
 function offsetsFor(width, height, gap) {
@@ -89,10 +98,21 @@ export function layoutLabels(items, viewport, options = {}) {
       const offsets = offsetsFor(scaledW, scaledH, gap);
       for (const slot of orderedSlots(item.previousSlot, offsets.length)) {
         const [dx, dy] = offsets[slot];
-        const rect = rectFor(item, scale, dx, dy);
-        if (!inside(rect, viewport, margin)) continue;
-        if (placed.some(p => overlaps(rect, p.rect, gap))) continue;
-        choice = { visible: true, scale, dx, dy, slot, rect };
+        // Keep the current slot stable at the screen edge. Instead of marking
+        // a slot invalid the instant part of the card would leave the viewport
+        // (which makes the layout jump to another slot), continuously clamp
+        // that slot's centre back inside the safe viewport.
+        const placement = clampedPlacement(item, scale, dx, dy, viewport, margin);
+        if (!placement) continue;
+        if (placed.some(p => overlaps(placement.rect, p.rect, gap))) continue;
+        choice = {
+          visible: true,
+          scale,
+          dx: placement.dx,
+          dy: placement.dy,
+          slot,
+          rect: placement.rect,
+        };
         break;
       }
       if (choice) break;

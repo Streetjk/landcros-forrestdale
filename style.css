@@ -230,10 +230,11 @@ textarea.form-input      { resize: vertical; min-height: 68px; }
     bottom: calc(16vh + 8px) !important;
     flex-direction: row !important; gap: 10px;
     transform: none !important;
-    transition: bottom 0.28s cubic-bezier(0.2, 0.8, 0.2, 1) !important;
+    transition: none !important;
   }
-  /* Folded: drive the button position from CSS (same vh units + transition as
-     the panel) so they animate in perfect lockstep with the fold/unfold.
+  /* Folded: drive the button position from CSS. The controls intentionally
+     snap to the new panel edge immediately instead of trailing the sheet
+     animation; this keeps map controls responsive during fold/unfold.
      .panel-is-folded is mirrored onto #app by panel-mobile.js for browsers
      without :has() support (older iOS Safari / Android WebView). */
   #app.panel-is-folded #cam-presets,

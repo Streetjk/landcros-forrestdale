@@ -4,6 +4,7 @@ import fs from 'node:fs';
 
 const index = fs.readFileSync(new URL('../index.html', import.meta.url), 'utf8');
 const viewer = fs.readFileSync(new URL('../viewer3d.html', import.meta.url), 'utf8');
+const style = fs.readFileSync(new URL('../style.css', import.meta.url), 'utf8');
 
 for (const [name, html] of [['index.html', index], ['viewer3d.html', viewer]]) {
   test(`${name} opts into viewport safe areas and offsets the public brand`, () => {
@@ -23,10 +24,17 @@ test('index mobile sheet uses dynamic viewport tokens and a visible peek dock', 
   assert.match(index, /#side-panel\.sheet-mid\s*\{\s*transform:\s*translateY\(calc\(100% - var\(--sn-sheet-mid\) - var\(--safe-bottom\)\)\);\s*\}/);
   assert.match(index, /#cam-presets\s*\{[\s\S]*?bottom:\s*calc\(var\(--sn-sheet-peek\) \+ var\(--safe-bottom\) \+ 10px\) !important;/);
   assert.match(index, /#app\.sheet-open #cam-presets\s*\{\s*bottom:\s*calc\(var\(--sn-sheet-mid\) \+ var\(--safe-bottom\) \+ 10px\) !important;\s*\}/);
+  assert.match(index, /#cam-presets\s*\{[\s\S]*?transition:\s*opacity 0\.4s ease !important;/);
+  assert.doesNotMatch(index, /#cam-presets\s*\{[\s\S]*?transition:[^;}]*bottom/);
   assert.match(index, /font-size:\s*12px;/);
   assert.match(index, /<button[^>]*id="sheet-peek-toggle"[^>]*aria-controls="side-panel"[^>]*aria-expanded="false"[^>]*>[\s\S]*?Locations[\s\S]*?<\/button>/);
 });
 
+
+test('mobile camera controls snap immediately when the information panel changes height', () => {
+  assert.match(style, /#cam-presets\s*\{[\s\S]*?transition:\s*none !important;/);
+  assert.doesNotMatch(style, /#cam-presets\s*\{[\s\S]*?transition:[^;}]*bottom/);
+});
 
 test('viewer height-based sheet keeps tablet and phone content above safe bottom', () => {
   assert.match(viewer, /#side-panel\s*\{[\s\S]*?height:\s*calc\(16vh \+ var\(--safe-bottom\)\) !important;[\s\S]*?padding-bottom:\s*var\(--safe-bottom\) !important;/);
