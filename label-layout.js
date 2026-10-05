@@ -1,7 +1,7 @@
 // Screen-space visibility helpers for public SiteNav labels.
-// Building labels stay at their designed world-space anchors. We never move a
-// label to another screen position to avoid an edge or collision; lower-priority
-// labels simply hide until their designed position can be shown cleanly.
+// Building labels stay at their designed world-space anchors. We never move,
+// reprioritise, or suppress a label because another label overlaps it. A label
+// hides only when its own designed card would be clipped by the viewport.
 
 export function labelScaleForZoom(zoom) {
   const z = Number.isFinite(zoom) ? Math.max(0, zoom) : 26;
@@ -9,15 +9,6 @@ export function labelScaleForZoom(zoom) {
   if (z <= 42) return 0.66 - ((z - 18) / 24) * 0.12;
   if (z <= 58) return 0.54;
   return Math.max(0.44, 0.54 - ((z - 58) / 22) * 0.10);
-}
-
-function overlaps(a, b, gap) {
-  return !(
-    a.right + gap <= b.left ||
-    a.left >= b.right + gap ||
-    a.bottom + gap <= b.top ||
-    a.top >= b.bottom + gap
-  );
 }
 
 function rectFor(item, scale) {
@@ -39,18 +30,12 @@ function inside(rect, viewport, margin) {
 }
 
 export function layoutLabels(items, viewport, options = {}) {
-  const gap = Number.isFinite(options.gap) ? options.gap : 7;
   const margin = Number.isFinite(options.margin) ? options.margin : 8;
   if (!viewport || viewport.width <= 0 || viewport.height <= 0) return new Map();
 
-  const placed = [];
   const out = new Map();
-  const sorted = [...items].sort((a, b) =>
-    (b.priority ?? 0) - (a.priority ?? 0) ||
-    String(a.id).localeCompare(String(b.id))
-  );
 
-  for (const item of sorted) {
+  for (const item of items) {
     if (!Number.isFinite(item.x) || !Number.isFinite(item.y) ||
         item.x < -100 || item.y < -100 ||
         item.x > viewport.width + 100 || item.y > viewport.height + 100) {
@@ -59,15 +44,11 @@ export function layoutLabels(items, viewport, options = {}) {
     }
 
     const rect = rectFor(item, item.scale);
-    const blocked = !inside(rect, viewport, margin) ||
-      placed.some(p => overlaps(rect, p.rect, gap));
-
-    if (blocked) {
+    if (!inside(rect, viewport, margin)) {
       out.set(item.id, { visible: false, scale: item.scale, dx: 0, dy: 0, slot: -1 });
       continue;
     }
 
-    placed.push({ id: item.id, rect });
     out.set(item.id, {
       visible: true,
       scale: item.scale,

@@ -27,16 +27,18 @@ test('labels remain at their designed screen anchor with zero layout offset', ()
   assert.equal(result.dy, 0);
 });
 
-test('a collision hides the lower-priority label instead of moving either label', () => {
+test('overlapping labels stay visible at their designed anchors', () => {
   const items = [
     { id:'gate', x:400, y:250, width:110, height:42, scale:0.66, priority:40 },
     { id:'parts', x:400, y:250, width:120, height:42, scale:0.66, priority:20 },
   ];
   const out = layoutLabels(items, {width:800,height:500}, {gap:7});
-  assert.equal(out.get('gate').visible, true);
-  assert.equal(out.get('gate').dx, 0);
-  assert.equal(out.get('gate').dy, 0);
-  assert.equal(out.get('parts').visible, false);
+  for (const id of ['gate', 'parts']) {
+    assert.equal(out.get(id).visible, true);
+    assert.equal(out.get(id).dx, 0);
+    assert.equal(out.get(id).dy, 0);
+    assert.equal(out.get(id).slot, 0);
+  }
 });
 
 test('a label that would be cut off at the viewport edge hides instead of moving', () => {
@@ -54,12 +56,19 @@ test('a label fully inside the viewport keeps its exact designed position', () =
   assert.deepEqual(rect(item, result), { left:10, right:110, top:100, bottom:140 });
 });
 
-test('layout hides labels when the designed placements cannot all fit', () => {
+test('labels are hidden only by their own viewport clipping, not by crowding', () => {
   const items = Array.from({length:12}, (_,i) => ({
     id:String(i), x:50, y:30, width:90, height:40, scale:0.66, priority:12-i,
   }));
   const out = layoutLabels(items, {width:100,height:60}, {gap:7,margin:8});
-  assert.ok([...out.values()].some(v => !v.visible));
+  assert.ok([...out.values()].every(v => v.visible === true));
+
+  const clipped = layoutLabels(
+    [{ id:'edge', x:5, y:30, width:90, height:40, scale:0.66 }],
+    {width:100,height:60},
+    {gap:7,margin:8},
+  );
+  assert.equal(clipped.get('edge').visible, false);
 });
 
 test('wheel bridge preserves wheel deltas and modifier keys', () => {
