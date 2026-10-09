@@ -18,3 +18,13 @@ test('splat parser remains bounded and failure still reaches terminal fallback',
   assert.match(viewer, /setTimeout\(\(\) => reject\(new Error\('GS3D timeout'\)\), 15000\)/);
   assert.match(viewer, /console\.warn\('Splat load failed:', err\)[\s\S]*sendStatus\('error'\)[\s\S]*return 'error'/);
 });
+
+test('progressive reveal does not suppress the 3D camera introduction unless the visitor has navigated', () => {
+  const revealStart = viewer.indexOf("if (_progressivePublic && _splatStatus !== 'ready')");
+  assert.ok(revealStart > 0);
+  assert.doesNotMatch(viewer.slice(revealStart, revealStart + 240), /_suppressLateSplatIntro\s*=\s*true/);
+  assert.match(viewer, /function _markGuideInteraction\(\)[\s\S]*?_suppressLateSplatIntro = true/);
+  assert.match(viewer, /document\.addEventListener\('pointerdown', _markGuideInteraction/);
+  assert.match(viewer, /async function selectPoint\(pt, options = \{\}\)[\s\S]{0,220}_suppressLateSplatIntro = true/);
+  assert.match(viewer, /if \(!_suppressLateSplatIntro\) _doIntroAnimation\(\)/);
+});

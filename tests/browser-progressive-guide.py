@@ -117,9 +117,23 @@ Object.defineProperty(navigator,'connection',{configurable:true,get:()=>({effect
         release_held()
         page.wait_for_function("window.__sitenavPerf.snapshot().events.some(e => e.name === 'splatReady')", timeout=30000)
         page.wait_for_function("document.getElementById('splat-msg').textContent === '3D model ready'", timeout=5000)
+        # A late successful splat must still reach the designed 3D perspective
+        # unless the visitor has already interacted with the revealed map.
+        page.wait_for_function("window._v3d.controls.autoRotate === true", timeout=10000)
         assert page.evaluate('window._v3d.controls.enabled') is True
+        results.append({'case': 'vanilla-progressive-success-shows-3d-perspective', 'status': 'passed', 'synthetic': True})
+
+        # User interaction while the splat is held must prevent a late camera
+        # animation from unexpectedly overwriting their selected viewpoint.
+        state['mode'] = 'hold'
+        page.goto(args.base_url + '/?perf=1&perfHud=0', wait_until='domcontentloaded', timeout=30000)
+        page.wait_for_selector('#app.scene-ready', timeout=10000)
+        page.locator('#canvas-wrap').dispatch_event('pointerdown', {'bubbles': True})
+        release_held()
+        page.wait_for_function("window.__sitenavPerf.snapshot().events.some(e => e.name === 'splatReady')", timeout=30000)
+        page.wait_for_timeout(4500)
         assert page.evaluate('window._v3d.controls.autoRotate') is False
-        results.append({'case': 'vanilla-progressive-success', 'status': 'passed', 'synthetic': True})
+        results.append({'case': 'vanilla-progressive-user-interaction-preserved', 'status': 'passed', 'synthetic': True})
 
         # Vanilla failure: usable guide stays up and raw fetch errors are not exposed.
         state['mode'] = 'fail'

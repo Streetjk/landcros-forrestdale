@@ -595,6 +595,18 @@ let _splatViewer = null;
 let _introPlayed = false;
 let _suppressLateSplatIntro = false;
 
+// Progressive reveal shows the usable satellite map before the splat is ready.
+// If the visitor starts navigating while it loads, do not overwrite their
+// chosen camera pose with the delayed 3D introduction.
+function _markGuideInteraction() {
+  if (document.getElementById('loading')?.classList.contains('done')) {
+    _suppressLateSplatIntro = true;
+  }
+}
+document.addEventListener('pointerdown', _markGuideInteraction, { capture: true, passive: true });
+document.addEventListener('wheel', _markGuideInteraction, { capture: true, passive: true });
+document.addEventListener('keydown', _markGuideInteraction, { capture: true });
+
 // Idle throttle: render at full rate when active, drop to ~10 fps when still.
 const _prevCamPos = new THREE.Vector3();
 const _prevCamQuat = new THREE.Quaternion();
@@ -920,6 +932,8 @@ function _applyBranding(cfg, publicSite = null) {
 }
 
 window.setCameraPreset = function setCameraPreset(name, duration = 2500) {
+  // A deliberate camera selection must not be overwritten by a late model load.
+  _suppressLateSplatIntro = true;
   stopAutoOrbit();
   let preset = PRESETS[name];
   if (!preset) return;
@@ -1517,6 +1531,7 @@ function _collapseCompactPanelList() {
 }
 
 function _openDetailPanel() {
+  _suppressLateSplatIntro = true;
   document.getElementById('point-list').style.display = 'none';
   document.getElementById('point-detail').classList.add('visible');
   document.getElementById('side-panel')?.classList.add('detail-open');
@@ -1828,6 +1843,9 @@ async function _renderPointPhotos(pt) {
 
 async function selectPoint(pt, options = {}) {
   _cancelActiveTour();
+  // Deep-linked or user-selected pins own their camera pose, even if the
+  // background model finishes loading after selection.
+  _suppressLateSplatIntro = true;
   _siteInfoDetailOpen = false;
   const historyMode = options?.historyMode === 'none' ? 'none'
     : options?.historyMode === 'replace' ? 'replace' : 'push';
@@ -3833,7 +3851,9 @@ async function boot() {
     if (_progressivePublic && _splatStatus !== 'ready') {
       _progressiveRevealed = true;
       _loadingPhaseActive = false;
-      _suppressLateSplatIntro = true;
+      // Early map reveal must not permanently suppress the 3D introduction.
+      // The eventual splat-ready callback may transition to the designed
+      // perspective unless the visitor has interacted in the meantime.
       if (_splatStatus === 'error' || _splatStatus === 'unavailable') {
         _showSplatTerminal(_splatStatus);
       } else {
