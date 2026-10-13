@@ -14,7 +14,7 @@ import { resolvePublicSiteMetadata, resolveSiteBranding, sanitizePublicLogoUrl }
 import { loadPublicRuntimeConfig, loadPublicTransport, backendRedirectForScopedRoute, shouldProbeStaffSession, backendApiUrl } from './public-transport.js';
 import { getBasePublicVisitPointId } from './visit-analytics.js';
 import { createPointListItem } from './point-list-item.js';
-import { createSceneLabelPin } from './scene-label-pin.js';
+import { createSceneLabelPin, createSceneGroundFrame, SCENE_PIN_FLOAT_HEIGHT } from './scene-label-pin.js';
 import { renderDetailContacts } from './detail-card.js';
 import { mapControlLabel, syncPressedButton, syncPressedButtons } from './map-controls.js';
 import { labelScaleForZoom, layoutLabels, forwardWheelToTarget } from './label-layout.js';
@@ -613,6 +613,17 @@ const _prevCamPos = new THREE.Vector3();
 const _prevCamQuat = new THREE.Quaternion();
 let _idleFrames = 0;
 const _pinAnimatables = []; // { squareLine, squareMat } — pulsed each frame
+// Shared scene-label frames participate in the same pulse as existing pins.
+// Editors register/unregister as scenes or objects change.
+function registerSceneGroundFrame(frame) {
+  if (!frame) return;
+  _pinAnimatables.push({ squareGroup: frame.group, squareMat: frame.material, sceneFrame: frame });
+}
+function unregisterSceneGroundFrame(frame) {
+  const index = _pinAnimatables.findIndex(entry => entry.sceneFrame === frame);
+  if (index >= 0) _pinAnimatables.splice(index, 1);
+}
+
 let _lastRenderMs = 0;
 const IDLE_AFTER = _Q.idleAfter;
 const IDLE_INTERVAL = _Q.idleInterval;
@@ -1024,24 +1035,11 @@ function _addPinToScene(pt) {
   const group = new THREE.Group();
   group.position.set(x, y, z);
 
-  // ── Animated ground square — 4 thin boxes, always above ground plane ─
-  const sq = 0.455, lineW = 0.12, sqH = 0.01;
+  // Same four-bar floor frame for ordinary SiteNav pins and scene labels.
+  // Geometry is owned by the shared scene-label-pin module.
   const squareColor = isPersonal ? 0x4F6AF5 : 0x00b140;
-  const squareMat = new THREE.MeshBasicMaterial({
-    color: squareColor, transparent: true, opacity: 0.85, depthTest: false,
-  });
-  const squareGroup = new THREE.Group();
-  for (const [bx, bz, bw, bd] of [
-    [0,   -sq, sq * 2 + lineW, lineW],   // front (full width, covers corners)
-    [0,    sq, sq * 2 + lineW, lineW],   // back
-    [-sq,   0, lineW, sq * 2 - lineW],   // left (inner only)
-    [ sq,   0, lineW, sq * 2 - lineW],   // right
-  ]) {
-    const m = new THREE.Mesh(new THREE.BoxGeometry(bw, sqH, bd), squareMat);
-    m.position.set(bx, 0.05, bz);
-    m.renderOrder = 999;
-    squareGroup.add(m);
-  }
+  const floorFrame = createSceneGroundFrame(THREE, squareColor);
+  const { group: squareGroup, material: squareMat } = floorFrame;
   group.add(squareGroup);
   _pinAnimatables.push({ squareGroup, squareMat });
 
@@ -1182,15 +1180,19 @@ function _renderSceneWidget(obj) {
     anchor.add(raycastMesh);
   } else if (obj.kind === 'label') {
     raycastMesh = new THREE.Mesh(
-      new THREE.SphereGeometry(0.24, 8, 6),
+      new THREE.CylinderGeometry(0.52, 0.52, SCENE_PIN_FLOAT_HEIGHT, 12),
       new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
     );
-    raycastMesh.position.y = 0.1;
+    raycastMesh.position.y = SCENE_PIN_FLOAT_HEIGHT / 2;
     anchor.add(raycastMesh);
   }
 
+  let groundFrame = null;
   let div;
   if (obj.kind === 'label') {
+    groundFrame = createSceneGroundFrame(THREE);
+    anchor.add(groundFrame.group);
+    registerSceneGroundFrame(groundFrame);
     div = createSceneLabelPin(_sceneObjDisplayText(obj), () => showSceneLabelDetail(obj)).root;
   } else {
     div = document.createElement('div');
@@ -1200,11 +1202,13 @@ function _renderSceneWidget(obj) {
     div.textContent = _sceneObjDisplayText(obj);
   }
   const css2dObj = new CSS2DObject(div);
-  css2dObj.position.set(0, obj.kind === 'hazard' ? 0.75 : (obj.kind === 'button' || obj.kind === 'widget') ? 0.4 : 0.1, 0);
+  css2dObj.position.set(0, obj.kind === 'label' ? SCENE_PIN_FLOAT_HEIGHT
+    : obj.kind === 'hazard' ? 0.75
+    : (obj.kind === 'button' || obj.kind === 'widget') ? 0.4 : 0.1, 0);
   anchor.add(css2dObj);
 
   scene.add(anchor);
-  _sceneWidgets.set(obj.id, { obj, anchor, raycastMesh });
+  _sceneWidgets.set(obj.id, { obj, anchor, raycastMesh, groundFrame });
 }
 
 function renderSceneWidgets(list) {
@@ -1294,8 +1298,18 @@ function _openEscalateDialog(post) {
 }
 
 // Informational pin detail, integrated into the existing visitor side panel.
+// Scene-pin floor frames use the same yellow selected state as regular pins.
+function highlightSceneLabelFrame(id) {
+  for (const item of _sceneWidgets.values()) {
+    if (item.obj.kind === 'label') {
+      item.groundFrame?.setSelected(item.obj.id === id);
+    }
+  }
+}
+
 function showSceneLabelDetail(obj) {
   showWidgetDetail(obj.props?.text || 'Untitled pin', obj.props?.description || '');
+  highlightSceneLabelFrame(obj.id);
   const detail = document.getElementById('point-detail');
   if (!detail) return;
   document.getElementById('app')?.classList.add('scene-pin-selected');
@@ -1589,6 +1603,7 @@ function _openDetailPanel() {
 // Invalidate in-flight pin photos before another panel takes ownership.
 // Also clears the selected pin used by the optional tour button.
 function _leavePinDetail() {
+  highlightSceneLabelFrame(null);
   document.getElementById('app')?.classList.remove('scene-pin-selected');
   document.getElementById('point-detail')?.classList.remove('scene-pin-detail');
   const scenePhoto = document.getElementById('detail-scene-photo-wrap');
@@ -2254,6 +2269,8 @@ window.startNav = function(pt) {
 function renderPointList(points) {
   const dropEl = document.getElementById('list-dropoff');
   const colEl  = document.getElementById('list-collection');
+  // The scene editor loads the 3D engine but has no public locations panel.
+  if (!dropEl || !colEl) return;
   dropEl.replaceChildren();
   colEl.replaceChildren();
 
@@ -3956,7 +3973,7 @@ async function boot() {
   }, 700);
 
   // Expose API for admin3d.js and dispatch ready event
-  window._v3d = { renderer, camera, controls, _raycaster, _pickGround, renderPins, removePin, upsertPin, updatePinHighlight, latlngToScene, pins: _pins };
+  window._v3d = { renderer, camera, controls, _raycaster, _pickGround, renderPins, removePin, upsertPin, updatePinHighlight, latlngToScene, pins: _pins, registerSceneGroundFrame, unregisterSceneGroundFrame };
   _perf.mark('viewerApiReady');
   window.dispatchEvent(new CustomEvent('viewer3d:ready'));
 

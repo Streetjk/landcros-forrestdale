@@ -42,3 +42,42 @@ export function createSceneLabelPin(title, onActivate) {
   });
   return { root, setTitle, button };
 }
+
+
+// Matches the existing SiteNav _addPinToScene floor frame, including its
+// ground clearance and pulsing animation API. Shared by scene editor/viewer.
+export const SCENE_PIN_FLOAT_HEIGHT = 1.3;
+
+export function createSceneGroundFrame(THREE, color = 0x2563eb) {
+  const half = 0.455;
+  const lineWidth = 0.12;
+  const thickness = 0.01;
+  const material = new THREE.MeshBasicMaterial({
+    color, transparent: true, opacity: 0.85,
+    depthTest: false, depthWrite: false,
+  });
+  const group = new THREE.Group();
+  group.name = 'scene-pin-ground-frame';
+  for (const [x, z, width, depth] of [
+    [0, -half, half * 2 + lineWidth, lineWidth],
+    [0,  half, half * 2 + lineWidth, lineWidth],
+    [-half, 0, lineWidth, half * 2 - lineWidth],
+    [ half, 0, lineWidth, half * 2 - lineWidth],
+  ]) {
+    const strip = new THREE.Mesh(
+      new THREE.BoxGeometry(width, thickness, depth), material,
+    );
+    strip.position.set(x, 0.05, z);
+    strip.renderOrder = 999;
+    group.add(strip);
+  }
+  return {
+    group, material,
+    setSelected(selected) { material.color.setHex(selected ? 0xffcc00 : color); },
+    dispose() {
+      group.children.forEach(child => child.geometry.dispose());
+      material.dispose();
+      group.parent?.remove(group);
+    },
+  };
+}
