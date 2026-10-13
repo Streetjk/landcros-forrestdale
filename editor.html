@@ -212,22 +212,275 @@
       #editor-toolbar { box-sizing: border-box; padding-bottom: calc(54px + var(--safe-bottom)); }
       #canvas-wrap { position: relative !important; inset: auto !important; flex: 1 !important; }
     }
+
+    html, body { margin:0!important; padding:0; overflow:hidden; }
+    /* Editor-only visual system. Scoped to avoid altering public 3D maps. */
+    #app { min-height: 0; height: 100dvh; }
+    #editor-toolbar {
+      --editor-ink: #1a2937; --editor-muted: #617384;
+      --editor-border: #dfe7ed; --editor-teal: #0f766e;
+      width: clamp(304px, 26vw, 366px) !important;
+      flex: 0 0 clamp(304px, 26vw, 366px);
+      min-width: 0; min-height: 0;
+      background: #f3f6f8 !important;
+      border-right: 1px solid var(--editor-border);
+      backdrop-filter: none; -webkit-backdrop-filter: none;
+      overflow-y: auto; overscroll-behavior: contain;
+      scrollbar-width: thin; scrollbar-color: #c6d4dd transparent;
+    }
+    #canvas-wrap { min-width: 0; }
+    #toolbar-header {
+      position: sticky; top: 0; z-index: 25; flex-shrink: 0;
+      padding: 15px 16px 13px; background: #fff;
+      border-bottom: 1px solid var(--editor-border);
+    }
+    .editor-brand-row { display: flex; align-items: center; gap: 11px; }
+    .editor-brand-mark {
+      width: 36px; height: 36px; border-radius: 10px;
+      display: grid; place-items: center; flex-shrink: 0;
+      background: #e4f4f0; color: var(--editor-teal);
+    }
+    .editor-brand-mark svg { width: 20px; height: 20px; }
+    #toolbar-header .panel-site { color: #778ea0; font-weight: 700; font-size: 10px; letter-spacing: .1em; }
+    #toolbar-header .panel-title { color: var(--editor-ink); font-size: 18px; letter-spacing: -.02em; }
+    .editor-header-subtitle { color: var(--editor-muted); margin: 7px 0 0 47px; font-size: 11px; line-height: 1.4; }
+    #scenes-panel, #add-buttons, #property-panel, #empty-selection {
+      margin: 12px 12px 0; padding: 14px;
+      background: #fff; color: var(--editor-ink);
+      border: 1px solid var(--editor-border); border-radius: 12px;
+      box-shadow: 0 1px 2px rgba(14,35,50,.03);
+    }
+    #scenes-panel { flex-shrink: 0; }
+    .editor-section-heading { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:10px; }
+    .editor-section-heading .panel-label,
+    #scenes-panel .panel-label, .editor-tool-heading, .editor-overline {
+      margin:0; color:#668090; font-weight:700; font-size:10px;
+      text-transform:uppercase; letter-spacing:.105em;
+    }
+    #add-scene-btn {
+      flex:0 0 auto; width:auto; min-height:34px; padding:7px 11px;
+      border:1px solid #b6d8d2; background:#eef8f5; color:var(--editor-teal);
+      border-radius:8px; font-size:12px; font-weight:700;
+    }
+    #add-scene-btn:hover { background:#d9f0e9; }
+    #new-scene-row { margin:6px 0 9px; }
+    #scenes-list { margin-top: 0; max-height: 124px; gap: 4px; }
+    .scene-list-item {
+      min-height: 38px; color:var(--editor-ink); border-radius:8px;
+      font-size:13px; padding:8px 10px;
+    }
+    .scene-list-item.active {
+      border-color: #aadad0; background:#e9f7f3;
+      box-shadow: inset 3px 0 0 var(--editor-teal);
+    }
+    .scene-list-item .scene-del-btn { color:#60788a; min-width:27px; min-height:27px; }
+    #scene-share-row { margin-top:11px; }
+    .editor-share-details { border-top:1px solid var(--editor-border); padding-top:8px; }
+    .editor-share-details summary {
+      list-style:none; cursor:pointer; display:flex; align-items:center;
+      min-height:35px; gap:8px; color:#375464; font-size:12px; font-weight:700;
+      border-radius:7px; padding:6px 3px;
+    }
+    .editor-share-details summary::-webkit-details-marker { display:none; }
+    .editor-share-details summary:hover { color:var(--editor-teal); }
+    .editor-share-details summary svg { width:15px; height:15px; flex-shrink:0; }
+    .editor-share-details .editor-share-chevron { margin-left:auto; transition:transform .16s ease; }
+    .editor-share-details[open] .editor-share-chevron { transform: rotate(180deg); }
+    .editor-share-content { padding-top:8px; }
+    .share-link-field { display:flex; min-width:0; gap:7px; }
+    #scene-share-url { min-width:0; font-size:12px; }
+    .share-copy-btn { background:var(--editor-teal); color:#fff; padding:8px 12px; border-radius:8px; }
+    #scene-qr-wrap {
+      width:max-content; max-width:100%; margin:12px auto 0; padding:12px;
+      background:#fff; border:1px solid #d8e2e9; border-radius:10px;
+    }
+    #scene-qr-wrap img, #scene-qr-wrap canvas { width:192px!important; height:192px!important; max-width:100%; }
+    .editor-qr-caption { margin:8px 0 0; color:#6a7d8b; font-size:11px; text-align:center; }
+    #add-buttons { display:block; flex-shrink:0; }
+    .editor-tool-heading { margin:0 0 10px; }
+    .editor-tool-grid { display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:7px; }
+    .editor-tool-grid .editor-tool-btn {
+      width:100%; min-width:0; min-height:43px; padding:8px 3px;
+      background:#f8fafb; border:1px solid #d9e4e9; color:#385263;
+      border-radius:9px; font-size:12px; font-weight:700;
+      gap:4px; white-space:nowrap; box-shadow:none;
+    }
+    .editor-tool-grid .editor-tool-btn--pin { background:#eaf7f3; border-color:#b6dcd1; color:var(--editor-teal); }
+    .editor-tool-grid .editor-tool-btn:hover { background:#edf4f6; border-color:#a8cad1; }
+    .editor-tool-grid .editor-tool-btn.active { background:var(--editor-teal); border-color:var(--editor-teal); color:#fff; }
+    .editor-tool-grid .editor-tool-btn:disabled { opacity:.45; }
+    .editor-tool-plus { font-size:16px; line-height:1; font-weight:400; }
+    #no-scene-hint { padding:13px 14px; margin-top:12px; font-size:12px; color:var(--editor-muted); line-height:1.55; }
+    #property-panel { flex-direction:column; gap:14px; padding:16px 14px; flex-shrink:0; }
+    .editor-inspector-heading { display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:1px; }
+    .editor-inspector-heading h2 {
+      font-size:16px; line-height:1.25; font-weight:700; margin:3px 0 0; color:var(--editor-ink);
+      letter-spacing:-.018em;
+    }
+    .editor-save-hint { color:#6b8b82; font-size:10px; font-weight:600; white-space:nowrap; }
+    #property-panel .form-group, #prop-pin-details {
+      min-width:0; width:100%; flex-direction:column; align-items:stretch; gap:7px; margin:0;
+    }
+    #prop-pin-details { gap:15px; }
+    .editor-field { min-width:0; display:flex; flex-direction:column; align-items:stretch; gap:7px; }
+    #editor-toolbar .form-label {
+      margin:0; font-size:11px; letter-spacing:.06em; font-weight:700;
+      color:#5d7282;
+    }
+    #editor-toolbar .form-input, #editor-toolbar textarea {
+      box-sizing:border-box; display:block; width:100%; min-width:0;
+      background:#fff; color:#1a2937; border:1px solid #cbd8e0;
+      border-radius:9px; padding:10px 11px; font-size:13px; line-height:1.45;
+      min-height:40px; box-shadow:0 1px 2px rgba(14,35,50,.025);
+    }
+    #editor-toolbar .form-input::placeholder { color:#8b9ba8; }
+    #editor-toolbar .form-input:focus {
+      border-color:var(--editor-teal); outline:3px solid rgba(15,118,110,.13);
+    }
+    #prop-description { resize:vertical; min-height:97px; max-height:260px; }
+    .editor-field-hint { color:#8899a6; font-size:10px; line-height:1.35; }
+    #prop-photo-preview {
+      max-height:190px!important; width:100%!important; object-fit:cover;
+      border-radius:9px; border:1px solid #d5e1e7;
+    }
+    #prop-photo-upload-btn {
+      flex:none!important; display:flex; align-items:center; width:100%; min-height:69px;
+      gap:11px; background:#f8fbfc; color:#334d5f; text-align:left;
+      border:1px dashed #9fbbc4; border-radius:10px; padding:11px; cursor:pointer;
+      font-size:12px; line-height:1.3;
+    }
+    #prop-photo-upload-btn:hover { border-color:var(--editor-teal); background:#eff9f6; }
+    #prop-photo-upload-btn:disabled { opacity:.65; cursor:wait; }
+    .editor-upload-icon {
+      width:34px; height:34px; display:grid; place-items:center; flex-shrink:0;
+      background:#e4f1f3; color:var(--editor-teal); border-radius:8px;
+    }
+    .editor-upload-icon svg { width:18px; height:18px; }
+    .editor-upload-copy strong { display:block; font-size:12px; color:var(--editor-ink); margin-bottom:2px; }
+    .editor-upload-copy small { display:block; color:#8296a2; font-size:10px; font-weight:500; }
+    #prop-photo-remove-btn {
+      width:auto; flex:none; align-self:flex-start; padding:6px 0; background:transparent;
+      color:#a53536; font-weight:600; font-size:11px; border:none; cursor:pointer;
+    }
+    #prop-photo-status { display:block; font-size:11px; color:#577783; line-height:1.4; }
+    #property-panel .prop-row { border-top:1px solid #e5eaee; padding-top:12px; margin-top:1px; }
+    #prop-delete-btn {
+      flex:none; background:#fff; color:#ba3c40; border:1px solid #f0c8ca;
+      width:auto; padding:8px 12px; border-radius:8px; text-align:left; font-size:11px;
+    }
+    #prop-delete-btn:hover { background:#fff1f2; border-color:#db9ba0; }
+    #empty-selection {
+      margin-bottom:12px; padding:15px; background:#f9fbfc;
+      color:#68808d; font-size:12px; line-height:1.55; text-align:left;
+    }
+    .editor-empty-title { color:#263c48; font-weight:700; font-size:12px; margin-bottom:4px; }
+    #placement-hint { max-width:min(420px,90%); text-align:center; line-height:1.4; }
+    #editor-toolbar :is(button,input,textarea,select,summary):focus-visible {
+      outline:2px solid var(--editor-teal); outline-offset:3px;
+    }
+    /* Keep scene status visible without pushing pin editing down the page. */
+    #scene-status-row {
+      margin-top:4px!important; padding-top:6px; border-top:1px solid #edf1f3;
+      gap:5px!important; flex-wrap:nowrap!important; font-size:11px;
+      color:#607787;
+    }
+    #scene-status-row .status-btn {
+      min-height:30px!important; min-width:0!important; padding:4px 7px!important;
+      color:#0f766e!important; font-size:10px!important; white-space:nowrap;
+      border-color:#cddfda!important; border-radius:7px!important;
+    }
+    #scene-status-meta:empty { display:none; }
+    .editor-escalate-details {
+      margin:12px 12px 18px; padding:10px 14px; background:#fff;
+      border:1px solid var(--editor-border); border-radius:12px;
+      color:var(--editor-ink); font-size:12px;
+    }
+    .editor-escalate-details summary {
+      cursor:pointer; font-weight:700; color:#7b4c20;
+      display:flex; justify-content:space-between; align-items:center; min-height:30px;
+    }
+    .editor-escalate-details[open] summary { border-bottom:1px solid #ebdfd2; margin-bottom:10px; }
+    .editor-escalate-details #hazard-send-row { padding-top:8px; border-top:0; }
+    .editor-escalate-details #hazard-send-row :is(input,textarea) { background:#fff; color:#1a2937; }
+    #editor-mobile-open, #editor-mobile-close { display:none; }
+    #editor-mobile-scrim[hidden] { display:none!important; }
+    /* Tablet: narrower sidebar, full-height canvas stays usable. */
+    @media (min-width:761px) and (max-width:1040px) {
+      #editor-toolbar { width:304px!important; flex-basis:304px!important; }
+      #toolbar-header { padding:12px 14px; }
+      #scenes-panel, #add-buttons, #property-panel, #empty-selection { margin-left:9px; margin-right:9px; }
+    }
+    @media (max-width:760px) {
+      #app { display:block!important; height:100dvh; position:relative; }
+      #canvas-wrap { position:absolute!important; inset:0!important; width:100%!important; height:100%!important; }
+      #editor-toolbar {
+        position:absolute!important; z-index:45; top:0; bottom:0; left:0;
+        width:min(90vw,366px)!important; max-width:366px; height:100%!important;
+        flex-basis:auto!important; transform:translateX(-105%);
+        transition:transform .2s ease; box-shadow:0 12px 40px rgba(11,25,30,.24);
+      }
+      #app.editor-panel-open #editor-toolbar { transform:translateX(0); }
+      #editor-mobile-open {
+        display:inline-flex; position:absolute; z-index:31; top:14px; right:14px;
+        align-items:center; gap:7px; min-height:44px; padding:9px 14px;
+        background:#fff; color:#0f766e; border:1px solid #c6ded7;
+        border-radius:10px; box-shadow:0 3px 18px rgba(0,0,0,.15);
+        font-size:13px; font-weight:700; cursor:pointer;
+      }
+      #editor-mobile-close {
+        display:grid; place-items:center; position:absolute; right:10px; top:14px;
+        width:36px; height:36px; border:0; border-radius:8px; color:#506674;
+        background:#edf3f5; cursor:pointer;
+      }
+      #editor-mobile-scrim {
+        position:absolute; inset:0; z-index:40; background:rgba(10,26,36,.32);
+      }
+      /* Keep the sign-out control accessible but clear of the drawer header. */
+      #sn-auth-bar {
+        top:auto!important; bottom:calc(12px + env(safe-area-inset-bottom, 0px))!important;
+        right:12px!important; z-index:28!important;
+      }
+      #sn-auth-email-label { display:none!important; }
+      #cam-presets { top:72px; left:12px; }
+      #placement-hint { top:16px; left:14px; right:96px; transform:none; max-width:none; }
+      #editor-toolbar .form-input, #editor-toolbar textarea { font-size:16px; }
+    }
+    @media (prefers-reduced-motion:reduce) {
+      #editor-toolbar { transition:none!important; }
+      .editor-share-chevron { transition:none!important; }
+    }
   </style>
 </head>
 <body>
 <div id="app">
-
+  <button type="button" id="editor-mobile-open" aria-controls="editor-toolbar" aria-expanded="false">
+    <span aria-hidden="true">&#9776;</span> Edit scene
+  </button>
+  <div id="editor-mobile-scrim" hidden></div>
   <!-- Left toolbar -->
   <aside id="editor-toolbar">
     <div id="toolbar-header">
-      <div class="panel-site">SiteNav</div>
-      <div class="panel-title">Scene Editor</div>
+      <div class="editor-brand-row">
+        <div class="editor-brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2L3 7v10l9 5 9-5V7l-9-5Z"/><path d="m3 7 9 5 9-5M12 12v10"/>
+          </svg>
+        </div>
+        <div>
+          <div class="panel-site">SITENAV / WORKSPACE</div>
+          <div class="panel-title">Scene editor</div>
+        </div>
+      </div>
+      <p class="editor-header-subtitle">Place and document site locations</p>
+      <button type="button" id="editor-mobile-close" aria-label="Close scene editor">&#10005;</button>
     </div>
     <div id="no-site-msg">No site specified. Add <code>?site=&lt;slug&gt;</code> to the URL.</div>
     <div id="readonly-msg">Read-only — sign in with an editor account to save changes.</div>
     <div id="scenes-panel">
-      <div class="panel-label">Scenes</div>
-      <button class="btn-primary" id="add-scene-btn">＋ Add Scene</button>
+      <div class="editor-section-heading">
+        <h2 class="panel-label">Scenes</h2>
+        <button type="button" class="btn-primary" id="add-scene-btn">＋ New scene</button>
+      </div>
       <div id="new-scene-row">
         <input class="form-input" id="new-scene-name" maxlength="120" placeholder="Scene name">
         <div style="display:flex;gap:6px">
@@ -237,52 +490,78 @@
       </div>
       <div id="scenes-list"></div>
       <div id="scene-share-row" style="display:none">
-        <label class="form-label">Share link</label>
+        <details id="scene-share-details" class="editor-share-details">
+          <summary class="editor-share-summary">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+              <path d="M10 13a5 5 0 0 0 7.1 0l2.5-2.5a5 5 0 0 0-7.1-7.1L11 4.9"/>
+              <path d="M14 11a5 5 0 0 0-7.1 0L4.4 13.5a5 5 0 1 0 7.1 7.1L13 19.1"/>
+            </svg>
+            Share link &amp; QR code
+            <svg class="editor-share-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="m5 9 7 7 7-7"/></svg>
+          </summary>
+          <div class="editor-share-content">
+            <label class="form-label" for="scene-share-url">Share link</label>
         <div class="share-link-field">
           <input class="form-input" id="scene-share-url" readonly>
           <button class="share-copy-btn" id="scene-share-copy-btn">Copy</button>
         </div>
-        <div id="scene-qr-wrap"></div>
+            <div id="scene-qr-wrap"></div>
+            <p class="editor-qr-caption">Scan to open this scene</p>
+          </div>
+        </details>
         <div id="scene-status-row">
           <span>Status:</span><span class="scene-status open" id="scene-status-badge">open</span>
           <button class="status-btn" id="scene-resolve-btn">Mark resolved</button>
           <div id="scene-status-meta"></div>
         </div>
       </div>
-      <!-- Escalate: email this scene (hazard: all pins + original photos; admin: the link) -->
-      <div id="hazard-send-row">
-        <label class="form-label" id="hazard-send-label">Escalate to (@hcma.com.au)</label>
-        <input class="form-input" id="hazard-recipients" placeholder="name@hcma.com.au, other@hcma.com.au" autocomplete="off">
-        <textarea class="form-input" id="hazard-message" rows="2" maxlength="4000" placeholder="Optional note for the email"></textarea>
-        <button class="btn-primary" id="hazard-send-btn">Escalate &amp; send report</button>
-        <div id="hazard-send-status"></div>
-        <div id="hazard-history"></div>
+    </div>
+    <div id="add-buttons" role="toolbar" aria-label="Add objects to scene">
+      <h2 class="editor-tool-heading">Add to scene</h2>
+      <div class="editor-tool-grid">
+        <button type="button" class="btn-primary editor-tool-btn editor-tool-btn--pin" id="add-label-btn" aria-pressed="false" disabled><span class="editor-tool-plus" aria-hidden="true">＋</span> Pin</button>
+        <button type="button" class="btn-primary editor-tool-btn" id="add-button-btn" aria-pressed="false" disabled><span class="editor-tool-plus" aria-hidden="true">＋</span> Button</button>
+        <button type="button" class="btn-primary editor-tool-btn" id="add-widget-btn" aria-pressed="false" disabled><span class="editor-tool-plus" aria-hidden="true">＋</span> Widget</button>
+        <button type="button" class="btn-primary editor-tool-btn" id="add-hazard-btn" aria-pressed="false" disabled><span class="editor-tool-plus" aria-hidden="true">＋</span> Hazard</button>
       </div>
     </div>
-    <div id="add-buttons">
-      <button class="btn-primary" id="add-label-btn" disabled>＋ Pin</button>
-      <button class="btn-primary" id="add-button-btn" disabled>＋ Button</button>
-      <button class="btn-primary" id="add-widget-btn" disabled>＋ Widget</button>
-      <button class="btn-primary" id="add-hazard-btn" disabled>＋ Hazard pin</button>
-    </div>
-    <div id="no-scene-hint">Select or create a scene above to start placing objects.</div>
-    <div id="property-panel">
+    <div id="no-scene-hint">Select a scene above to place pins, buttons and other objects on the map.</div>
+    <div id="property-panel" aria-label="Selected object inspector">
+      <div class="editor-inspector-heading">
+        <div>
+          <div class="editor-overline">INSPECTOR</div>
+          <h2 id="editor-inspector-kind">Pin details</h2>
+        </div>
+        <span class="editor-save-hint" title="Changes are automatically saved when signed in">Auto-save</span>
+      </div>
       <div class="form-group">
-        <label class="form-label" id="prop-kind-label">Pin title</label>
+        <label class="form-label" id="prop-kind-label" for="prop-text">Pin title</label>
         <input class="form-input" id="prop-text" maxlength="120" placeholder="Text">
       </div>
-      <div class="form-group" id="prop-pin-details" style="display:none">
-        <label class="form-label" for="prop-description">Description</label>
-        <textarea class="form-input" id="prop-description" maxlength="2000" rows="5"
-          placeholder="Add details visitors will see when selecting the pin"></textarea>
-        <label class="form-label" for="prop-photo-input">Photo</label>
-        <input id="prop-photo-input" type="file" accept="image/jpeg,image/png,image/webp" hidden>
-        <img id="prop-photo-preview" alt="Pin photo preview" style="display:none;width:100%;max-height:160px;object-fit:cover;border-radius:7px">
-        <div style="display:flex;gap:6px">
-          <button type="button" class="btn-primary" id="prop-photo-upload-btn" style="flex:1">Upload photo</button>
-          <button type="button" class="prop-del-btn" id="prop-photo-remove-btn" style="display:none">Remove photo</button>
+      <div class="form-group editor-pin-details" id="prop-pin-details" style="display:none">
+        <div class="editor-field">
+          <label class="form-label" for="prop-description">Description</label>
+          <textarea class="form-input" id="prop-description" maxlength="2000" rows="4"
+            placeholder="Add details visitors should see when they select this pin"></textarea>
+          <span class="editor-field-hint">Include location details or useful instructions</span>
         </div>
-        <small id="prop-photo-status" style="color:var(--text-secondary)"></small>
+        <div class="editor-field editor-photo-field">
+          <label class="form-label" for="prop-photo-input">Photo</label>
+          <input id="prop-photo-input" type="file" accept="image/jpeg,image/png,image/webp" hidden>
+          <img id="prop-photo-preview" alt="Pin photo preview" style="display:none">
+          <button type="button" id="prop-photo-upload-btn" class="editor-photo-upload-btn">
+            <span class="editor-upload-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="4" width="18" height="16" rx="2"/>
+                <circle cx="8.5" cy="9" r="1.4"/>
+                <path d="m4 17 5-5 3 3 3-4 5 6"/>
+              </svg>
+            </span>
+            <span class="editor-upload-copy"><strong>Add or replace photo</strong><small>JPEG, PNG or WebP · up to 15 MB</small></span>
+          </button>
+          <button type="button" id="prop-photo-remove-btn" style="display:none">Remove photo</button>
+          <small id="prop-photo-status" role="status" aria-live="polite"></small>
+        </div>
       </div>
       <div class="form-group" id="prop-action-group" style="display:none">
         <label class="form-label">On click</label>
@@ -315,10 +594,26 @@
         <button class="btn-primary" id="manage-scripts-btn" style="margin-top:6px;width:100%">Manage Scripts</button>
       </div>
       <div class="prop-row">
-        <button class="prop-del-btn" id="prop-delete-btn">Delete</button>
+        <button type="button" class="prop-del-btn" id="prop-delete-btn">Delete selected item</button>
       </div>
     </div>
-    <div id="empty-selection">Click ＋ Pin or ＋ Button, then click the scene to place it.<br><br>Click a placed object to select and edit it.</div>
+    <div id="empty-selection">
+      <div class="editor-empty-title">Ready to edit</div>
+      Choose a tool above, then click a location on the 3D map.
+      Select an existing pin to edit its title, description or photo.
+    </div>
+    <details id="scene-escalate-details" class="editor-escalate-details">
+      <summary>Escalate / notify team <span aria-hidden="true">⌄</span></summary>
+<!-- Escalate: email this scene (hazard: all pins + original photos; admin: the link) -->
+      <div id="hazard-send-row">
+        <label class="form-label" id="hazard-send-label">Escalate to (@hcma.com.au)</label>
+        <input class="form-input" id="hazard-recipients" placeholder="name@hcma.com.au, other@hcma.com.au" autocomplete="off">
+        <textarea class="form-input" id="hazard-message" rows="2" maxlength="4000" placeholder="Optional note for the email"></textarea>
+        <button class="btn-primary" id="hazard-send-btn">Escalate &amp; send report</button>
+        <div id="hazard-send-status"></div>
+        <div id="hazard-history"></div>
+      </div>
+    </details>
   </aside>
 
   <div id="canvas-wrap">
@@ -348,7 +643,7 @@
       <div class="nav-bar"><div class="nav-bar-fill" id="nav-bar-fill"></div></div>
     </div>
 
-    <div id="placement-hint">Click on the 3D scene to place — Esc to cancel</div>
+    <div id="placement-hint">Click a location on the map to place · Esc to cancel</div>
   </div>
 
 </div>
@@ -457,6 +752,37 @@
   </script>
 
 <script type="module" src="./viewer3d.js"></script>
+<script>
+  // Mobile scene editor drawer: expose the full 3D canvas for placement while
+  // keeping the inspector reachable with a single 44px touch target.
+  (() => {
+    const app = document.getElementById('app');
+    const openButton = document.getElementById('editor-mobile-open');
+    const closeButton = document.getElementById('editor-mobile-close');
+    const scrim = document.getElementById('editor-mobile-scrim');
+    const mobile = window.matchMedia('(max-width:760px)');
+    const setOpen = requested => {
+      const visible = !!requested && mobile.matches;
+      app.classList.toggle('editor-panel-open', visible);
+      openButton.setAttribute('aria-expanded', String(visible));
+      scrim.hidden = !visible;
+    };
+    window._snSetEditorPanelOpen = setOpen;
+    openButton.addEventListener('click', () => setOpen(true));
+    closeButton.addEventListener('click', () => {
+      setOpen(false);
+      openButton.focus();
+    });
+    scrim.addEventListener('click', () => setOpen(false));
+    window.addEventListener('keydown', e => {
+      if (e.key === 'Escape' && app.classList.contains('editor-panel-open')) setOpen(false);
+    });
+    window.addEventListener('resize', () => {
+      if (!mobile.matches) setOpen(false);
+    });
+  })();
+</script>
+
 <script type="module" src="./scene-editor.js"></script>
 <div id="scripts-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:1000;align-items:center;justify-content:center;">
   <div style="background:#1a1d29;border-radius:12px;padding:20px;width:480px;max-height:80vh;overflow-y:auto;color:#fff;font-family:'DM Sans',sans-serif;">

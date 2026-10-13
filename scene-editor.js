@@ -244,17 +244,28 @@ function showSceneShare(scene) {
   const url = `${location.origin}/s/${scene.shareCode}`;
   input.value = url;
   qrWrap.replaceChildren();
-  generateQR(url, 'scene-qr-wrap');
+  generateQR(url, 'scene-qr-wrap', { width: 192, height: 192, colorDark: '#172b3d' });
   row.style.display = 'block';
 }
 
-function onCopySceneShareUrl() {
+async function onCopySceneShareUrl() {
   const input = document.getElementById('scene-share-url');
   if (!input.value) return;
-  navigator.clipboard.writeText(input.value).catch(() => {});
+  let copied = false;
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(input.value);
+      copied = true;
+    }
+  } catch {}
+  if (!copied) {
+    input.focus();
+    input.select();
+    try { copied = document.execCommand('copy'); } catch {}
+  }
   const btn = document.getElementById('scene-share-copy-btn');
-  btn.textContent = 'Copied!';
-  setTimeout(() => { btn.textContent = 'Copy'; }, 1500);
+  btn.textContent = copied ? 'Copied' : 'Copy failed';
+  setTimeout(() => { btn.textContent = 'Copy'; }, 1800);
 }
 
 function updateAddButtonsEnabled() {
@@ -423,6 +434,15 @@ function togglePlacing(kind) {
 
 function setPlacing(kind) {
   _placingKind = kind;
+  for (const [id, buttonKind] of [
+    ['add-label-btn', 'label'], ['add-button-btn', 'button'],
+    ['add-widget-btn', 'widget'], ['add-hazard-btn', 'hazard'],
+  ]) {
+    document.getElementById(id)?.setAttribute('aria-pressed', String(buttonKind === kind));
+  }
+  if (kind && window.matchMedia('(max-width:760px)').matches) {
+    window._snSetEditorPanelOpen?.(false);
+  }
   document.getElementById('add-label-btn').classList.toggle('active', kind === 'label');
   document.getElementById('add-button-btn').classList.toggle('active', kind === 'button');
   document.getElementById('add-widget-btn').classList.toggle('active', kind === 'widget');
@@ -496,7 +516,12 @@ function select(id) {
   _selectedId = id;
   entry.groundFrame?.setSelected(true);
   _transformControls.attach(entry.anchor);
+  const shareDetails = document.getElementById('scene-share-details');
+  if (shareDetails?.open) shareDetails.open = false;
   showPropertyPanel(entry.obj);
+  if (window.matchMedia('(max-width:760px)').matches) {
+    window._snSetEditorPanelOpen?.(true);
+  }
 }
 
 function deselect() {
@@ -514,6 +539,13 @@ const ACTION_FIELDS = {
 };
 
 function showPropertyPanel(obj) {
+  const inspectorTitle = document.getElementById('editor-inspector-kind');
+  if (inspectorTitle) {
+    inspectorTitle.textContent = ({
+      label: 'Pin details', button: 'Button settings',
+      widget: 'Widget settings', hazard: 'Hazard details',
+    })[obj.kind] || 'Object details';
+  }
   document.getElementById('empty-selection').style.display = 'none';
   document.getElementById('property-panel').style.display = 'flex';
   document.getElementById('prop-kind-label').textContent = obj.kind === 'hazard' ? 'Hazard title' : (obj.kind === 'button' || obj.kind === 'widget') ? (obj.kind === 'widget' ? 'Widget label' : 'Button label') : 'Pin title';
