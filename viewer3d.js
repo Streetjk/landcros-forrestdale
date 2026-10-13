@@ -7,6 +7,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
 import { Sky } from 'three/addons/objects/Sky.js';
 import { initComparison, updateComparison, comparisonNeedsRender } from './splat-compare.js';
+import { createSceneLabelPin } from './scene-label-pin.js';
 
 // ── Site config (loaded from data/config.json in boot()) ──────────────────
 let _cfg = {};
@@ -795,13 +796,24 @@ function _renderSceneWidget(obj) {
     );
     raycastMesh.position.y = 0.2;
     anchor.add(raycastMesh);
+  } else if (obj.kind === 'label') {
+    raycastMesh = new THREE.Mesh(
+      new THREE.SphereGeometry(0.24, 8, 6),
+      new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
+    );
+    raycastMesh.position.y = 0.1;
+    anchor.add(raycastMesh);
   }
 
-  const div = document.createElement('div');
-  div.className = 'scene-obj-label';
+  const div = obj.kind === 'label'
+    ? createSceneLabelPin(_sceneObjDisplayText(obj), () => showSceneLabelDetail(obj)).root
+    : document.createElement('div');
+  if (obj.kind !== 'label') {
+    div.className = 'scene-obj-label';
   const bg = obj.kind === 'widget' ? 'rgba(124,58,237,0.88)' : obj.kind === 'button' ? 'rgba(15,118,110,0.88)' : 'rgba(24,95,165,0.88)';
   div.style.cssText = `pointer-events:none;white-space:nowrap;font:600 13px 'DM Sans',sans-serif;color:#fff;background:${bg};padding:3px 8px;border-radius:6px;transform:translate(-50%,-130%);`;
-  div.textContent = _sceneObjDisplayText(obj);
+    div.textContent = _sceneObjDisplayText(obj);
+  }
   const css2dObj = new CSS2DObject(div);
   css2dObj.position.set(0, (obj.kind === 'button' || obj.kind === 'widget') ? 0.4 : 0.1, 0);
   anchor.add(css2dObj);
@@ -1206,7 +1218,9 @@ renderer.domElement.addEventListener('click', e => {
   if (widgetHits.length) {
     const hitMesh = widgetHits[0].object;
     const widget = Array.from(_sceneWidgets.values()).find(w => w.raycastMesh === hitMesh);
-    if (widget && widget.obj.kind === 'widget' && widget.obj.scriptSource) {
+    if (widget?.obj.kind === 'label') {
+      showSceneLabelDetail(widget.obj);
+    } else if (widget && widget.obj.kind === 'widget' && widget.obj.scriptSource) {
       _runWidgetScript(widget.obj.scriptSource, widget.obj);
     } else if (widget) {
       _runWidgetAction(widget.obj.props?.action, widget.obj);
@@ -1214,9 +1228,66 @@ renderer.domElement.addEventListener('click', e => {
   }
 });
 
+// Scene label details reuse the viewer's existing slide-out location panel.
+let _selectedSceneLabelId = null;
+
+function resetSceneLabelDetail() {
+  const detail = document.getElementById('point-detail');
+  detail?.classList.remove('scene-pin-detail');
+  const photo = document.getElementById('detail-photo');
+  photo?.removeAttribute('src');
+  const wrap = document.getElementById('detail-photo-wrap');
+  if (wrap) wrap.hidden = true;
+}
+
+function showSceneLabelDetail(obj) {
+  if (_selectedSceneLabelId === obj.id) {
+    window.showPointList();
+    return;
+  }
+  _selectedSceneLabelId = obj.id;
+  window._selectedPt = null;
+  updatePinHighlight(null);
+  const detail = document.getElementById('point-detail');
+  detail.classList.add('scene-pin-detail', 'visible');
+  const chip = document.getElementById('detail-chip');
+  chip.className = 'chip chip-dropoff';
+  chip.textContent = 'Scene pin';
+  document.getElementById('detail-label').textContent = obj.props?.text || 'Untitled pin';
+  document.getElementById('detail-notes').textContent = obj.props?.description || '';
+  resetSceneLabelPhoto(obj.props?.photoUrl, obj.props?.text);
+  const contacts = document.getElementById('detail-contacts')?.closest('.detail-section');
+  if (contacts) contacts.style.display = 'none';
+  document.getElementById('point-list').style.display = 'none';
+  const panel = document.getElementById('side-panel');
+  if (window.innerWidth <= 1024) {
+    panel?.classList.remove('panel-folded');
+    if (panel && !panel.classList.contains('sheet-mid') && !panel.classList.contains('sheet-full')) {
+      panel.classList.add('sheet-mid');
+    }
+  } else {
+    document.getElementById('app')?.classList.add('panel-open');
+  }
+  window._updateCamPresetsBottom?.();
+}
+
+function resetSceneLabelPhoto(url, title) {
+  const wrap = document.getElementById('detail-photo-wrap');
+  const img = document.getElementById('detail-photo');
+  img.removeAttribute('src');
+  wrap.hidden = true;
+  if (typeof url !== 'string' || !url.startsWith('https://')) return;
+  img.alt = title ? 'Photo of ' + title : 'Scene pin photo';
+  img.onerror = () => { wrap.hidden = true; };
+  img.src = url;
+  wrap.hidden = false;
+}
+
 // ── Point selection & panel ────────────────────────────────────────────────
 
 async function selectPoint(pt) {
+  _selectedSceneLabelId = null;
+  resetSceneLabelDetail();
   // Second click on same pin deselects it
   if (_selectedId === pt.id) {
     showPointList();
@@ -1224,7 +1295,9 @@ async function selectPoint(pt) {
   }
   window._selectedPt = pt;
   updatePinHighlight(pt.id);
-  history.pushState(null, '', `?id=${pt.id}`);
+  const pointUrl = new URL(location.href);
+  pointUrl.searchParams.set('id', pt.id);
+  history.pushState(null, '', pointUrl.pathname + pointUrl.search);
 
   const chipClass = { 'drop-off': 'chip-dropoff', 'collection': 'chip-collection', 'both': 'chip-both' };
   const chipLabel = { 'drop-off': 'Drop-off', 'collection': 'Collection', 'both': 'Drop-off & Collection' };
@@ -1385,6 +1458,8 @@ async function selectPoint(pt) {
 }
 
 window.showPointList = function() {
+  _selectedSceneLabelId = null;
+  resetSceneLabelDetail();
   if (_camTween) { _camTween.kill(); _camTween = null; }
   stopAutoOrbit();
   controls.enabled = true;
@@ -1397,7 +1472,9 @@ window.showPointList = function() {
   if (panel) panel.classList.remove('sheet-mid', 'sheet-full');
   if (window.innerWidth > 1024) document.getElementById('app')?.classList.remove('panel-open');
   window._updateCamPresetsBottom?.();
-  history.pushState(null, '', location.pathname);
+  const listUrl = new URL(location.href);
+  listUrl.searchParams.delete('id');
+  history.pushState(null, '', listUrl.pathname + listUrl.search);
 };
 
 window.startNav = function(pt) {
@@ -2942,6 +3019,7 @@ async function boot() {
   let _sceneBundle = null;
   const _sceneCode = _params.get('scene');
   if (_sceneCode && !document.getElementById('add-label-btn')) {
+    document.getElementById('app')?.classList.add('scene-share-view');
     _sceneBundle = await fetch(`/api/scenes/by-code/${encodeURIComponent(_sceneCode)}`)
       .then(r => r.ok ? r.json() : null).catch(() => null);
     if (_sceneBundle?.objects) renderSceneWidgets(_sceneBundle.objects);

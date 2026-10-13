@@ -204,15 +204,28 @@
       </div>
     </div>
     <div id="add-buttons">
-      <button class="btn-primary" id="add-label-btn" disabled>＋ Label</button>
+      <button class="btn-primary" id="add-label-btn" disabled>＋ Pin</button>
       <button class="btn-primary" id="add-button-btn" disabled>＋ Button</button>
       <button class="btn-primary" id="add-widget-btn" disabled>＋ Widget</button>
     </div>
     <div id="no-scene-hint">Select or create a scene above to start placing objects.</div>
     <div id="property-panel">
       <div class="form-group">
-        <label class="form-label" id="prop-kind-label">Label</label>
+        <label class="form-label" id="prop-kind-label">Pin title</label>
         <input class="form-input" id="prop-text" maxlength="120" placeholder="Text">
+      </div>
+      <div class="form-group" id="prop-pin-details" style="display:none">
+        <label class="form-label" for="prop-description">Description</label>
+        <textarea class="form-input" id="prop-description" maxlength="2000" rows="5"
+          placeholder="Add details visitors should see when they select this pin"></textarea>
+        <label class="form-label" for="prop-photo-input">Photo</label>
+        <input id="prop-photo-input" type="file" accept="image/jpeg,image/png,image/webp" hidden>
+        <img id="prop-photo-preview" alt="Pin photo preview" style="display:none;width:100%;max-height:160px;object-fit:cover;border-radius:7px">
+        <div style="display:flex;gap:6px">
+          <button type="button" class="btn-primary" id="prop-photo-upload-btn" style="flex:1">Upload photo</button>
+          <button type="button" class="prop-del-btn" id="prop-photo-remove-btn" style="display:none">Remove photo</button>
+        </div>
+        <small id="prop-photo-status" style="color:var(--text-secondary)"></small>
       </div>
       <div class="form-group" id="prop-action-group" style="display:none">
         <label class="form-label">On click</label>
@@ -239,7 +252,7 @@
         <button class="prop-del-btn" id="prop-delete-btn">Delete</button>
       </div>
     </div>
-    <div id="empty-selection">Click ＋ Label or ＋ Button, then click the scene to place it.<br><br>Click a placed object to select and edit it.</div>
+    <div id="empty-selection">Click ＋ Pin or ＋ Button, then click the scene to place it.<br><br>Click a placed object to select and edit it.</div>
   </aside>
 
   <div id="canvas-wrap">

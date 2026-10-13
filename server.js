@@ -24,6 +24,7 @@ const sdb         = require('./supabase-db');
 const auth        = require('./auth-db');
 const siteAdmin   = require('./site-admin');
 const sceneDb     = require('./scene-db');
+const scenePhotos = require('./scene-photo-storage');
 const submissionsDb = require('./submissions-db');
 const eventsDb      = require('./events-db');
 const webhooksDb    = require('./webhooks-db');
@@ -518,13 +519,46 @@ const server = http.createServer((req, res) => {
   const _sceneCodeMatch = /^\/api\/scenes\/by-code\/([a-z0-9]{10})$/.exec(pathname);
   if (_sceneCodeMatch && req.method === 'GET') {
     if (_rateLimited(req, res, 'scene-by-code', 120, 3600000)) return;
-    scenesDb.getSceneBundleByCode(_sceneCodeMatch[1]).then(bundle => {
+    scenesDb.getSceneBundleByCode(_sceneCodeMatch[1]).then(async bundle => {
       if (!bundle) { res.writeHead(404, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ error: 'not found' })); }
+      bundle.objects = await scenePhotos.withSignedPhotos(bundle.objects || []);
       res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
       res.end(JSON.stringify(bundle));
     }).catch(e => {
       res.writeHead(500, { 'Content-Type': 'application/json' });
       res.end(_errBody(e));
+    });
+    return;
+  }
+
+  // Scene label photos: editor-only upload/remove, stored outside Postgres
+  // in a private Supabase bucket. Reads are signed on scene bundle GET.
+  const _photosMatch = /^\/api\/sites\/([^/]+)\/scene-photos$/.exec(pathname);
+  if (_photosMatch && (req.method === 'POST' || req.method === 'DELETE')) {
+    const slug = _photosMatch[1];
+    if (!SLUG_RE.test(slug)) {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      return res.end(JSON.stringify({ error: 'not found' }));
+    }
+    if (req.method === 'POST' && _rateLimited(req, res, 'scene-photo-upload', 30, 3600000)) return;
+    _requireSiteEditor(req, res, slug, () => {
+      _readJsonBody(req, (err, body) => {
+        if (err || !body || typeof body !== 'object') {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          return res.end(JSON.stringify({ error: 'Invalid photo data' }));
+        }
+        const op = req.method === 'POST'
+          ? scenePhotos.uploadPhoto(slug, body.sceneId, body.objectId, body.dataUrl)
+          : scenePhotos.deletePhoto(slug, body.sceneId, body.objectId);
+        op.then(result => {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify(result));
+        }).catch(e => {
+          const status = [400, 404, 413].includes(e.status) ? e.status : 500;
+          res.writeHead(status, { 'Content-Type': 'application/json' });
+          res.end(status === 500 ? _errBody(e) : JSON.stringify({ error: e.message }));
+        });
+      });
     });
     return;
   }
@@ -547,9 +581,9 @@ const server = http.createServer((req, res) => {
       const sceneId = url.searchParams.get('scene');
       if (!sceneId) { res.writeHead(400, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ error: 'scene query param is required' })); }
       _requireSiteEditor(req, res, slug, () => {
-        sceneDb.listSceneObjects(slug, sceneId).then(objects => {
+        sceneDb.listSceneObjects(slug, sceneId).then(async objects => {
           res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify(objects));
+          res.end(JSON.stringify(await scenePhotos.withSignedPhotos(objects)));
         }).catch(e => {
           res.writeHead(500, { 'Content-Type': 'application/json' });
           res.end(_errBody(e));

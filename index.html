@@ -777,6 +777,22 @@
       #site-brand { display: flex !important; }
       #site-address { display: block !important; }
     }
+    /* Scene pin details support full descriptions and a photo. */
+    #point-detail.scene-pin-detail .detail-notes {
+      display:block !important; -webkit-line-clamp:unset !important;
+      overflow:visible !important; white-space:pre-wrap;
+      overflow-wrap:anywhere; font-size:13px !important; line-height:1.55 !important;
+      color:rgba(238,240,244,.8) !important;
+    }
+    #detail-photo-wrap { margin-top:12px; }
+    #detail-photo-wrap[hidden] { display:none !important; }
+    #detail-photo { display:block; width:100%; height:auto; max-height:270px;
+      object-fit:contain; border-radius:8px; background:rgba(255,255,255,.05); }
+    @media (min-width:768px) {
+      #app.scene-share-view #side-panel { width:320px !important; }
+      #app.scene-share-view.panel-open #panel-tab { right:320px !important; }
+      #app.scene-share-view.panel-open #site-brand { right:336px !important; }
+    }
   </style>
 </head>
 <body>
@@ -869,6 +885,9 @@
         <div class="chip" id="detail-chip"></div>
         <div class="detail-label" id="detail-label"></div>
         <div class="detail-notes" id="detail-notes"></div>
+        <div id="detail-photo-wrap" hidden>
+          <img id="detail-photo" alt="Scene location photo" loading="lazy">
+        </div>
       </div>
       <div class="detail-section">
         <div class="detail-section-title">Contacts</div>

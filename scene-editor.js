@@ -11,6 +11,7 @@ import * as THREE from 'three';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import { CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
 import { generateQR } from './qr.js';
+import { createSceneLabelPin } from './scene-label-pin.js';
 
 const SLUG = new URLSearchParams(location.search).get('site');
 
@@ -62,6 +63,12 @@ async function init() {
   });
   document.getElementById('scene-share-copy-btn').addEventListener('click', onCopySceneShareUrl);
   document.getElementById('prop-text').addEventListener('input', onPropTextInput);
+  document.getElementById('prop-description').addEventListener('input', onDescriptionInput);
+  document.getElementById('prop-photo-upload-btn').addEventListener('click', () => {
+    document.getElementById('prop-photo-input').click();
+  });
+  document.getElementById('prop-photo-input').addEventListener('change', onPhotoInput);
+  document.getElementById('prop-photo-remove-btn').addEventListener('click', onPhotoRemove);
   document.getElementById('prop-delete-btn').addEventListener('click', onDeleteClick);
   document.getElementById('prop-action-type').addEventListener('change', onActionTypeChange);
   ['prop-action-url', 'prop-action-preset', 'prop-action-title', 'prop-action-body'].forEach(id => {
@@ -256,17 +263,26 @@ function renderObject(obj) {
   }
   anchor.add(raycastMesh);
 
-  const div = document.createElement('div');
-  div.className = 'scene-obj-label';
-  const bg = obj.kind === 'widget' ? 'rgba(124,58,237,0.88)' : (obj.kind === 'button' ? 'rgba(15,118,110,0.88)' : 'rgba(24,95,165,0.88)');
-  div.style.cssText = `pointer-events:none;white-space:nowrap;font:600 13px 'DM Sans',sans-serif;color:#fff;background:${bg};padding:3px 8px;border-radius:6px;transform:translate(-50%,-130%);`;
-  div.textContent = objectDisplayText(obj);
+  let pinUi = null;
+  let div;
+  if (obj.kind === 'label') {
+    pinUi = createSceneLabelPin(objectDisplayText(obj), () => {
+      if (!_placingKind) select(obj.id);
+    });
+    div = pinUi.root;
+  } else {
+    div = document.createElement('div');
+    div.className = 'scene-obj-label';
+    const bg = obj.kind === 'widget' ? 'rgba(124,58,237,0.88)' : 'rgba(15,118,110,0.88)';
+    div.style.cssText = `pointer-events:none;white-space:nowrap;font:600 13px 'DM Sans',sans-serif;color:#fff;background:${bg};padding:3px 8px;border-radius:6px;transform:translate(-50%,-130%);`;
+    div.textContent = objectDisplayText(obj);
+  }
   const css2dObj = new CSS2DObject(div);
   css2dObj.position.set(0, (obj.kind === 'button' || obj.kind === 'widget') ? 0.4 : 0.1, 0);
   anchor.add(css2dObj);
 
   _scene.add(anchor);
-  const entry = { obj, anchor, raycastMesh, css2dObj, div };
+  const entry = { obj, anchor, raycastMesh, css2dObj, div, pinUi };
   _objects.set(obj.id, entry);
   return entry;
 }
@@ -328,7 +344,7 @@ async function createObject(kind, pos) {
     scriptId: null,
     transform: { position: [pos.x, pos.y, pos.z], rotation: [0, 0, 0], scale: [1, 1, 1] },
     style: {},
-    props: kind === 'label' ? { text: 'New label' } : (kind === 'button' ? { label: 'Button', action: { type: 'none' } } : { label: 'Widget' }),
+    props: kind === 'label' ? { text: 'New pin', description: '', photoPath: null } : (kind === 'button' ? { label: 'Button', action: { type: 'none' } } : { label: 'Widget' }),
   };
   renderObject(obj);
   select(id);
@@ -378,8 +394,14 @@ const ACTION_FIELDS = {
 function showPropertyPanel(obj) {
   document.getElementById('empty-selection').style.display = 'none';
   document.getElementById('property-panel').style.display = 'flex';
-  document.getElementById('prop-kind-label').textContent = (obj.kind === 'button' || obj.kind === 'widget') ? (obj.kind === 'widget' ? 'Widget label' : 'Button label') : 'Label text';
+  document.getElementById('prop-kind-label').textContent = (obj.kind === 'button' || obj.kind === 'widget') ? (obj.kind === 'widget' ? 'Widget label' : 'Button label') : 'Pin title';
   document.getElementById('prop-text').value = objectDisplayText(obj);
+  const isPin = obj.kind === 'label';
+  document.getElementById('prop-pin-details').style.display = isPin ? 'flex' : 'none';
+  if (isPin) {
+    document.getElementById('prop-description').value = obj.props?.description ?? '';
+    renderPinPhoto(obj);
+  }
 
   const actionGroup = document.getElementById('prop-action-group');
   actionGroup.style.display = obj.kind === 'button' ? 'flex' : 'none';
@@ -409,6 +431,19 @@ function updateActionFieldVisibility(type) {
 function hidePropertyPanel() {
   document.getElementById('property-panel').style.display = 'none';
   document.getElementById('empty-selection').style.display = 'block';
+}
+
+function renderPinPhoto(obj) {
+  const img = document.getElementById('prop-photo-preview');
+  const url = obj.props?.photoUrl;
+  const hasUrl = typeof url === 'string' && url.startsWith('https://');
+  img.style.display = hasUrl ? 'block' : 'none';
+  if (hasUrl) img.src = url;
+  else img.removeAttribute('src');
+  document.getElementById('prop-photo-remove-btn').style.display =
+    obj.props?.photoPath ? '' : 'none';
+  document.getElementById('prop-photo-status').textContent =
+    obj.props?.photoPath && !hasUrl ? 'Photo preview unavailable; try reloading.' : '';
 }
 
 // ── Action config (button kind only) ────────────────────────────────────
@@ -458,7 +493,8 @@ function onPropTextInput(e) {
   const val = e.target.value;
   if (entry.obj.kind === 'button' || entry.obj.kind === 'widget') entry.obj.props.label = val;
   else entry.obj.props.text = val;
-  entry.div.textContent = val;
+  if (entry.pinUi) entry.pinUi.setTitle(val);
+  else entry.div.textContent = val;
   scheduleSave(_selectedId);
 }
 
@@ -496,10 +532,11 @@ function cancelAllPending() {
 }
 
 async function flushSave(id) {
+  clearTimeout(_saveTimers.get(id));
   _saveTimers.delete(id);
   const entry = _objects.get(id);
-  if (!entry) return;
-  await apiWrite(`/api/sites/${encodeURIComponent(SLUG)}/objects`, {
+  if (!entry) return null;
+  return await apiWrite(`/api/sites/${encodeURIComponent(SLUG)}/objects`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(entry.obj),
@@ -513,6 +550,7 @@ function onWrapPointerDown(e) {
 }
 
 function onWrapPointerUp(e) {
+  if (e.target.closest('.scene-location-pin__button')) return;
   if (e.button !== 0 || !_placingKind) return;
   if (e.target.closest('#cam-presets, #nav-progress, #splat-progress')) return;
   e.stopPropagation();
@@ -520,6 +558,9 @@ function onWrapPointerUp(e) {
 }
 
 function onWrapClick(e) {
+  // The pin's own pointerup handler selects it; capture-phase canvas
+  // raycasting would otherwise immediately deselect it on the click event.
+  if (e.target.closest('.scene-location-pin__button')) return;
   if (e.target.closest('#cam-presets, #nav-progress, #splat-progress')) return;
   if (_justDragged) { _justDragged = false; return; }
   if (_placingKind) { e.stopPropagation(); return; }
@@ -695,4 +736,106 @@ function showToast(msg) {
   t.textContent = msg;
   document.body.appendChild(t);
   setTimeout(() => t.remove(), 2400);
+}
+
+
+// Pin description and photo; images are resized before private upload.
+function onDescriptionInput(event) {
+  const entry = _objects.get(_selectedId);
+  if (!entry || entry.obj.kind !== 'label') return;
+  entry.obj.props.description = event.target.value;
+  scheduleSave(entry.obj.id);
+}
+
+async function photoAsSmallJpeg(file) {
+  if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size > 15_000_000) {
+    throw new Error('Choose a JPEG, PNG or WebP image up to 15 MB.');
+  }
+  const bitmap = await createImageBitmap(file);
+  try {
+    if (bitmap.width * bitmap.height > 45_000_000) throw new Error('Image dimensions are too large.');
+    for (const maxSide of [1440, 1200, 960, 768]) {
+      const factor = Math.min(1, maxSide / Math.max(bitmap.width, bitmap.height));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round(bitmap.width * factor));
+      canvas.height = Math.max(1, Math.round(bitmap.height * factor));
+      const ctx = canvas.getContext('2d');
+      if (!ctx) throw new Error('Could not prepare photo.');
+      ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+      for (const quality of [0.82, 0.72, 0.60]) {
+        const jpeg = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', quality));
+        if (jpeg && jpeg.size <= 600_000) {
+          return await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result);
+            reader.onerror = () => reject(new Error('Could not read photo.'));
+            reader.readAsDataURL(jpeg);
+          });
+        }
+      }
+    }
+    throw new Error('Photo is still too large after resizing.');
+  } finally {
+    bitmap.close?.();
+  }
+}
+
+async function onPhotoInput(event) {
+  const file = event.target.files?.[0];
+  event.target.value = ''; // permits reselecting the same photo
+  const id = _selectedId;
+  const entry = _objects.get(id);
+  if (!file || !entry || entry.obj.kind !== 'label') return;
+  const status = document.getElementById('prop-photo-status');
+  status.textContent = 'Preparing photo…';
+  document.getElementById('prop-photo-upload-btn').disabled = true;
+  try {
+    const dataUrl = await photoAsSmallJpeg(file);
+    status.textContent = 'Uploading photo…';
+    const result = await apiWrite('/api/sites/' + encodeURIComponent(SLUG) + '/scene-photos', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sceneId: entry.obj.sceneId, objectId: id, dataUrl }),
+    });
+    if (!result) return;
+    const current = _objects.get(id);
+    if (!current || current.obj.sceneId !== entry.obj.sceneId) return;
+    const priorPath = current.obj.props.photoPath;
+    const priorUrl = current.obj.props.photoUrl;
+    current.obj.props.photoPath = result.photoPath;
+    current.obj.props.photoUrl = result.photoUrl;
+    const saved = await flushSave(id);
+    if (!saved) {
+      current.obj.props.photoPath = priorPath;
+      current.obj.props.photoUrl = priorUrl;
+      throw new Error('Photo was uploaded but its scene reference could not be saved.');
+    }
+    if (_selectedId === id) renderPinPhoto(current.obj);
+    showToast('Photo uploaded');
+  } catch (error) {
+    showToast(error.message || 'Photo could not be uploaded');
+  } finally {
+    document.getElementById('prop-photo-upload-btn').disabled = false;
+    if (_selectedId === id) status.textContent = '';
+  }
+}
+
+async function onPhotoRemove() {
+  const id = _selectedId;
+  const entry = _objects.get(id);
+  if (!entry || entry.obj.kind !== 'label' || !entry.obj.props.photoPath) return;
+  const prevPath = entry.obj.props.photoPath;
+  const prevUrl = entry.obj.props.photoUrl;
+  entry.obj.props.photoPath = null;
+  entry.obj.props.photoUrl = null;
+  const saved = await flushSave(id);
+  if (!saved) {
+    entry.obj.props.photoPath = prevPath;
+    entry.obj.props.photoUrl = prevUrl;
+  } else {
+    await apiWrite('/api/sites/' + encodeURIComponent(SLUG) + '/scene-photos', {
+      method: 'DELETE', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sceneId: entry.obj.sceneId, objectId: id }),
+    });
+  }
+  if (_selectedId === id) renderPinPhoto(entry.obj);
 }
