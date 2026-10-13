@@ -11,7 +11,7 @@ import * as THREE from 'three';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import { CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
 import { generateQR } from './qr.js';
-import { createSceneLabelPin } from './scene-label-pin.js';
+import { createSceneLabelPin, createSceneGroundFrame, SCENE_PIN_FLOAT_HEIGHT } from './scene-label-pin.js';
 
 const SLUG = new URLSearchParams(location.search).get('site');
 
@@ -256,16 +256,20 @@ function renderObject(obj) {
   } else {
     // Label: invisible sphere as the raycast hit target (text does the visual work).
     raycastMesh = new THREE.Mesh(
-      new THREE.SphereGeometry(0.18, 8, 6),
+      new THREE.CylinderGeometry(0.52, 0.52, SCENE_PIN_FLOAT_HEIGHT, 12),
       new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
     );
-    raycastMesh.position.y = 0.1;
+    raycastMesh.position.y = SCENE_PIN_FLOAT_HEIGHT / 2;
   }
   anchor.add(raycastMesh);
 
+  let groundFrame = null;
   let pinUi = null;
   let div;
   if (obj.kind === 'label') {
+    groundFrame = createSceneGroundFrame(THREE);
+    anchor.add(groundFrame.group);
+    _v3d.registerSceneGroundFrame?.(groundFrame);
     pinUi = createSceneLabelPin(objectDisplayText(obj), () => {
       if (!_placingKind) select(obj.id);
     });
@@ -278,11 +282,13 @@ function renderObject(obj) {
     div.textContent = objectDisplayText(obj);
   }
   const css2dObj = new CSS2DObject(div);
-  css2dObj.position.set(0, (obj.kind === 'button' || obj.kind === 'widget') ? 0.4 : 0.1, 0);
+  css2dObj.position.set(0, obj.kind === 'label' ? SCENE_PIN_FLOAT_HEIGHT
+    : (obj.kind === 'button' || obj.kind === 'widget') ? 0.4
+    : 0.1, 0);
   anchor.add(css2dObj);
 
   _scene.add(anchor);
-  const entry = { obj, anchor, raycastMesh, css2dObj, div, pinUi };
+  const entry = { obj, anchor, raycastMesh, css2dObj, div, pinUi, groundFrame };
   _objects.set(obj.id, entry);
   return entry;
 }
@@ -292,6 +298,10 @@ function disposeEntry(id) {
   if (!entry) return;
   if (_selectedId === id) deselect();
   _scene.remove(entry.anchor);
+  if (entry.groundFrame) {
+    _v3d.unregisterSceneGroundFrame?.(entry.groundFrame);
+    entry.groundFrame.dispose();
+  }
   entry.raycastMesh.geometry.dispose();
   entry.raycastMesh.material.dispose();
   if (entry.div.parentNode) entry.div.parentNode.removeChild(entry.div);
@@ -373,12 +383,17 @@ function selectFromEvent(e) {
 function select(id) {
   const entry = _objects.get(id);
   if (!entry) return;
+  if (_selectedId && _selectedId !== id) {
+    _objects.get(_selectedId)?.groundFrame?.setSelected(false);
+  }
   _selectedId = id;
+  entry.groundFrame?.setSelected(true);
   _transformControls.attach(entry.anchor);
   showPropertyPanel(entry.obj);
 }
 
 function deselect() {
+  if (_selectedId) _objects.get(_selectedId)?.groundFrame?.setSelected(false);
   _selectedId = null;
   _transformControls.detach();
   hidePropertyPanel();
