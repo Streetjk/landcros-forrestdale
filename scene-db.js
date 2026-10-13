@@ -39,6 +39,13 @@ function sceneObjectToJson(r) {
   };
 }
 
+// Save stable photo references, not expiring image links.
+function storedProps(obj) {
+  const props = { ...(obj.props || {}) };
+  if (obj.kind === 'label') delete props.photoUrl;
+  return props;
+}
+
 // ── Audit log (shared table with supabase-db.js's points/contacts) ─────────
 async function _appendAudit(siteId, changedBy, action, entityType, entityId, entityLabel) {
   await _getPool().query(
@@ -98,7 +105,7 @@ async function saveSceneObject(slug, obj, changedBy = null) {
        and scene_objects.scene_id = excluded.scene_id
      returning *`,
     [
-      obj.id, siteId, obj.sceneId, obj.kind, j(obj.transform || {}), j(obj.style || {}), j(obj.props || {}),
+      obj.id, siteId, obj.sceneId, obj.kind, j(obj.transform || {}), j(obj.style || {}), j(storedProps(obj)),
       obj.scriptId ?? null, obj.zIndex ?? 0,
     ]
   );

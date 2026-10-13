@@ -14,6 +14,7 @@ import { resolvePublicSiteMetadata, resolveSiteBranding, sanitizePublicLogoUrl }
 import { loadPublicRuntimeConfig, loadPublicTransport, backendRedirectForScopedRoute, shouldProbeStaffSession, backendApiUrl } from './public-transport.js';
 import { getBasePublicVisitPointId } from './visit-analytics.js';
 import { createPointListItem } from './point-list-item.js';
+import { createSceneLabelPin } from './scene-label-pin.js';
 import { renderDetailContacts } from './detail-card.js';
 import { mapControlLabel, syncPressedButton, syncPressedButtons } from './map-controls.js';
 import { labelScaleForZoom, layoutLabels, forwardWheelToTarget } from './label-layout.js';
@@ -1179,13 +1180,25 @@ function _renderSceneWidget(obj) {
     );
     raycastMesh.position.y = 0.2;
     anchor.add(raycastMesh);
+  } else if (obj.kind === 'label') {
+    raycastMesh = new THREE.Mesh(
+      new THREE.SphereGeometry(0.24, 8, 6),
+      new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
+    );
+    raycastMesh.position.y = 0.1;
+    anchor.add(raycastMesh);
   }
 
-  const div = document.createElement('div');
-  div.className = 'scene-obj-label';
-  const bg = obj.kind === 'hazard' ? 'rgba(180,83,9,0.92)' : obj.kind === 'widget' ? 'rgba(124,58,237,0.88)' : obj.kind === 'button' ? 'rgba(15,118,110,0.88)' : 'rgba(24,95,165,0.88)';
-  div.style.cssText = `pointer-events:none;white-space:nowrap;font:600 13px 'DM Sans',sans-serif;color:#fff;background:${bg};padding:3px 8px;border-radius:6px;transform:translate(-50%,-130%);`;
-  div.textContent = _sceneObjDisplayText(obj);
+  let div;
+  if (obj.kind === 'label') {
+    div = createSceneLabelPin(_sceneObjDisplayText(obj), () => showSceneLabelDetail(obj)).root;
+  } else {
+    div = document.createElement('div');
+    div.className = 'scene-obj-label';
+    const bg = obj.kind === 'hazard' ? 'rgba(180,83,9,0.92)' : obj.kind === 'widget' ? 'rgba(124,58,237,0.88)' : 'rgba(15,118,110,0.88)';
+    div.style.cssText = `pointer-events:none;white-space:nowrap;font:600 13px 'DM Sans',sans-serif;color:#fff;background:${bg};padding:3px 8px;border-radius:6px;transform:translate(-50%,-130%);`;
+    div.textContent = _sceneObjDisplayText(obj);
+  }
   const css2dObj = new CSS2DObject(div);
   css2dObj.position.set(0, obj.kind === 'hazard' ? 0.75 : (obj.kind === 'button' || obj.kind === 'widget') ? 0.4 : 0.1, 0);
   anchor.add(css2dObj);
@@ -1278,6 +1291,40 @@ function _openEscalateDialog(post) {
     if (d) wrap.remove(); else form.querySelector('button').disabled = false;
   };
   form.to.focus();
+}
+
+// Informational pin detail, integrated into the existing visitor side panel.
+function showSceneLabelDetail(obj) {
+  showWidgetDetail(obj.props?.text || 'Untitled pin', obj.props?.description || '');
+  const detail = document.getElementById('point-detail');
+  if (!detail) return;
+  document.getElementById('app')?.classList.add('scene-pin-selected');
+  detail.classList.add('scene-pin-detail');
+  const chip = document.getElementById('detail-chip');
+  chip.className = 'chip chip-dropoff';
+  chip.textContent = 'Location';
+  const notes = document.getElementById('detail-notes');
+  let frame = document.getElementById('detail-scene-photo-wrap');
+  if (!frame) {
+    frame = document.createElement('div');
+    frame.id = 'detail-scene-photo-wrap';
+    const img = document.createElement('img');
+    img.id = 'detail-scene-photo';
+    img.loading = 'lazy';
+    frame.appendChild(img);
+    notes.insertAdjacentElement('afterend', frame);
+  }
+  const photo = frame.firstElementChild;
+  const url = obj.props?.photoUrl;
+  const visible = typeof url === 'string' && url.startsWith('https://');
+  frame.hidden = !visible;
+  if (visible) {
+    photo.alt = 'Photo: ' + (obj.props?.text || 'Location');
+    photo.onerror = () => { frame.hidden = true; };
+    photo.src = url;
+  } else {
+    photo.removeAttribute('src');
+  }
 }
 
 // Hazard pin detail: title + description + photo thumbnails. Text goes in via
@@ -1542,6 +1589,13 @@ function _openDetailPanel() {
 // Invalidate in-flight pin photos before another panel takes ownership.
 // Also clears the selected pin used by the optional tour button.
 function _leavePinDetail() {
+  document.getElementById('app')?.classList.remove('scene-pin-selected');
+  document.getElementById('point-detail')?.classList.remove('scene-pin-detail');
+  const scenePhoto = document.getElementById('detail-scene-photo-wrap');
+  if (scenePhoto) {
+    scenePhoto.hidden = true;
+    scenePhoto.firstElementChild?.removeAttribute('src');
+  }
   _clearPublicPhotoUrls();
   document.getElementById('point-detail')?.classList.remove('public-location-detail');
   _photoReqPt = null;
@@ -1741,7 +1795,9 @@ renderer.domElement.addEventListener('click', e => {
   if (widgetHits.length) {
     const hitMesh = widgetHits[0].object;
     const widget = Array.from(_sceneWidgets.values()).find(w => w.raycastMesh === hitMesh);
-    if (widget && widget.obj.kind === 'hazard') {
+    if (widget && widget.obj.kind === 'label') {
+      showSceneLabelDetail(widget.obj);
+    } else if (widget && widget.obj.kind === 'hazard') {
       showHazardDetail(widget.obj);
     } else if (widget && widget.obj.kind === 'widget' && widget.obj.scriptSource) {
       _runWidgetScript(widget.obj.scriptSource, widget.obj);
@@ -3933,6 +3989,7 @@ async function boot() {
       _scopedGuideUnavailable = true;
     }
   } else if (_sceneCode && !_publicMyPinMode && !document.getElementById('add-label-btn')) {
+    document.getElementById('app')?.classList.add('scene-share-view');
     try {
       const response = await fetch(_apiUrl(`/api/scenes/by-code/${encodeURIComponent(_sceneCode)}`));
       if (response.ok) {

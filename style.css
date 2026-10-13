@@ -429,3 +429,24 @@ textarea.form-input      { resize: vertical; min-height: 68px; }
   box-shadow: var(--sn-shadow-control);
 }
 /* ── End SiteNav shared shell visual primitives ─────────────────────────── */
+/* Scene annotations: a real drop-pin rather than a floating text banner. */
+.scene-location-pin { position:relative; width:0; height:0; pointer-events:none; }
+.scene-location-pin__button {
+  position:absolute; left:-16px; bottom:0; width:32px; height:42px;
+  background:transparent; border:0; padding:0; margin:0;
+  pointer-events:auto; cursor:pointer; overflow:visible; appearance:none;
+}
+.scene-location-pin__icon { display:block; width:30px; height:42px; filter:drop-shadow(0 2px 4px rgba(0,0,0,.6)); }
+.scene-location-pin__caption {
+  position:absolute; bottom:44px; left:50%; transform:translateX(-50%);
+  display:block; width:max-content; max-width:220px; padding:4px 8px;
+  border-radius:6px; background:rgba(24,95,165,.92); color:#fff;
+  font:600 13px/1.35 'DM Sans',sans-serif; white-space:normal; text-align:center; overflow-wrap:anywhere;
+  overflow:hidden; text-overflow:ellipsis;
+  box-shadow:0 2px 8px rgba(0,0,0,.3);
+}
+.scene-location-pin__button:hover .scene-location-pin__caption,
+.scene-location-pin__button:focus-visible .scene-location-pin__caption {
+  background:#185fa5; text-decoration:underline;
+}
+.scene-location-pin__button:focus-visible { outline:2px solid #facc15; outline-offset:3px; }

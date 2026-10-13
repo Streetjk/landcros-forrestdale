@@ -25,6 +25,7 @@ const auth        = require('./auth-db');
 const mailer      = require('./mailer');
 const siteAdmin   = require('./site-admin');
 const sceneDb     = require('./scene-db');
+const scenePhotos = require('./scene-photo-storage');
 const submissionsDb = require('./submissions-db');
 const eventsDb      = require('./events-db');
 const webhooksDb    = require('./webhooks-db');
@@ -756,6 +757,7 @@ const server = http.createServer((req, res) => {
       }
       // Opening a link while signed in adds the scene to that person's list.
       if (viewer) await scenesDb.subscribe(bundle.scene.id, viewer.profileId).catch(e => console.error('[scenes] subscribe failed:', e.message));
+      bundle.objects = await scenePhotos.withSignedPhotos(bundle.objects || []);
       res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
       res.end(JSON.stringify(bundle));
     })
@@ -882,6 +884,32 @@ const server = http.createServer((req, res) => {
   if (handleScenePoints(req, res, url)) return;
   if (handleScenePointPhotos(req, res, url)) return;
 
+  // Author-owned scene label photo upload/removal; private Supabase Storage.
+  const _photosMatch = /^\/api\/sites\/([^/]+)\/scene-photos$/.exec(pathname);
+  if (_photosMatch && (req.method === 'POST' || req.method === 'DELETE')) {
+    const slug = _photosMatch[1];
+    if (!SLUG_RE.test(slug)) return _json(res, 404, { error: 'not found' });
+    if (req.method === 'POST' && _rateLimited(req, res, 'scene-photo-upload', 30, 3600000)) return;
+    _requireSiteEditor(req, res, slug, session => {
+      _readJsonBody(req, (err, body) => {
+        if (err || !body || typeof body !== 'object')
+          return _json(res, 400, { error: 'Invalid photo data' });
+        (async () => {
+          if (!await _managedSceneOrRespond(res, slug, body.sceneId, session)) return;
+          const result = req.method === 'POST'
+            ? await scenePhotos.uploadPhoto(slug, body.sceneId, body.objectId, body.dataUrl)
+            : await scenePhotos.deletePhoto(slug, body.sceneId, body.objectId);
+          _json(res, 200, result);
+        })().catch(error => {
+          if (res.writableEnded) return;
+          const status = [400, 404, 413].includes(error.status) ? error.status : 500;
+          _json(res, status, status === 500 ? JSON.parse(_errBody(error)) : { error: error.message });
+        });
+      });
+    });
+    return;
+  }
+
   const _objectsMatch = /^\/api\/sites\/([^/]+)\/objects$/.exec(pathname);
   if (_objectsMatch && (req.method === 'GET' || req.method === 'POST')) {
     const slug = _objectsMatch[1];
@@ -903,7 +931,7 @@ const server = http.createServer((req, res) => {
         (async () => {
           if (!await _managedSceneOrRespond(res, slug, sceneId, s)) return;
           const objects = await sceneDb.listSceneObjects(slug, sceneId);
-          _json(res, 200, objects);
+          _json(res, 200, await scenePhotos.withSignedPhotos(objects));
         })().catch(e => { if (!res.writableEnded) _json(res, 500, JSON.parse(_errBody(e))); });
       });
       return;
