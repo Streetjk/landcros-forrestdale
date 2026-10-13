@@ -1324,6 +1324,10 @@ function showSceneLabelDetail(obj) {
     frame.id = 'detail-scene-photo-wrap';
     const img = document.createElement('img');
     img.id = 'detail-scene-photo';
+    // Explicit CORS is required under the viewer's COEP isolation: the
+    // private Supabase signed image allows CORS but has no CORP header.
+    img.crossOrigin = 'anonymous';
+    img.referrerPolicy = 'no-referrer';
     img.loading = 'lazy';
     frame.appendChild(img);
     notes.insertAdjacentElement('afterend', frame);

@@ -595,6 +595,10 @@ function hidePropertyPanel() {
 }
 function renderPinPhoto(obj) {
   const img = document.getElementById('prop-photo-preview');
+  // The app is cross-origin isolated for its 3D viewer. Supabase signed
+  // images must opt into CORS or the browser blocks them under COEP.
+  img.crossOrigin = 'anonymous';
+  img.referrerPolicy = 'no-referrer';
   const url = obj.props?.photoUrl;
   const hasUrl = typeof url === 'string' && url.startsWith('https://');
   img.style.display = hasUrl ? 'block' : 'none';
