@@ -81,3 +81,42 @@ export function createSceneGroundFrame(THREE, color = 0x2563eb) {
     },
   };
 }
+
+// Scene photos are private signed URLs, scoped to the single scene the
+// recipient opened. Warm at most two small images in memory (not persistent
+// storage) so tapping a pin does not start a cold network fetch.
+//
+// The viewer uses cross-origin isolation for WebGL. A photo preload MUST use
+// the same anonymous CORS mode as the visible <img>, otherwise it cannot share
+// the decoded resource and may be blocked by the embedder policy.
+export function preloadSceneLabelPhotos(objects, {
+  maxPhotos = 2,
+  saveData = false,
+  createImage = () => new Image(),
+} = {}) {
+  const warmed = new Map();
+  if (saveData || !Array.isArray(objects)) return warmed;
+
+  const cap = Math.max(0, Math.min(2, Math.floor(maxPhotos) || 0));
+  for (const obj of objects) {
+    if (warmed.size >= cap) break;
+    if (obj?.kind !== 'label') continue;
+    const url = obj.props?.photoUrl;
+    if (typeof url !== 'string' || !url.startsWith('https://') || warmed.has(url)) continue;
+
+    const image = createImage();
+    image.crossOrigin = 'anonymous';
+    image.referrerPolicy = 'no-referrer';
+    image.loading = 'eager';
+    image.decoding = 'async';
+    image.fetchPriority = warmed.size === 0 ? 'high' : 'low';
+    warmed.set(url, image);
+    image.addEventListener?.('error', () => warmed.delete(url), { once: true });
+    image.src = url;
+    // Populate the browser's decoded-image cache before the visitor opens a pin.
+    if (typeof image.decode === 'function') {
+      void image.decode().catch(() => {});
+    }
+  }
+  return warmed;
+}

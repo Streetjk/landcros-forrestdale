@@ -7,7 +7,7 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
 import { Sky } from 'three/addons/objects/Sky.js';
 import { initComparison, updateComparison, comparisonNeedsRender } from './splat-compare.js';
-import { createSceneLabelPin, createSceneGroundFrame, SCENE_PIN_FLOAT_HEIGHT } from './scene-label-pin.js';
+import { createSceneLabelPin, createSceneGroundFrame, SCENE_PIN_FLOAT_HEIGHT, preloadSceneLabelPhotos } from './scene-label-pin.js';
 
 // ── Site config (loaded from data/config.json in boot()) ──────────────────
 let _cfg = {};
@@ -827,6 +827,8 @@ function _renderSceneWidget(obj) {
   _sceneWidgets.set(obj.id, { obj, anchor, raycastMesh, groundFrame });
 }
 
+let _scenePhotoWarmImages = new Map();
+
 function renderSceneWidgets(list) {
   list.filter(o => o.kind === 'label' || o.kind === 'button' || o.kind === 'widget').forEach(_renderSceneWidget);
 }
@@ -1291,6 +1293,9 @@ function resetSceneLabelPhoto(url, title) {
   // Explicit CORS prevents COEP from blocking cross-origin signed photos.
   img.crossOrigin = 'anonymous';
   img.referrerPolicy = 'no-referrer';
+  img.loading = 'eager';
+  img.decoding = 'async';
+  img.fetchPriority = 'high';
   img.removeAttribute('src');
   wrap.hidden = true;
   if (typeof url !== 'string' || !url.startsWith('https://')) return;
@@ -3041,7 +3046,15 @@ async function boot() {
     document.getElementById('app')?.classList.add('scene-share-view');
     _sceneBundle = await fetch(`/api/scenes/by-code/${encodeURIComponent(_sceneCode)}`)
       .then(r => r.ok ? r.json() : null).catch(() => null);
-    if (_sceneBundle?.objects) renderSceneWidgets(_sceneBundle.objects);
+    if (_sceneBundle?.objects) {
+    // Warm only the photos in this authorized scene. The short-lived signed
+    // image URLs and decoded data remain in memory only; no service worker
+    // storage, browser database, or server tracking is introduced.
+    _scenePhotoWarmImages = preloadSceneLabelPhotos(_sceneBundle.objects, {
+      saveData: !!navigator.connection?.saveData,
+    });
+    renderSceneWidgets(_sceneBundle.objects);
+  }
   }
 
   // viewer3d.html: load pins/contacts
