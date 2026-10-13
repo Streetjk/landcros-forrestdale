@@ -14,7 +14,7 @@ import { resolvePublicSiteMetadata, resolveSiteBranding, sanitizePublicLogoUrl }
 import { loadPublicRuntimeConfig, loadPublicTransport, backendRedirectForScopedRoute, shouldProbeStaffSession, backendApiUrl } from './public-transport.js';
 import { getBasePublicVisitPointId } from './visit-analytics.js';
 import { createPointListItem } from './point-list-item.js';
-import { createSceneLabelPin, createSceneGroundFrame, SCENE_PIN_FLOAT_HEIGHT } from './scene-label-pin.js';
+import { createSceneLabelPin, createSceneGroundFrame, SCENE_PIN_FLOAT_HEIGHT, preloadSceneLabelPhotos } from './scene-label-pin.js';
 import { renderDetailContacts } from './detail-card.js';
 import { mapControlLabel, syncPressedButton, syncPressedButtons } from './map-controls.js';
 import { labelScaleForZoom, layoutLabels, forwardWheelToTarget } from './label-layout.js';
@@ -1211,6 +1211,8 @@ function _renderSceneWidget(obj) {
   _sceneWidgets.set(obj.id, { obj, anchor, raycastMesh, groundFrame });
 }
 
+let _scenePhotoWarmImages = new Map();
+
 function renderSceneWidgets(list) {
   list.filter(o => o.kind === 'label' || o.kind === 'button' || o.kind === 'widget' || o.kind === 'hazard').forEach(_renderSceneWidget);
 }
@@ -1328,7 +1330,11 @@ function showSceneLabelDetail(obj) {
     // private Supabase signed image allows CORS but has no CORP header.
     img.crossOrigin = 'anonymous';
     img.referrerPolicy = 'no-referrer';
-    img.loading = 'lazy';
+    // Lazy loading defers off-screen panel photos for seconds even when
+    // the signed image is already cached. This is an explicit user action.
+    img.loading = 'eager';
+    img.decoding = 'async';
+    img.fetchPriority = 'high';
     frame.appendChild(img);
     notes.insertAdjacentElement('afterend', frame);
   }
@@ -4029,7 +4035,15 @@ async function boot() {
     }
   }
   _scenePhotos = _sceneBundle?.photos ?? [];
-  if (_sceneBundle?.objects) renderSceneWidgets(_sceneBundle.objects);
+  if (_sceneBundle?.objects) {
+    // Warm only the photos in this authorized scene. The short-lived signed
+    // image URLs and decoded data remain in memory only; no service worker
+    // storage, browser database, or server tracking is introduced.
+    _scenePhotoWarmImages = preloadSceneLabelPhotos(_sceneBundle.objects, {
+      saveData: !!navigator.connection?.saveData,
+    });
+    renderSceneWidgets(_sceneBundle.objects);
+  }
   // My Pins is a one-guide public capability, not a mutable scene workflow.
   if (_sceneBundle?.scene && _sceneCode && !_publicMyPinMode) renderSceneStatusBar(_sceneCode, _sceneBundle);
 
