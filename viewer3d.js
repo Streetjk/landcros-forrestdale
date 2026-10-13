@@ -1288,6 +1288,9 @@ function showSceneLabelDetail(obj) {
 function resetSceneLabelPhoto(url, title) {
   const wrap = document.getElementById('detail-photo-wrap');
   const img = document.getElementById('detail-photo');
+  // Explicit CORS prevents COEP from blocking cross-origin signed photos.
+  img.crossOrigin = 'anonymous';
+  img.referrerPolicy = 'no-referrer';
   img.removeAttribute('src');
   wrap.hidden = true;
   if (typeof url !== 'string' || !url.startsWith('https://')) return;
