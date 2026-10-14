@@ -17,6 +17,7 @@ import { createPointListItem } from './point-list-item.js';
 import { createSceneLabelPin, createSceneGroundFrame, SCENE_PIN_FLOAT_HEIGHT, SCENE_PIN_GROUND_Y, preloadSceneLabelPhotos, scenePhotoItems, markerScaleForZoom } from './scene-label-pin.js?v=pinzoom-toggle-20261014b';
 import { renderScenePhotoGallery, hideScenePhotoGallery } from './scene-photo-gallery-view.js';
 import { createMobileDetailSheet, trackMapTaps } from './mobile-detail-sheet.js';
+import { loadSharedSceneBundle } from './scene-bundle-loader.js';
 import { findLabelAtTap, isTouchMapDevice } from './map-touch-input.js';
 import { gpsToScene, loadSiteGpsCalibration } from './site-gps-calibration.js';
 import { shouldRenderGpsFix, gpsSceneAccuracyRadius, gpsWithinSite } from './gps-tracking.js';
@@ -1134,6 +1135,11 @@ function _syncSiteInfoAction(publicSite) {
 
 function _applyBranding(cfg, publicSite = null) {
   const s = resolveSiteBranding(cfg?.site, publicSite);
+  // The published static site's configured same-origin logo is the most
+  // reliable brand source. Do not override it with the legacy external CDN
+  // URL still stored in the site metadata service.
+  const localLogo = sanitizePublicLogoUrl(cfg?.site?.logo);
+  if (localLogo?.startsWith('./assets/')) s.logo=localLogo;
   if (s.name)    { const el = document.getElementById('panel-site');   if (el) el.textContent = s.name; }
   if (s.title)   { const el = document.getElementById('panel-title');  if (el) el.textContent = s.title; }
   if (s.address) {
@@ -4342,6 +4348,26 @@ async function boot() {
   }
   const _publicTransportPromise = loadPublicTransport(_runtime, globalThis.fetch);
   const _publicSitePromise = _publicTransportPromise.then(result => result.siteResult);
+  // Begin the scene lookup BEFORE loading satellite, splats or geo layers.
+  // Remote Render cold starts and short outages no longer leave a blank first
+  // visit. Retry only transient transport/5xx errors; authorization failures
+  // remain denied.
+  const _earlySharedCode = _params.get('scene');
+  const _earlySharedScene = _earlySharedCode && !_publicMyPinMode && !document.getElementById('add-label-btn')
+    ? loadSharedSceneBundle(_apiUrl('/api/scenes/by-code/'+encodeURIComponent(_earlySharedCode)))
+    : null;
+  let _earlySceneWidgetsRendered = false;
+  _earlySharedScene?.then(({data}) => {
+    if (!Array.isArray(data?.objects) || _earlySceneWidgetsRendered) return;
+    try {
+      _scenePhotoWarmImages = preloadSceneLabelPhotos(data.objects,{saveData:!!navigator.connection?.saveData});
+      renderSceneWidgets(data.objects);
+      _earlySceneWidgetsRendered = true;
+    } catch (error) {
+      console.warn('[scene] early pin render will retry:', error.message);
+    }
+  });
+
   _cfg = await fetch('./data/config.json').then(r => r.json()).catch((err) => {
     console.error('Config load failed:', err);
     return {};
@@ -4560,17 +4586,14 @@ async function boot() {
   } else if (_sceneCode && !_publicMyPinMode && !document.getElementById('add-label-btn')) {
     document.getElementById('app')?.classList.add('scene-share-view');
     try {
-      const response = await fetch(_apiUrl(`/api/scenes/by-code/${encodeURIComponent(_sceneCode)}`));
-      if (response.ok) {
-        _sceneBundle = await response.json().catch(() => null);
-        _scopedGuideUnavailable = !_sceneBundle || typeof _sceneBundle !== 'object' || Array.isArray(_sceneBundle);
-      } else if (response.status === 401) {
-        // Hazard report links need an @hcma.com.au session: hand off to the
-        // page's login gate (index.html), which reloads once signed in.
-        const d = await response.json().catch(() => ({}));
-        window._snHazardLoginRequired?.(d);
-      } else {
-        _scopedGuideUnavailable = true;
+      const result = await (_earlySharedScene ??
+        loadSharedSceneBundle(_apiUrl('/api/scenes/by-code/'+encodeURIComponent(_sceneCode))));
+      _sceneBundle = result.data;
+      _scopedGuideUnavailable = !_sceneBundle;
+      if (result.status === 401) {
+        // Hazard reports retain the same authenticated gate. No unauthenticated
+        // fallback and no retry are allowed for a permission denial.
+        window._snHazardLoginRequired?.(result.details || {kind:'hazard'});
       }
     } catch {
       _scopedGuideUnavailable = true;
@@ -4584,7 +4607,10 @@ async function boot() {
     _scenePhotoWarmImages = preloadSceneLabelPhotos(_sceneBundle.objects, {
       saveData: !!navigator.connection?.saveData,
     });
-    renderSceneWidgets(_sceneBundle.objects);
+    if (!_earlySceneWidgetsRendered) {
+      renderSceneWidgets(_sceneBundle.objects);
+      _earlySceneWidgetsRendered = true;
+    }
   }
   // My Pins is a one-guide public capability, not a mutable scene workflow.
   if (_sceneBundle?.scene && _sceneCode && !_publicMyPinMode) renderSceneStatusBar(_sceneCode, _sceneBundle);

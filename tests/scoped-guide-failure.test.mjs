@@ -11,7 +11,8 @@ test('scoped My Pin failures are visible and remain fail-closed', () => {
 });
 
 test('scene share failures show a generic notice while hazard 401 still hands off to login', () => {
-  assert.match(source, /else if \(_sceneCode && !_publicMyPinMode[\s\S]*?response\.status === 401[\s\S]*?window\._snHazardLoginRequired\?\.\(d\);[\s\S]*?else \{\s*_scopedGuideUnavailable = true;/);
+  assert.match(source, /else if \(_sceneCode && !_publicMyPinMode[\s\S]*?result\.status === 401[\s\S]*?window\._snHazardLoginRequired\?\.\(result\.details \|\| \{kind:'hazard'\}\);/);
+  assert.match(source,/_scopedGuideUnavailable = !_sceneBundle;/);
   assert.match(source, /_scopedGuideUnavailable\s*\?\s*'This shared guide is temporarily unavailable\. The site map is still available\.'/);
   assert.doesNotMatch(source, /temporarily unavailable[^\n]*(?:_publicMyPinToken|_sceneCode|response\.status)/);
 });
