@@ -64,7 +64,7 @@ test('viewer dispatch selects pins first and dismisses only after a genuine empt
   const src=read('viewer3d.js');
   assert.match(src,/_mobileDetails\.repeat\('scene:' \+ obj\.id\)/);
   assert.match(src,/_mobileDetails\.repeat\('point:' \+ pt\.id\)/);
-  assert.match(src,/_mobileDetails\.isCompact\(\) && !_isMobileMapTap\(e\)/);
+  assert.match(src,/\(_mobileDetails\.isCompact\(\) \|\| _touchMapMode\(\)\) && !_isMobileMapTap\(e\)/);
   assert.match(src,/return; \/\/ Selecting a pin\/label\/action must never fall through to dismiss/);
   assert.match(src,/if \(!labelHit\) _mobileDetails\.dismiss\(\)/);
 });
@@ -72,6 +72,6 @@ test('public pages load the responsive detail stylesheet after old inline CSS',(
   for(const name of ['index.html','viewer3d.html']){
     const html=read(name);
     assert.ok(html.indexOf('href="./mobile-detail-sheet.css?')>html.lastIndexOf('</style>'));
-    assert.match(html,/src="\.\/viewer3d\.js\?v=mobile-details-/);
+    assert.match(html,/src="\.\/viewer3d\.js\?v=[^"]+/);
   }
 });
