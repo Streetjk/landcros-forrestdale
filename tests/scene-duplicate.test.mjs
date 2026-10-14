@@ -26,7 +26,7 @@ function fixture(options = {}) {
       }
       if (sql.startsWith('select id, kind, transform')) {
         return {rows: [
-          {id:objectId,kind:'label',props:{text:'Fire Hose',description:'Missing nozzle',photoPath:sourcePhoto},transform:{position:[1,2,3]},style:{},z_index:1},
+          {id:objectId,kind:'label',props:{text:'Fire Hose',description:'Missing nozzle',photoPath:sourcePhoto,photoPaths:options.galleryPaths||[]},transform:{position:[1,2,3]},style:{},z_index:1},
           {id:'aaaaaaaa-0000-0000-0000-000000000001',kind:'button',props:{label:'Call office',action:{type:'none'}},transform:{position:[4,5,6]},style:{},z_index:2},
         ]};
       }
@@ -48,7 +48,12 @@ function fixture(options = {}) {
         if(options.failStorage) throw new Error('synthetic storage error');
         return target;
       },
-      removeImages: async arr => {cleaned.push(...arr);},
+      copyGalleryImage:async(sourceScene,sourceObj,src,destScene,destObj)=>{
+        const path=destScene+'/'+destObj+'/gallery/'+src.split('/').pop();
+        copied.push({args:[sourceScene,sourceObj,src,destScene,destObj],target:path});
+        return path;
+      },
+      removeImages: async arr => {cleaned.push(...arr)},
     },
   };
 }
@@ -91,4 +96,19 @@ test('rejects unscoped and non-admin duplication without writing',async()=>{
   await assert.rejects(()=>duplicateScene('landcros',original,'Copy',actor,hazard.deps),{status:422});
   assert.equal(hazard.copied.length,0);
   assert.throws(()=>copyName('A', ' '),{status:400});
+});
+
+
+test('scene copy duplicates every gallery photo to independent private paths',async()=>{
+  const sourcePath=original+'/'+objectId+'/gallery/cccccccc-cccc-cccc-cccc-cccccccccccc.jpg';
+  const f=fixture({galleryPaths:[sourcePath]});
+  const result=await duplicateScene('landcros',original,undefined,actor,f.deps);
+  assert.equal(result.copiedPhotos,2);
+  assert.equal(f.copied.length,2);
+  const insert=f.statements.find(s=>s.sql.startsWith('insert into scene_objects'));
+  const copiedProps=JSON.parse(insert.args[6]);
+  assert.equal(copiedProps.photoPaths.length,1);
+  assert.notEqual(copiedProps.photoPaths[0],sourcePath);
+  assert.equal(copiedProps.photoPaths[0],f.copied[1].target);
+  assert.equal(f.committed,true);
 });

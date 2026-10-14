@@ -105,12 +105,46 @@ async function signPhoto(path) {
 async function withSignedPhotos(objects) {
   return Promise.all(objects.map(async obj => {
     if (obj.kind !== 'label') return obj;
-    const props = { ...(obj.props || {}) };
-    // The signed object must belong to THIS scene and THIS object.
-    props.photoUrl = props.photoPath === photoPath(obj.sceneId, obj.id)
-      ? await signPhoto(props.photoPath) : null;
-    return { ...obj, props };
+    const props={...(obj.props||{})};
+    const legacy=photoPath(obj.sceneId,obj.id);
+    const prefix=obj.sceneId+'/'+obj.id+'/gallery/';
+    const gallery=Array.isArray(props.photoPaths) ? props.photoPaths.filter(path=>
+      typeof path==='string' && path.startsWith(prefix) &&
+      UUID_RE.test(path.slice(prefix.length,-4)) && path.endsWith('.jpg')
+    ).slice(0,6) : [];
+    const paths=[...(props.photoPath===legacy?[legacy]:[]),...new Set(gallery)];
+    const items=(await Promise.all(paths.map(async path=>{
+      const url=await signPhoto(path);
+      return url?{path,url}:null;
+    }))).filter(Boolean);
+    // Response-only links: saveSceneObject strips these before any DB write.
+    props.photoItems=items;
+    props.photoUrls=items.map(item=>item.url);
+    props.photoUrl=props.photoPath===legacy
+      ? items.find(item=>item.path===legacy)?.url || null : null;
+    return {...obj,props};
   }));
+}
+
+async function uploadGalleryObject(path,bytes) {
+  await ensureBucket();
+  const {error}=await storageClient().storage.from(BUCKET).upload(path,bytes,{
+    contentType:'image/jpeg',upsert:false,cacheControl:'300',
+  });
+  if(error)throw error;
+}
+
+async function copyGalleryPhotoPath(sourceSceneId,sourceObjectId,sourcePath,targetSceneId,targetObjectId) {
+  const prefix=sourceSceneId+'/'+sourceObjectId+'/gallery/';
+  const id=typeof sourcePath==='string' && sourcePath.startsWith(prefix)
+    ? sourcePath.slice(prefix.length,-4) : null;
+  if (!UUID_RE.test(id || '') || !sourcePath.endsWith('.jpg')) {
+    throw Object.assign(new Error('Invalid source gallery photo'),{status:422});
+  }
+  const dest=targetSceneId+'/'+targetObjectId+'/gallery/'+id+'.jpg';
+  const {error}=await storageClient().storage.from(BUCKET).copy(sourcePath,dest);
+  if(error)throw error;
+  return dest;
 }
 
 module.exports = { BUCKET, MAX_PHOTO_BYTES, photoPath, decodeJpegDataUrl,
@@ -132,5 +166,7 @@ async function removeClonedSceneLabelPhotos(paths) {
   if (error) throw error;
 }
 
+module.exports.uploadGalleryObject = uploadGalleryObject;
+module.exports.copyGalleryPhotoPath = copyGalleryPhotoPath;
 module.exports.copySceneLabelPhoto = copySceneLabelPhoto;
 module.exports.removeClonedSceneLabelPhotos = removeClonedSceneLabelPhotos;

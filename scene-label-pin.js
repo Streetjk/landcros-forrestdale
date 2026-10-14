@@ -93,6 +93,20 @@ export function createSceneGroundFrame(THREE, color = 0x2563eb) {
   };
 }
 
+// Response-only photo gallery, including legacy single-photo scenes.
+export function scenePhotoItems(props) {
+  if (!props || typeof props !== 'object') return [];
+  if (Array.isArray(props.photoItems)) {
+    return props.photoItems.filter(item =>
+      item && typeof item.path === 'string' && typeof item.url === 'string'
+      && item.url.startsWith('https://')).slice(0,6);
+  }
+  if (typeof props.photoUrl === 'string' && props.photoUrl.startsWith('https://')) {
+    return [{path:props.photoPath || 'legacy',url:props.photoUrl}];
+  }
+  return [];
+}
+
 // Scene photos are private signed URLs, scoped to the single scene the
 // recipient opened. Warm at most two small images in memory (not persistent
 // storage) so tapping a pin does not start a cold network fetch.
@@ -112,7 +126,7 @@ export function preloadSceneLabelPhotos(objects, {
   for (const obj of objects) {
     if (warmed.size >= cap) break;
     if (obj?.kind !== 'label') continue;
-    const url = obj.props?.photoUrl;
+    const url = scenePhotoItems(obj.props)[0]?.url || obj.props?.photoUrl;
     if (typeof url !== 'string' || !url.startsWith('https://') || warmed.has(url)) continue;
 
     const image = createImage();

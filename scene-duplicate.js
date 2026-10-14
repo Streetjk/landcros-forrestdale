@@ -33,6 +33,7 @@ async function duplicateScene(slug, sourceId, requestedName, actorId, {
   getSite = getSiteId,
   connect = () => pool().connect(),
   copyImage = photos.copySceneLabelPhoto,
+  copyGalleryImage = photos.copyGalleryPhotoPath,
   removeImages = photos.removeClonedSceneLabelPhotos,
 } = {}) {
   if (!UUID_RE.test(sourceId || '')) throw clientError('Invalid scene identifier');
@@ -65,7 +66,9 @@ async function duplicateScene(slug, sourceId, requestedName, actorId, {
     if (sourceObjects.length > MAX_OBJECTS || sourcePoints.length > MAX_POINTS) {
       throw clientError('Scene is too large to duplicate safely', 422);
     }
-    const photoCount = sourceObjects.filter(o => o.kind === 'label' && o.props?.photoPath).length;
+    const photoCount = sourceObjects.reduce((n,o) => o.kind === 'label'
+      ? n + (o.props?.photoPath ? 1 : 0) + (Array.isArray(o.props?.photoPaths) ? o.props.photoPaths.length : 0)
+      : n, 0);
     if (photoCount > MAX_PHOTOS) throw clientError('Too many photos to duplicate in one operation', 422);
     if (sourcePoints.length) {
       const { rows } = await client.query(
@@ -83,13 +86,22 @@ async function duplicateScene(slug, sourceId, requestedName, actorId, {
     for (const obj of sourceObjects) {
       const targetId = crypto.randomUUID();
       const props = { ...(obj.props || {}) };
-      delete props.photoUrl; // signed URLs are never persistent properties
+      delete props.photoUrl; delete props.photoUrls; delete props.photoItems;
       if (obj.kind === 'label' && props.photoPath) {
         const expected = photos.photoPath(sourceId, obj.id);
         if (props.photoPath !== expected) throw clientError('Source photo reference is invalid', 422);
         const target = await copyImage(sourceId, obj.id, id, targetId);
         copiedPaths.push(target);
         props.photoPath = target;
+      }
+      if (obj.kind === 'label' && Array.isArray(props.photoPaths)) {
+        const paths=[];
+        for (const src of props.photoPaths) {
+          const path = await copyGalleryImage(sourceId,obj.id,src,id,targetId);
+          copiedPaths.push(path);
+          paths.push(path);
+        }
+        props.photoPaths=paths;
       }
       await client.query(
         'insert into scene_objects (id,site_id,scene_id,kind,transform,style,props,script_id,z_index) values ($1::uuid,$2::uuid,$3::uuid,$4,$5::jsonb,$6::jsonb,$7::jsonb,$8::uuid,$9)',

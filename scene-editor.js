@@ -11,7 +11,7 @@ import * as THREE from 'three';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import { CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
 import { generateQR } from './qr.js';
-import { createSceneLabelPin, createSceneGroundFrame, SCENE_PIN_FLOAT_HEIGHT, SCENE_PIN_GROUND_Y } from './scene-label-pin.js';
+import { createSceneLabelPin, createSceneGroundFrame, SCENE_PIN_FLOAT_HEIGHT, SCENE_PIN_GROUND_Y, scenePhotoItems } from './scene-label-pin.js';
 
 const SLUG = new URLSearchParams(location.search).get('site');
 
@@ -21,12 +21,166 @@ let _scene             = null;
 let _transformControls = null;
 let _objects           = new Map(); // id -> { obj, anchor, raycastMesh, css2dObj, div }
 let _selectedId        = null;
+let _selectedPinPhotoPath = null;
+let _galleryBusy = false;
 let _placingKind       = null; // 'label' | 'button' | null
 let _justDragged       = false;
 const _saveTimers      = new Map();
 let _editingScriptId   = null;
 let _scenes            = []; // scenes this site owns (Scenes feature, Slice 4)
 let _currentSceneId    = null;
+
+// Personal organisation: a group is just a view of an editor's scene list.
+// Group deletion never deletes scenes; archived scenes remain in the archive.
+let _sceneGroups = [];
+let _sceneAssignments = new Map();
+let _foldedSceneGroups = new Set();
+
+async function loadSceneGroups() {
+  const kind = typeof MODE === 'undefined' ? 'admin' : MODE;
+  try {
+    const r = await fetch(`/api/sites/${encodeURIComponent(SLUG)}/scene-groups?kind=${kind}`, { credentials:'same-origin' });
+    if (!r.ok) throw new Error('group-read');
+    const state = await r.json();
+    _sceneGroups = Array.isArray(state.groups) ? state.groups : [];
+    _sceneAssignments = new Map((state.assignments || []).map(a => [a.sceneId, a.groupId]));
+  } catch {
+    _sceneGroups = [];
+    _sceneAssignments.clear();
+    showToast('Groups are unavailable; scenes are still accessible');
+  }
+}
+
+function addGroupHeading(list, group, items, renderRow) {
+  const heading = document.createElement('div');
+  heading.className = 'scene-group-header';
+  const fold = document.createElement('button');
+  fold.type = 'button';
+  fold.className = 'scene-group-fold';
+  fold.setAttribute('aria-expanded', String(!_foldedSceneGroups.has(group?.id || 'ungrouped')));
+  fold.textContent = (_foldedSceneGroups.has(group?.id || 'ungrouped') ? '▸ ' : '▾ ') +
+    (group?.name || 'Ungrouped') + ' (' + items.length + ')';
+  fold.addEventListener('click', () => {
+    const key = group?.id || 'ungrouped';
+    if (_foldedSceneGroups.has(key)) _foldedSceneGroups.delete(key);
+    else _foldedSceneGroups.add(key);
+    renderScenesList();
+  });
+  heading.appendChild(fold);
+  if (group) {
+    const rename = document.createElement('button');
+    rename.type='button'; rename.className='scene-group-mini';
+    rename.textContent='Edit'; rename.title='Rename this group';
+    rename.addEventListener('click', () => onRenameSceneGroup(group));
+    const remove = document.createElement('button');
+    remove.type='button';remove.className='scene-group-mini';
+    remove.textContent='×';remove.title='Delete group only; keep scenes';
+    remove.setAttribute('aria-label','Delete group ' + group.name);
+    remove.addEventListener('click', () => onDeleteSceneGroup(group));
+    heading.append(rename, remove);
+  }
+  list.appendChild(heading);
+  if (!_foldedSceneGroups.has(group?.id || 'ungrouped')) {
+    items.forEach(scene => list.appendChild(renderRow(scene)));
+  }
+}
+
+function renderSceneGroupSections(list, scenes, renderRow) {
+  if (!_sceneGroups.length) {
+    scenes.forEach(scene => list.appendChild(renderRow(scene)));
+    return;
+  }
+  for (const group of _sceneGroups) {
+    const items = scenes.filter(s => _sceneAssignments.get(s.id) === group.id);
+    addGroupHeading(list, group, items, renderRow);
+  }
+  const ungrouped = scenes.filter(s => !_sceneGroups.some(g => g.id === _sceneAssignments.get(s.id)));
+  if (ungrouped.length) addGroupHeading(list, null, ungrouped, renderRow);
+}
+
+function sceneGroupSelector(scene) {
+  if (!_sceneGroups.length) return null;
+  const sel = document.createElement('select');
+  sel.className = 'scene-group-select';
+  sel.setAttribute('aria-label', 'Group for scene ' + scene.name);
+  sel.title = 'Move to group';
+  const options = [{id:'',name:'No group'},..._sceneGroups];
+  for (const item of options) {
+    const option = document.createElement('option');
+    option.value = item.id;option.textContent = item.name;
+    sel.appendChild(option);
+  }
+  sel.value = _sceneAssignments.get(scene.id) || '';
+  sel.addEventListener('click', event => event.stopPropagation());
+  sel.addEventListener('change', async event => {
+    event.stopPropagation();
+    const before = _sceneAssignments.get(scene.id) || '';
+    sel.disabled = true;
+    const moved = await apiWrite(
+      `/api/sites/${encodeURIComponent(SLUG)}/scenes/${encodeURIComponent(scene.id)}/group`,
+      { method:'PUT', headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({groupId:sel.value || null}) }
+    );
+    if (moved) {
+      if(moved.groupId) _sceneAssignments.set(scene.id,moved.groupId);
+      else _sceneAssignments.delete(scene.id);
+      renderScenesList();
+    } else sel.value = before;
+    sel.disabled = false;
+  });
+  return sel;
+}
+
+function showNewSceneGroupForm(open) {
+  const row = document.getElementById('new-group-row');
+  row.hidden = !open;
+  if (open) document.getElementById('new-group-name').focus();
+}
+
+async function onCreateSceneGroup() {
+  const input = document.getElementById('new-group-name');
+  const name = input.value.trim();
+  if (!name || name.length > 60) return showToast('Group name must be 1–60 characters');
+  const kind = typeof MODE === 'undefined' ? 'admin' : MODE;
+  const group = await apiWrite(`/api/sites/${encodeURIComponent(SLUG)}/scene-groups`, {
+    method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({name,kind}),
+  });
+  if (!group) return;
+  _sceneGroups.push(group);
+  _sceneGroups.sort((a,b) => a.name.localeCompare(b.name));
+  input.value='';
+  showNewSceneGroupForm(false);
+  renderScenesList();
+  showToast('Group created');
+}
+
+async function onRenameSceneGroup(group) {
+  const name = prompt('Rename group', group.name);
+  if (name === null || name.trim() === group.name) return;
+  if (!name.trim() || name.trim().length > 60) return showToast('Group name must be 1–60 characters');
+  const updated = await apiWrite(`/api/sites/${encodeURIComponent(SLUG)}/scene-groups/${encodeURIComponent(group.id)}`, {
+    method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:name.trim()}),
+  });
+  if (updated) {
+    group.name=updated.name;
+    _sceneGroups.sort((a,b)=>a.name.localeCompare(b.name));
+    renderScenesList();
+  }
+}
+async function onDeleteSceneGroup(group) {
+  if(!confirm('Delete group "' + group.name + '"? Scenes inside will remain available under Ungrouped.')) return;
+  const deleted = await apiWrite(`/api/sites/${encodeURIComponent(SLUG)}/scene-groups/${encodeURIComponent(group.id)}`, {
+    method:'DELETE',
+  });
+  if (!deleted) return;
+  _sceneGroups = _sceneGroups.filter(g=>g.id !== group.id);
+  for(const [id,gid] of _sceneAssignments) if(gid === group.id) _sceneAssignments.delete(id);
+  _foldedSceneGroups.delete(group.id);
+  renderScenesList();
+  showToast('Group deleted; scenes retained');
+}
+
+
 
 if (!SLUG) {
   document.getElementById('no-site-msg').style.display = 'block';
@@ -55,6 +209,13 @@ async function init() {
   document.getElementById('add-button-btn').addEventListener('click', () => togglePlacing('button'));
   document.getElementById('add-widget-btn').addEventListener('click', () => togglePlacing('widget'));
   document.getElementById('add-scene-btn').addEventListener('click', onAddSceneClick);
+  document.getElementById('add-group-btn').addEventListener('click', () => showNewSceneGroupForm(true));
+  document.getElementById('new-group-confirm-btn').addEventListener('click', onCreateSceneGroup);
+  document.getElementById('new-group-cancel-btn').addEventListener('click', () => showNewSceneGroupForm(false));
+  document.getElementById('new-group-name').addEventListener('keydown', e => {
+    if (e.key === 'Enter') onCreateSceneGroup();
+    else if (e.key === 'Escape') showNewSceneGroupForm(false);
+  });
   document.getElementById('new-scene-confirm-btn').addEventListener('click', onNewSceneConfirm);
   document.getElementById('new-scene-cancel-btn').addEventListener('click', onNewSceneCancel);
   document.getElementById('new-scene-name').addEventListener('keydown', e => {
@@ -81,6 +242,7 @@ async function init() {
   document.addEventListener('keydown', onKeydown);
 
   updateAddButtonsEnabled();
+  await loadSceneGroups();
   await loadScenes();
 
   // Test hook (Playwright smoke test) — not used by the editor itself.
@@ -110,7 +272,7 @@ async function loadScenes() {
 function renderScenesList() {
   const list = document.getElementById('scenes-list');
   list.replaceChildren();
-  _scenes.forEach(scene => {
+  const renderRow = scene => {
     const row = document.createElement('div');
     row.className = 'scene-list-item' + (scene.id === _currentSceneId ? ' active' : '');
     const name = document.createElement('span');
@@ -135,10 +297,13 @@ function renderScenesList() {
       });
       row.appendChild(copy);
     }
+    const groupSelector = sceneGroupSelector(scene);
+    if (groupSelector) row.appendChild(groupSelector);
     row.appendChild(del);
     row.addEventListener('click', () => selectScene(scene.id));
-    list.appendChild(row);
-  });
+    return row;
+  };
+  renderSceneGroupSections(list, _scenes, renderRow);
 }
 
 async function selectScene(id) {
@@ -244,6 +409,14 @@ async function onDuplicateSceneClick(scene, button) {
       throw new Error('Server did not return an independent scene copy');
     }
     _scenes.push({ ...data, isMine: true });
+    const sourceGroup = _sceneAssignments.get(scene.id);
+    if (sourceGroup) {
+      const placed = await apiWrite(
+        `/api/sites/${encodeURIComponent(SLUG)}/scenes/${encodeURIComponent(data.id)}/group`,
+        {method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({groupId:sourceGroup})}
+      );
+      if (placed) _sceneAssignments.set(data.id,sourceGroup);
+    }
     await selectScene(data.id);
     showToast('Scene copied · ' + (data.copiedObjects ?? 0) + ' objects');
   } catch (error) {
@@ -453,6 +626,7 @@ function select(id) {
   if (_selectedId && _selectedId !== id) {
     _objects.get(_selectedId)?.groundFrame?.setSelected(false);
   }
+  if (_selectedId !== id) _selectedPinPhotoPath = null;
   _selectedId = id;
   entry.groundFrame?.setSelected(true);
   _transformControls.attach(entry.anchor);
@@ -528,20 +702,47 @@ function hidePropertyPanel() {
 }
 
 function renderPinPhoto(obj) {
-  const img = document.getElementById('prop-photo-preview');
-  // The app is cross-origin isolated for its 3D viewer. Supabase signed
-  // images must opt into CORS or the browser blocks them under COEP.
-  img.crossOrigin = 'anonymous';
-  img.referrerPolicy = 'no-referrer';
-  const url = obj.props?.photoUrl;
-  const hasUrl = typeof url === 'string' && url.startsWith('https://');
-  img.style.display = hasUrl ? 'block' : 'none';
-  if (hasUrl) img.src = url;
+  const img=document.getElementById('prop-photo-preview');
+  const thumbs=document.getElementById('prop-photo-gallery');
+  const count=document.getElementById('prop-photo-count');
+  const remove=document.getElementById('prop-photo-remove-btn');
+  const upload=document.getElementById('prop-photo-upload-btn');
+  const photos=scenePhotoItems(obj.props);
+  if (count) count.textContent=photos.length + ' / 6 photos';
+  const selected=photos.find(p=>p.path===_selectedPinPhotoPath) || photos[0] || null;
+  _selectedPinPhotoPath=selected?.path || null;
+  img.crossOrigin='anonymous';img.referrerPolicy='no-referrer';
+  img.loading='eager';img.decoding='async';
+  img.style.display=selected?'block':'none';
+  if(selected)img.src=selected.url;
   else img.removeAttribute('src');
-  document.getElementById('prop-photo-remove-btn').style.display =
-    obj.props?.photoPath ? '' : 'none';
-  document.getElementById('prop-photo-status').textContent =
-    obj.props?.photoPath && !hasUrl ? 'Photo preview unavailable; try reloading.' : '';
+  thumbs.replaceChildren();
+  for(const [index,item] of photos.entries()){
+    const tile=document.createElement('button');
+    tile.type='button';tile.className='editor-gallery-thumb';
+    tile.classList.toggle('selected',item.path===_selectedPinPhotoPath);
+    tile.setAttribute('aria-label','View photo '+(index+1));
+    tile.setAttribute('aria-pressed',String(item.path===_selectedPinPhotoPath));
+    const picture=document.createElement('img');
+    picture.alt='Photo '+(index+1);picture.crossOrigin='anonymous';
+    picture.referrerPolicy='no-referrer';picture.loading='lazy';
+    picture.src=item.url;
+    const indexBadge=document.createElement('span');
+    indexBadge.textContent=String(index+1);
+    tile.append(picture,indexBadge);
+    tile.addEventListener('click',()=>{
+      _selectedPinPhotoPath=item.path;
+      renderPinPhoto(obj);
+    });
+    thumbs.appendChild(tile);
+  }
+  remove.style.display=selected?'':'none';
+  if(selected)remove.textContent='Remove photo '+(photos.indexOf(selected)+1);
+  upload.disabled=_galleryBusy || photos.length>=6;
+  const status=document.getElementById('prop-photo-status');
+  if(!photos.length && (obj.props?.photoPath || obj.props?.photoPaths?.length)) {
+    status.textContent='Photo preview unavailable. Reload the scene to refresh its signed links.';
+  }
 }
 
 // ── Action config (button kind only) ────────────────────────────────────
@@ -879,61 +1080,90 @@ async function photoAsSmallJpeg(file) {
 }
 
 async function onPhotoInput(event) {
-  const file = event.target.files?.[0];
-  event.target.value = ''; // permits reselecting the same photo
-  const id = _selectedId;
-  const entry = _objects.get(id);
-  if (!file || !entry || entry.obj.kind !== 'label') return;
-  const status = document.getElementById('prop-photo-status');
-  status.textContent = 'Preparing photo…';
-  document.getElementById('prop-photo-upload-btn').disabled = true;
+  const files=Array.from(event.target.files || []);
+  event.target.value='';
+  const id=_selectedId;
+  const entry=_objects.get(id);
+  if(!entry || entry.obj.kind!=='label' || !files.length || _galleryBusy)return;
+  const existing=scenePhotoItems(entry.obj.props).length;
+  const slots=Math.max(0,6-existing);
+  if(!slots)return showToast('Maximum six photos per pin');
+  if(files.length>slots)showToast('Only '+slots+' more photo'+(slots===1?'':'s')+' can be added');
+  const selectedFiles=files.slice(0,slots);
+  const sceneId=entry.obj.sceneId;
+  const status=document.getElementById('prop-photo-status');
+  _galleryBusy=true;
+  document.getElementById('prop-photo-upload-btn').disabled=true;
   try {
-    const dataUrl = await photoAsSmallJpeg(file);
-    status.textContent = 'Uploading photo…';
-    const result = await apiWrite('/api/sites/' + encodeURIComponent(SLUG) + '/scene-photos', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sceneId: entry.obj.sceneId, objectId: id, dataUrl }),
-    });
-    if (!result) return;
-    const current = _objects.get(id);
-    if (!current || current.obj.sceneId !== entry.obj.sceneId) return;
-    const priorPath = current.obj.props.photoPath;
-    const priorUrl = current.obj.props.photoUrl;
-    current.obj.props.photoPath = result.photoPath;
-    current.obj.props.photoUrl = result.photoUrl;
-    const saved = await flushSave(id);
-    if (!saved) {
-      current.obj.props.photoPath = priorPath;
-      current.obj.props.photoUrl = priorUrl;
-      throw new Error('Photo was uploaded but its scene reference could not be saved.');
+    // Flush debounced text/transform changes before the DB-owned gallery
+    // update; otherwise an older full-object write can race against the photo.
+    if(!await flushSave(id))throw new Error('Save the pin before adding photos');
+    let added=0;
+    for(const file of selectedFiles){
+      if(_objects.get(id)!==entry || entry.obj.sceneId!==sceneId)break;
+      status.textContent='Preparing photo '+(added+1)+' of '+selectedFiles.length+'…';
+      const dataUrl=await photoAsSmallJpeg(file);
+      status.textContent='Uploading photo '+(added+1)+' of '+selectedFiles.length+'…';
+      const response=await fetch(
+        '/api/sites/'+encodeURIComponent(SLUG)+'/scene-photos/gallery', {
+          method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({sceneId,objectId:id,dataUrl})
+        });
+      const result=await response.json().catch(()=>({}));
+      if(!response.ok){
+        if(response.status===401)window._snShowLoginGate?.();
+        throw new Error(result.error || 'Photo upload failed ('+response.status+')');
+      }
+      if(!result.props)throw new Error('Gallery response incomplete');
+      entry.obj.props={...entry.obj.props,...result.props};
+      const items=scenePhotoItems(entry.obj.props);
+      _selectedPinPhotoPath=items[items.length-1]?.path || null;
+      added++;
+      if(_selectedId===id)renderPinPhoto(entry.obj);
     }
-    if (_selectedId === id) renderPinPhoto(current.obj);
-    showToast('Photo uploaded');
-  } catch (error) {
-    showToast(error.message || 'Photo could not be uploaded');
-  } finally {
-    document.getElementById('prop-photo-upload-btn').disabled = false;
-    if (_selectedId === id) status.textContent = '';
+    if(added)showToast(added+' photo'+(added===1?'':'s')+' uploaded');
+  }catch(error){
+    showToast(error.message || 'Photo upload failed');
+  }finally{
+    _galleryBusy=false;
+    if(_selectedId===id){
+      status.textContent='';
+      renderPinPhoto(entry.obj);
+    }
   }
 }
 
 async function onPhotoRemove() {
-  const id = _selectedId;
-  const entry = _objects.get(id);
-  if (!entry || entry.obj.kind !== 'label' || !entry.obj.props.photoPath) return;
-  const prevPath = entry.obj.props.photoPath;
-  const prevUrl = entry.obj.props.photoUrl;
-  entry.obj.props.photoPath = null;
-  entry.obj.props.photoUrl = null;
-  const saved = await flushSave(id);
-  if (!saved) {
-    entry.obj.props.photoPath = prevPath;
-    entry.obj.props.photoUrl = prevUrl;
-  } else {
-    await apiWrite('/api/sites/' + encodeURIComponent(SLUG) + '/scene-photos', {
-      method: 'DELETE', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sceneId: entry.obj.sceneId, objectId: id }),
+  const id=_selectedId;
+  const entry=_objects.get(id);
+  const path=_selectedPinPhotoPath;
+  if(!entry || entry.obj.kind!=='label' || !path || _galleryBusy)return;
+  _galleryBusy=true;
+  const status=document.getElementById('prop-photo-status');
+  status.textContent='Removing photo…';
+  document.getElementById('prop-photo-remove-btn').disabled=true;
+  try{
+    if(!await flushSave(id))throw new Error('Save the pin before removing photos');
+    const r=await fetch('/api/sites/'+encodeURIComponent(SLUG)+'/scene-photos/gallery',{
+      method:'DELETE',credentials:'same-origin',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({sceneId:entry.obj.sceneId,objectId:id,photoPath:path}),
     });
+    const result=await r.json().catch(()=>({}));
+    if(!r.ok){
+      if(r.status===401)window._snShowLoginGate?.();
+      throw new Error(result.error || 'Could not remove photo');
+    }
+    entry.obj.props={...entry.obj.props,...result.props};
+    _selectedPinPhotoPath=null;
+    showToast('Photo removed');
+  }catch(error){
+    showToast(error.message || 'Could not remove photo');
+  }finally{
+    _galleryBusy=false;
+    document.getElementById('prop-photo-remove-btn').disabled=false;
+    if(_selectedId===id){
+      status.textContent='';
+      renderPinPhoto(entry.obj);
+    }
   }
-  if (_selectedId === id) renderPinPhoto(entry.obj);
 }

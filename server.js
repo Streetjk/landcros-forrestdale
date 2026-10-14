@@ -25,6 +25,8 @@ const auth        = require('./auth-db');
 const siteAdmin   = require('./site-admin');
 const sceneDb     = require('./scene-db');
 const scenePhotos = require('./scene-photo-storage');
+const sceneGroups = require('./scene-groups-db');
+const scenePhotoGallery = require('./scene-photo-gallery');
 const submissionsDb = require('./submissions-db');
 const eventsDb      = require('./events-db');
 const webhooksDb    = require('./webhooks-db');
@@ -534,6 +536,34 @@ const server = http.createServer((req, res) => {
 
   // Scene label photos: editor-only upload/remove, stored outside Postgres
   // in a private Supabase bucket. Reads are signed on scene bundle GET.
+  // Multi-photo scene gallery. Metadata is updated transactionally with the
+  // private Storage write. Legacy /scene-photos endpoints stay compatible.
+  const _galleryMatch = /^\/api\/sites\/([^/]+)\/scene-photos\/gallery$/.exec(pathname);
+  if (_galleryMatch && (req.method === 'POST' || req.method === 'DELETE')) {
+    const slug = _galleryMatch[1];
+    if (!SLUG_RE.test(slug)) return _json(res,404,{error:'not found'});
+    if (req.method === 'POST' && _rateLimited(req,res,'gallery-upload',60,3600000)) return;
+    _requireSiteEditor(req,res,slug,session => {
+      _readJsonBody(req,(err,body)=>{
+        if (err || !body || typeof body!=='object' || Array.isArray(body))
+          return _json(res,400,{error:'Invalid photo data'});
+        (async()=>{
+          if (!await _managedSceneOrRespond(res,slug,body.sceneId,session)) return;
+          const result = req.method==='POST'
+            ? await scenePhotoGallery.createGalleryPhoto(slug,body.sceneId,body.objectId,body.dataUrl)
+            : await scenePhotoGallery.deleteGalleryPhoto(slug,body.sceneId,body.objectId,body.photoPath);
+          _json(res,200,result);
+        })().catch(e=>{
+          if(res.writableEnded)return;
+          const status=[400,404,409,413,422].includes(e.status)?e.status:500;
+          if(status===500)console.error('[scene-photo-gallery]',e.message);
+          _json(res,status,{error:status===500?'Photo operation failed':e.message});
+        });
+      });
+    });
+    return;
+  }
+
   const _photosMatch = /^\/api\/sites\/([^/]+)\/scene-photos$/.exec(pathname);
   if (_photosMatch && (req.method === 'POST' || req.method === 'DELETE')) {
     const slug = _photosMatch[1];
@@ -780,6 +810,45 @@ const server = http.createServer((req, res) => {
   // list/delete are editor+ gated; the share_code is server-generated and
   // returned on create. The PUBLIC read-by-code path is a separate anon
   // route (Slice 3), not here.
+  // Personal scene organisation. Groups are *not* scene ownership and
+  // removing one must never delete scenes, objects, or share codes.
+  const _groupList = /^\/api\/sites\/([^/]+)\/scene-groups$/.exec(pathname);
+  const _groupItem = /^\/api\/sites\/([^/]+)\/scene-groups\/([0-9a-fA-F-]{36})$/.exec(pathname);
+  const _sceneMove = /^\/api\/sites\/([^/]+)\/scenes\/([0-9a-fA-F-]{36})\/group$/.exec(pathname);
+  if ((_groupList && ['GET','POST'].includes(req.method)) ||
+      (_groupItem && ['PATCH','DELETE'].includes(req.method)) ||
+      (_sceneMove && req.method === 'PUT')) {
+    const slug = (_groupList || _groupItem || _sceneMove)[1];
+    if (!SLUG_RE.test(slug)) return _json(res,404,{error:'not found'});
+    if (req.method !== 'GET' && _rateLimited(req,res,'scene-group-writes',100,3600000)) return;
+    _requireSiteEditor(req,res,slug,session => {
+      const perform = async body => {
+        if (_groupList && req.method === 'GET')
+          return sceneGroups.listGroups(slug,session.profileId,url.searchParams.get('kind') || 'admin');
+        if (_groupList && req.method === 'POST')
+          return sceneGroups.createGroup(slug,session.profileId,body);
+        if (_groupItem && req.method === 'PATCH')
+          return sceneGroups.renameGroup(slug,session.profileId,_groupItem[2],body.name);
+        if (_groupItem && req.method === 'DELETE')
+          return sceneGroups.deleteGroup(slug,session.profileId,_groupItem[2]);
+        return sceneGroups.moveScene(slug,session.profileId,_sceneMove[2],body.groupId ?? null);
+      };
+      const send = body => perform(body).then(data => _json(res,200,data)).catch(e=>{
+        if (res.writableEnded) return;
+        const status=[400,404,409,422].includes(e.status)?e.status:500;
+        if (status===500) console.error('[scene-groups]',e.message);
+        _json(res,status,{error:status===500?'Scene group request failed':e.message});
+      });
+      if (req.method === 'GET' || req.method === 'DELETE') return send({});
+      _readJsonBody(req,(err,body)=>{
+        if (err || !body || typeof body!=='object' || Array.isArray(body))
+          return _json(res,400,{error:'Invalid group data'});
+        send(body);
+      });
+    });
+    return;
+  }
+
   const _scenesMatch = /^\/api\/sites\/([^/]+)\/scenes$/.exec(pathname);
   if (_scenesMatch && (req.method === 'GET' || req.method === 'POST')) {
     const slug = _scenesMatch[1];

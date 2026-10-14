@@ -7,7 +7,8 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
 import { Sky } from 'three/addons/objects/Sky.js';
 import { initComparison, updateComparison, comparisonNeedsRender } from './splat-compare.js';
-import { createSceneLabelPin, createSceneGroundFrame, SCENE_PIN_FLOAT_HEIGHT, SCENE_PIN_GROUND_Y, preloadSceneLabelPhotos } from './scene-label-pin.js';
+import { createSceneLabelPin, createSceneGroundFrame, SCENE_PIN_FLOAT_HEIGHT, SCENE_PIN_GROUND_Y, preloadSceneLabelPhotos, scenePhotoItems } from './scene-label-pin.js';
+import { renderScenePhotoGallery, hideScenePhotoGallery } from './scene-photo-gallery-view.js';
 import { gpsToScene, loadSiteGpsCalibration } from './site-gps-calibration.js';
 
 // ── Site config (loaded from data/config.json in boot()) ──────────────────
@@ -1413,8 +1414,7 @@ function resetSceneLabelDetail() {
   detail?.classList.remove('scene-pin-detail');
   const photo = document.getElementById('detail-photo');
   photo?.removeAttribute('src');
-  const wrap = document.getElementById('detail-photo-wrap');
-  if (wrap) wrap.hidden = true;
+  hideScenePhotoGallery('detail-photo-wrap');
 }
 
 function showSceneLabelDetail(obj) {
@@ -1433,7 +1433,13 @@ function showSceneLabelDetail(obj) {
   chip.textContent = 'Scene pin';
   document.getElementById('detail-label').textContent = obj.props?.text || 'Untitled pin';
   document.getElementById('detail-notes').textContent = obj.props?.description || '';
-  resetSceneLabelPhoto(obj.props?.photoUrl, obj.props?.text);
+  const galleryItems=scenePhotoItems(obj.props);
+  if(galleryItems.length > 1) {
+    renderScenePhotoGallery({props:obj.props,title:obj.props?.text,
+      frameId:'detail-photo-wrap',imageId:'detail-photo'});
+  } else {
+    resetSceneLabelPhoto(galleryItems[0]?.url || obj.props?.photoUrl, obj.props?.text);
+  }
   const contacts = document.getElementById('detail-contacts')?.closest('.detail-section');
   if (contacts) contacts.style.display = 'none';
   document.getElementById('point-list').style.display = 'none';
