@@ -167,7 +167,47 @@ controls.maxPolarAngle = THREE.MathUtils.degToRad(85);
 // scripted camera tweens (setCameraPreset/selectPoint/startNav all set
 // controls.enabled = false while animating, and OrbitControls skips firing
 // 'start' while disabled), so this can't fight with those.
+// OrbitControls emits 'start' on POINTERDOWN, before knowing if the user
+// will drag. On touch visitors, a stationary tap may only dismiss a detail
+// card and must not stop the camera. Actual movement, pinch, and wheel zoom
+// explicitly take manual camera custody. Editors keep the old behaviour.
+const _cameraTouchPointers = new Map();
+let _cameraTapPending = false;
+function _stopOrbitForManualGesture() {
+  if (_orbitActive) stopAutoOrbit();
+  else if (controls.autoRotate) {
+    controls.autoRotate = false;
+    window._syncRotateBtn?.();
+  }
+}
+renderer.domElement.addEventListener('pointerdown', event => {
+  if (!_touchMapMode()) return;
+  _cameraTouchPointers.set(event.pointerId,{x:event.clientX,y:event.clientY});
+  _cameraTapPending = _cameraTouchPointers.size === 1;
+  if (_cameraTouchPointers.size > 1) {
+    _cameraTapPending = false;
+    _stopOrbitForManualGesture();
+  }
+}, {capture:true,passive:true});
+renderer.domElement.addEventListener('pointermove', event => {
+  if (!_touchMapMode() || !_cameraTapPending) return;
+  const p = _cameraTouchPointers.get(event.pointerId);
+  if (!p || Math.hypot(event.clientX-p.x,event.clientY-p.y) <= 8) return;
+  _cameraTapPending = false;
+  _stopOrbitForManualGesture();
+}, {capture:true,passive:true});
+const _releaseCameraTap = event => {
+  _cameraTouchPointers.delete(event.pointerId);
+  if (!_cameraTouchPointers.size) _cameraTapPending = false;
+};
+window.addEventListener('pointerup',_releaseCameraTap,{passive:true});
+window.addEventListener('pointercancel',_releaseCameraTap,{passive:true});
+renderer.domElement.addEventListener('wheel', () => {
+  if (_touchMapMode()) _stopOrbitForManualGesture();
+}, {capture:true,passive:true});
+
 controls.addEventListener('start', () => {
+  if (_touchMapMode() && _cameraTapPending) return;
   if (_orbitActive) { stopAutoOrbit(); return; }
   if (controls.autoRotate) {
     controls.autoRotate = false;
@@ -2097,9 +2137,11 @@ function _openDetailPanel() {
 
 // Invalidate in-flight pin photos before another panel takes ownership.
 // Also clears the selected pin used by the optional tour button.
-function _leavePinDetail() {
-  _cancelPinFocusFlight();
-  stopAutoOrbit();
+function _leavePinDetail({preserveCamera = false} = {}) {
+  if (!preserveCamera) {
+    _cancelPinFocusFlight();
+    stopAutoOrbit();
+  }
   _mobileDetails.reset();
   highlightSceneLabelFrame(null);
   document.getElementById('app')?.classList.remove('scene-pin-selected');
@@ -2277,7 +2319,8 @@ const _raycaster = new THREE.Raycaster();
 const _pointer   = new THREE.Vector2();
 const _mobileDetails = createMobileDetailSheet({
   enabled: () => !document.getElementById('admin-controls') && !document.getElementById('add-label-btn'),
-  onDismiss: () => window.showPointList?.({historyMode:'none'}),
+  // Closing a UI sheet must not cancel its independently running 3D camera.
+  onDismiss: () => window.showPointList?.({historyMode:'none',preserveCamera:true}),
 });
 const _isMobileMapTap = trackMapTaps(renderer.domElement);
 
@@ -2570,18 +2613,25 @@ async function selectPoint(pt, options = {}) {
 }
 
 window.showPointList = function(options = {}) {
-  _cancelPinFocusFlight();
-  _cancelActiveTour();
+  // Dismissing the info sheet (X or empty-map tap) is UI-only. Keep the
+  // focus flight/auto orbit running. Explicit navigation still cancels it.
+  const preserveCamera = options?.preserveCamera === true;
+  if (!preserveCamera) {
+    _cancelPinFocusFlight();
+    _cancelActiveTour();
+  }
   const fromSiteInfo = _siteInfoDetailOpen;
   _siteInfoDetailOpen = false;
   const historyMode = options?.historyMode === 'none' ? 'none'
     : options?.historyMode === 'replace' ? 'replace'
     : fromSiteInfo ? 'none' : 'push';
-  _leavePinDetail();
-  if (_camTween) { _camTween.kill(); _camTween = null; }
-  stopAutoOrbit();
-  controls.enabled = true;
-  _camAnimating = false;
+  _leavePinDetail({preserveCamera});
+  if (!preserveCamera) {
+    if (_camTween) { _camTween.kill(); _camTween = null; }
+    stopAutoOrbit();
+    controls.enabled = true;
+    _camAnimating = false;
+  }
   updatePinHighlight(null);
   const photoGrid = document.getElementById('detail-photos');
   if (photoGrid) { photoGrid.style.display = 'none'; photoGrid.replaceChildren(); }

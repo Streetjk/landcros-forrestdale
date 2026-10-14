@@ -19,11 +19,15 @@ test('tour lifecycle has one guarded cleanup path', () => {
   assert.match(source, /_resetTourHud\(\);/);
 });
 
-test('pin replacement and list return cancel an active tour first', () => {
+test('pin replacement and explicit navigation cancel tours; UI-only dismissal preserves camera', () => {
   assert.match(source,
     /async function selectPoint\(pt, options = \{\}\) \{\n  _cancelActiveTour\(\);/);
-  assert.match(source,
-    /window\.showPointList = function\(options = \{\}\) \{\n  _cancelPinFocusFlight\(\);\n  _cancelActiveTour\(\);/);
+  const listStart = source.indexOf('window.showPointList = function(options = {}) {');
+  const listEnd = source.indexOf('function _activeMyPinHistoryUrlMatches',listStart);
+  const block = source.slice(listStart,listEnd);
+  assert.match(block,/const preserveCamera = options\?\.preserveCamera === true/);
+  assert.match(block,/if \(!preserveCamera\) \{\s*_cancelPinFocusFlight\(\);\s*_cancelActiveTour\(\);/);
+  assert.match(block,/if \(!preserveCamera\) \{\s*if \(_camTween\) \{/);
 });
 
 test('startNav replaces prior owners and protects newer tours from stale callbacks', () => {
