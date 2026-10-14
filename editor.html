@@ -269,6 +269,16 @@
       min-height: 38px; color:var(--editor-ink); border-radius:8px;
       font-size:13px; padding:8px 10px;
     }
+    .scene-list-item > span:first-child {
+      flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+    }
+    .scene-duplicate-btn {
+      flex:none; padding:5px 9px; min-height:28px;
+      border:1px solid #b6d8d2; border-radius:7px; background:#eef8f5;
+      color:#0f766e; font:700 11px var(--font); cursor:pointer;
+    }
+    .scene-duplicate-btn:hover { background:#d9f0e9; }
+    .scene-duplicate-btn:disabled { opacity:.5; cursor:wait; }
     .scene-list-item.active {
       border-color: #aadad0; background:#e9f7f3;
       box-shadow: inset 3px 0 0 var(--editor-teal);

@@ -2,6 +2,7 @@ import { getContacts, getStaffContacts, getPoints, savePoint, deletePoint, saveC
 import { createMyPinsSession } from './my-pins-session.js';
 import { buildLegacyImportPlan } from './my-pins-client.js';
 import { generateQR, downloadQR } from './qr.js';
+import { sceneToGps, loadSiteGpsCalibration } from './site-gps-calibration.js';
 import { buildMyPinShareUrl } from './guide-url.js';
 import { createPointListItem } from './point-list-item.js';
 
@@ -12,6 +13,7 @@ let _personalPins  = [];
 let _contacts      = [];
 let _contactsAll   = [];
 let _siteBounds    = null;
+let _siteGpsCalibration = null;
 let _editingPoint  = null;
 let _editingType   = null;
 let _editingScope  = 'personal';
@@ -198,9 +200,10 @@ async function _maybeInitAdmin() {
   }
   _accountReady = false; _setBusy(false); _setAccountStatus('Loading account pins…');
   _initPromise = (async () => {
-    const [bounds, site] = await Promise.all([
+    const [bounds, site, gpsCalibration] = await Promise.all([
       fetch('./assets/site-map-bounds.json').then(r => { if (!r.ok) throw new Error('bounds'); return r.json(); }),
       fetch('/api/site').then(r => { if (!r.ok) throw new Error('site'); return r.json(); }),
+      loadSiteGpsCalibration(),
     ]);
     if (!site?.slug) throw new Error('site');
     const session = createMyPinsSession(site.slug, { identity: email, storage: _safeStorage() });
@@ -216,7 +219,7 @@ async function _maybeInitAdmin() {
     // stale private account state.
     const preparedLegacy = await _loadLegacyPins();
     if (epoch !== _initEpoch || window._snAdminIdentity?.email !== email) return;
-    _siteBounds = bounds; _slug = site.slug; _accountSession = session; _accountEmail = email;
+    _siteBounds = bounds; _siteGpsCalibration = gpsCalibration; _slug = site.slug; _accountSession = session; _accountEmail = email;
     window.SiteNavStaffNav?.mount?.({ currentPage: 'pins', siteSlug: _slug });
     _personalPins = preparedAccount; _points = preparedBase; _legacyPins = preparedLegacy;
     _contacts = contacts; _contactsAll = [...contacts]; _accountReady = true;
@@ -323,6 +326,8 @@ window._loadAnalytics = _loadAnalytics;
 
 // ── Inverse coord: scene pos3d → [lat, lng] ───────────────────────────────────
 function _sceneToLatlng(x, z) {
+  const calibrated = sceneToGps(x, z, _siteGpsCalibration);
+  if (calibrated) return calibrated;
   const [sw, ne] = _siteBounds.bounds;
   const lng = (x / 40 + 0.5) * (ne[1] - sw[1]) + sw[1];
   const lat = (-z / 30 + 0.5) * (ne[0] - sw[0]) + sw[0];

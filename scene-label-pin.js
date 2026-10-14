@@ -2,6 +2,12 @@
 export function createSceneLabelPin(title, onActivate) {
   const root = document.createElement('div');
   root.className = 'scene-location-pin';
+  // A thin screen-space tether anchors the floating marker to the projected
+  // centre of its floor square regardless of camera angle.
+  const tether = document.createElement('span');
+  tether.className = 'scene-location-pin__tether';
+  tether.setAttribute('aria-hidden', 'true');
+  root.appendChild(tether);
   const button = document.createElement('button');
   button.type = 'button';
   button.className = 'scene-location-pin__button';
@@ -46,7 +52,12 @@ export function createSceneLabelPin(title, onActivate) {
 
 // Matches the existing SiteNav _addPinToScene floor frame, including its
 // ground clearance and pulsing animation API. Shared by scene editor/viewer.
+// The hit volume remains in world space, but the visible pin is anchored at
+// the floor and lifted in pixels. This avoids perspective-induced sideways
+// drift of its head from the projected ground-square centre.
 export const SCENE_PIN_FLOAT_HEIGHT = 1.3;
+export const SCENE_PIN_GROUND_Y = 0.05;
+export const SCENE_PIN_FLOAT_PIXELS = 24;
 
 export function createSceneGroundFrame(THREE, color = 0x2563eb) {
   const half = 0.455;

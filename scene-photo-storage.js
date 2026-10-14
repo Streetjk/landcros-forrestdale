@@ -115,3 +115,22 @@ async function withSignedPhotos(objects) {
 
 module.exports = { BUCKET, MAX_PHOTO_BYTES, photoPath, decodeJpegDataUrl,
   assertOwnsLabel, uploadPhoto, deletePhoto, signPhoto, withSignedPhotos };
+
+// Server-only image duplication: each copied scene gets its own private
+// storage object, so deleting or editing either scene cannot alter the other.
+async function copySceneLabelPhoto(sourceSceneId, sourceObjectId, targetSceneId, targetObjectId) {
+  const source = photoPath(sourceSceneId, sourceObjectId);
+  const target = photoPath(targetSceneId, targetObjectId);
+  const { error } = await storageClient().storage.from(BUCKET).copy(source, target);
+  if (error) throw error;
+  return target;
+}
+
+async function removeClonedSceneLabelPhotos(paths) {
+  if (!Array.isArray(paths) || !paths.length) return;
+  const { error } = await storageClient().storage.from(BUCKET).remove(paths);
+  if (error) throw error;
+}
+
+module.exports.copySceneLabelPhoto = copySceneLabelPhoto;
+module.exports.removeClonedSceneLabelPhotos = removeClonedSceneLabelPhotos;

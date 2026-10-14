@@ -32,6 +32,7 @@ const webhooksDb    = require('./webhooks-db');
 const webhookDelivery = require('./webhook-delivery');
 const scriptsDb     = require('./scripts-db');
 const scenesDb      = require('./scenes-db');
+const sceneDuplicate = require('./scene-duplicate');
 const hazardDb      = require('./hazard-db');
 const pointPhotosDb = require('./point-photos-db');
 const { canManageScene } = require('./resource-ownership');
@@ -1156,6 +1157,38 @@ const server = http.createServer((req, res) => {
         }).catch(e => {
           res.writeHead(400, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ error: e.message || 'Invalid scene' }));
+        });
+      });
+    });
+    return;
+  }
+
+  // Atomic copy: new scene ID, independent share code, object IDs, and
+  // private photo blobs. The original scene is never changed.
+  const _duplicateMatch = /^\/api\/sites\/([^/]+)\/scenes\/([0-9a-fA-F-]{36})\/duplicate$/.exec(pathname);
+  if (_duplicateMatch && req.method === 'POST') {
+    const slug = _duplicateMatch[1];
+    const sourceId = _duplicateMatch[2];
+    if (!SLUG_RE.test(slug)) return _json(res, 404, { error: 'not found' });
+    if (_rateLimited(req, res, 'scene-duplicate', 20, 3600000)) return;
+    _requireSiteEditor(req, res, slug, session => {
+      _readJsonBody(req, (err, body) => {
+        if (err || !body || typeof body !== 'object' || Array.isArray(body)) {
+          return _json(res, 400, { error: 'Invalid scene data' });
+        }
+        (async () => {
+
+          // Current multi-user scenes allow subscribing, but subscriptions
+          // are read-only. Duplication is an edit and requires management.
+          if (!await _managedSceneOrRespond(res, slug, sourceId, session)) return;
+          const copy = await sceneDuplicate.duplicateScene(slug, sourceId, body.name, session.profileId);
+          copy.createdByEmail = session.email;
+          _json(res, 201, copy);
+        })().catch(error => {
+          if (res.writableEnded) return;
+          const status = [400, 404, 409, 422].includes(error.status) ? error.status : 500;
+          if (status === 500) console.error('[scene-duplicate]', error.message);
+          _json(res, status, { error: status === 500 ? 'Scene duplication failed' : error.message });
         });
       });
     });
