@@ -9,6 +9,7 @@ import { Sky } from 'three/addons/objects/Sky.js';
 import { initComparison, updateComparison, comparisonNeedsRender } from './splat-compare.js';
 import { createSceneLabelPin, createSceneGroundFrame, SCENE_PIN_FLOAT_HEIGHT, SCENE_PIN_GROUND_Y, preloadSceneLabelPhotos, scenePhotoItems } from './scene-label-pin.js';
 import { renderScenePhotoGallery, hideScenePhotoGallery } from './scene-photo-gallery-view.js';
+import { createMobileDetailSheet, trackMapTaps } from './mobile-detail-sheet.js';
 import { gpsToScene, loadSiteGpsCalibration } from './site-gps-calibration.js';
 import { shouldRenderGpsFix, gpsSceneAccuracyRadius, gpsSceneHeading, gpsWithinSite } from './gps-tracking.js';
 
@@ -1415,10 +1416,14 @@ function _openDetailPanel() {
     window._updateCamPresetsBottom?.();
   }
   if (window.innerWidth > 1024) document.getElementById('app')?.classList.add('panel-open');
+  _mobileDetails.open('detail:' + (document.getElementById('detail-label')?.textContent || 'location'));
 }
 
 function showWidgetDetail(title, body) {
+  if (_mobileDetails.repeat('detail:' + title)) return;
   if (!document.getElementById('point-detail')) return;
+  _selectedSceneLabelId = null;
+  resetSceneLabelDetail();
   updatePinHighlight(null);
   document.getElementById('detail-chip').className = 'chip';
   document.getElementById('detail-chip').textContent = '';
@@ -1574,8 +1579,16 @@ window._toggleMeasure = _toggleMeasure;
 
 const _raycaster = new THREE.Raycaster();
 const _pointer   = new THREE.Vector2();
+const _mobileDetails = createMobileDetailSheet({
+  enabled: () => !document.getElementById('admin-controls') && !document.getElementById('add-label-btn'),
+  onDismiss: () => window.showPointList?.({historyMode:'none'}),
+});
+const _isMobileMapTap = trackMapTaps(renderer.domElement);
+
 
 renderer.domElement.addEventListener('click', e => {
+  // Pointer movement and multi-touch are navigation, not tap-to-dismiss.
+  if (_mobileDetails.isCompact() && !_isMobileMapTap(e)) return;
   const rect = renderer.domElement.getBoundingClientRect();
   _pointer.x =  (e.clientX - rect.left)  / rect.width  * 2 - 1;
   _pointer.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
@@ -1611,6 +1624,19 @@ renderer.domElement.addEventListener('click', e => {
     } else if (widget) {
       _runWidgetAction(widget.obj.props?.action, widget.obj);
     }
+    return; // Selecting a pin/label/action must never fall through to dismiss.
+  }
+  if (_mobileDetails.isCompact()) {
+    // Older viewers use pointer-events:none on orange map labels. A tap on
+    // their painted bounds is not empty map space either.
+    const labelHit = Object.values(_bldRefs).some(ref => {
+      const card = ref.css2d?._scaleEl;
+      if (!card || card.closest('[hidden]')) return false;
+      const box = card.getBoundingClientRect();
+      return box.width > 0 && box.height > 0 && e.clientX >= box.left && e.clientX <= box.right
+        && e.clientY >= box.top && e.clientY <= box.bottom;
+    });
+    if (!labelHit) _mobileDetails.dismiss();
   }
 });
 
@@ -1634,6 +1660,7 @@ function resetSceneLabelDetail() {
 }
 
 function showSceneLabelDetail(obj) {
+  if (_mobileDetails.repeat('scene:' + obj.id)) return;
   if (_selectedSceneLabelId === obj.id) {
     window.showPointList();
     return;
@@ -1669,6 +1696,7 @@ function showSceneLabelDetail(obj) {
     document.getElementById('app')?.classList.add('panel-open');
   }
   window._updateCamPresetsBottom?.();
+  _mobileDetails.open('scene:' + obj.id);
 }
 
 function resetSceneLabelPhoto(url, title) {
@@ -1692,6 +1720,7 @@ function resetSceneLabelPhoto(url, title) {
 // ── Point selection & panel ────────────────────────────────────────────────
 
 async function selectPoint(pt) {
+  if (_mobileDetails.repeat('point:' + pt.id)) return;
   _selectedSceneLabelId = null;
   resetSceneLabelDetail();
   // Second click on same pin deselects it
@@ -1778,6 +1807,7 @@ async function selectPoint(pt) {
     document.getElementById('app')?.classList.add('panel-open');
   }
 
+  _mobileDetails.open('point:' + pt.id);
   // ── Camera: zoom in 10 units at 45° elevation then slow orbit ──────────
   stopAutoOrbit();
   if (_camTween) { _camTween.kill(); _camTween = null; }
@@ -1864,6 +1894,7 @@ async function selectPoint(pt) {
 }
 
 window.showPointList = function() {
+  _mobileDetails.reset();
   _selectedSceneLabelId = null;
   resetSceneLabelDetail();
   if (_camTween) { _camTween.kill(); _camTween = null; }
@@ -2031,6 +2062,7 @@ function _makeLabelCSS2D(text, size = 'normal') {
     'user-select:none',
     'transform-origin:center center',
   ].join(';');
+  inner.dataset.snMapLabel = 'true';
   inner.textContent = text;
   // Wrapper: CSS2DRenderer sets transform on this; we scale inner instead.
   const wrapper = document.createElement('div');
