@@ -14,7 +14,8 @@ import { resolvePublicSiteMetadata, resolveSiteBranding, sanitizePublicLogoUrl }
 import { loadPublicRuntimeConfig, loadPublicTransport, backendRedirectForScopedRoute, shouldProbeStaffSession, backendApiUrl } from './public-transport.js';
 import { getBasePublicVisitPointId } from './visit-analytics.js';
 import { createPointListItem } from './point-list-item.js';
-import { createSceneLabelPin, createSceneGroundFrame, SCENE_PIN_FLOAT_HEIGHT, SCENE_PIN_GROUND_Y, preloadSceneLabelPhotos } from './scene-label-pin.js';
+import { createSceneLabelPin, createSceneGroundFrame, SCENE_PIN_FLOAT_HEIGHT, SCENE_PIN_GROUND_Y, preloadSceneLabelPhotos , scenePhotoItems } from './scene-label-pin.js';
+import { renderScenePhotoGallery, hideScenePhotoGallery } from './scene-photo-gallery-view.js';
 import { gpsToScene, loadSiteGpsCalibration } from './site-gps-calibration.js';
 import { renderDetailContacts } from './detail-card.js';
 import { mapControlLabel, syncPressedButton, syncPressedButtons } from './map-controls.js';
@@ -1500,7 +1501,8 @@ function showSceneLabelDetail(obj) {
     notes.insertAdjacentElement('afterend', frame);
   }
   const photo = frame.firstElementChild;
-  const url = obj.props?.photoUrl;
+  const items = scenePhotoItems(obj.props);
+  const url = items[0]?.url || obj.props?.photoUrl;
   const visible = typeof url === 'string' && url.startsWith('https://');
   frame.hidden = !visible;
   if (visible) {
@@ -1509,6 +1511,10 @@ function showSceneLabelDetail(obj) {
     photo.src = url;
   } else {
     photo.removeAttribute('src');
+  }
+  if (items.length > 1) {
+    renderScenePhotoGallery({props:obj.props,title:obj.props?.text,
+      frameId:'detail-scene-photo-wrap',imageId:'detail-scene-photo'});
   }
 }
 
@@ -1777,11 +1783,7 @@ function _leavePinDetail() {
   highlightSceneLabelFrame(null);
   document.getElementById('app')?.classList.remove('scene-pin-selected');
   document.getElementById('point-detail')?.classList.remove('scene-pin-detail');
-  const scenePhoto = document.getElementById('detail-scene-photo-wrap');
-  if (scenePhoto) {
-    scenePhoto.hidden = true;
-    scenePhoto.firstElementChild?.removeAttribute('src');
-  }
+  hideScenePhotoGallery('detail-scene-photo-wrap');
   _clearPublicPhotoUrls();
   document.getElementById('point-detail')?.classList.remove('public-location-detail');
   _photoReqPt = null;

@@ -10,9 +10,9 @@ test('scene editor previews private Supabase images using CORS', () => {
   assert.ok(start >= 0);
   const end = editor.indexOf('function ', start + 15);
   const section = editor.slice(start, end >= 0 ? end : undefined);
-  assert.match(section, /img\.crossOrigin = 'anonymous'/);
-  assert.match(section, /img\.referrerPolicy = 'no-referrer'/);
-  assert.ok(section.indexOf('img.crossOrigin') < section.indexOf('img.src = url'));
+  assert.match(section, /img\.crossOrigin\s*=\s*'anonymous'/);
+  assert.match(section, /img\.referrerPolicy\s*=\s*'no-referrer'/);
+  assert.ok(section.indexOf('img.crossOrigin') < section.indexOf('img.src=selected.url'));
 });
 
 test('public viewer opts into CORS before setting signed photo src', () => {

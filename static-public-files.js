@@ -7,7 +7,7 @@ const PUBLIC_ROOT_FILES = Object.freeze([
   'portal.html', 'reset-pin.html', 'start.html', 'style.css',
   'coi-serviceworker.js', 'auth-gate.js', 'panel-state.js', 'panel-mobile.js',
   'staff-map-shell.js', 'staff-nav.js', 'admin3d.js', 'gallery.js',
-  'scene-editor.js', 'scene-label-pin.js', 'site-gps-calibration.js', 'viewer3d.js', 'db.js', 'detail-card.js', 'guide-url.js',
+  'scene-editor.js', 'scene-label-pin.js', 'scene-photo-gallery-view.js', 'site-gps-calibration.js', 'viewer3d.js', 'db.js', 'detail-card.js', 'guide-url.js',
   'location-details.js', 'label-layout.js', 'map-controls.js', 'my-pins-client.js',
   'public-transport.js',
   'my-pins-session.js', 'point-list-item.js', 'public-data.js', 'public-site.js',
