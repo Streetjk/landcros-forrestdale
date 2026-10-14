@@ -4,7 +4,7 @@
     "name": "LANDCROS FORRESTDALE",
     "title": "Site Navigator",
     "address": "107 Allen Rd, Forrestdale",
-    "logo": "https://hitachikenki.scene7.com/is/image/hitachikenki/LANDCROS%20logo_orange_RGB-1",
+    "logo": "./assets/landcros-logo.jpg",
     "speedLimitSign": "./assets/speedlimit6.png"
   },
   "assets": {

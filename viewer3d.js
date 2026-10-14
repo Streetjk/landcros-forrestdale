@@ -10,6 +10,7 @@ import { initComparison, updateComparison, comparisonNeedsRender } from './splat
 import { createSceneLabelPin, createSceneGroundFrame, SCENE_PIN_FLOAT_HEIGHT, SCENE_PIN_GROUND_Y, preloadSceneLabelPhotos, scenePhotoItems, markerScaleForZoom } from './scene-label-pin.js?v=pinzoom-toggle-20261014b';
 import { renderScenePhotoGallery, hideScenePhotoGallery } from './scene-photo-gallery-view.js';
 import { createMobileDetailSheet, trackMapTaps } from './mobile-detail-sheet.js';
+import { loadSharedSceneBundle } from './scene-bundle-loader.js';
 import { findLabelAtTap, isTouchMapDevice } from './map-touch-input.js';
 import { gpsToScene, loadSiteGpsCalibration } from './site-gps-calibration.js';
 import { PIN_VIEW_ANGLE_DEG, PIN_ORBIT_SPEED, planPinCameraFlight, samplePinCameraFlight } from './pin-camera-flight.js';
@@ -3454,6 +3455,21 @@ async function loadSplatBackground(opts = {}) {
 
 async function boot() {
   document.getElementById('load-msg').textContent = 'Loading config…';
+  const _earlySharedCode = _params.get('scene');
+  const _earlySharedScene = _earlySharedCode && !document.getElementById('add-label-btn')
+    ? loadSharedSceneBundle('/api/scenes/by-code/'+encodeURIComponent(_earlySharedCode))
+    : null;
+  let _earlySceneWidgetsRendered = false;
+  _earlySharedScene?.then(({data}) => {
+    if (!Array.isArray(data?.objects) || _earlySceneWidgetsRendered) return;
+    try {
+      _scenePhotoWarmImages = preloadSceneLabelPhotos(data.objects,{saveData:!!navigator.connection?.saveData});
+      renderSceneWidgets(data.objects);
+      _earlySceneWidgetsRendered = true;
+    } catch (error) {
+      console.warn('[scene] early pin render will retry:', error.message);
+    }
+  });
   _cfg = await fetch('./data/config.json').then(r => r.json()).catch((err) => {
     console.error('Config load failed:', err);
     return {};
@@ -3580,8 +3596,9 @@ async function boot() {
   const _sceneCode = _params.get('scene');
   if (_sceneCode && !document.getElementById('add-label-btn')) {
     document.getElementById('app')?.classList.add('scene-share-view');
-    _sceneBundle = await fetch(`/api/scenes/by-code/${encodeURIComponent(_sceneCode)}`)
-      .then(r => r.ok ? r.json() : null).catch(() => null);
+    const result = await (_earlySharedScene ??
+      loadSharedSceneBundle('/api/scenes/by-code/'+encodeURIComponent(_sceneCode)));
+    _sceneBundle = result.data;
     if (_sceneBundle?.objects) {
     // Warm only the photos in this authorized scene. The short-lived signed
     // image URLs and decoded data remain in memory only; no service worker
@@ -3589,7 +3606,10 @@ async function boot() {
     _scenePhotoWarmImages = preloadSceneLabelPhotos(_sceneBundle.objects, {
       saveData: !!navigator.connection?.saveData,
     });
-    renderSceneWidgets(_sceneBundle.objects);
+    if (!_earlySceneWidgetsRendered) {
+      renderSceneWidgets(_sceneBundle.objects);
+      _earlySceneWidgetsRendered = true;
+    }
   }
   }
 
