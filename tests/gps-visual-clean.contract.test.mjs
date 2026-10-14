@@ -13,8 +13,8 @@ test('map location is a single reusable CSS2D blue dot and one accuracy disc', (
   assert.match(src,/_gpsPositionGroup\.position\.set\(position\.x, 0, position\.z\)/);
   assert.match(src,/scene\.remove\(_gpsPositionGroup\)/);
   assert.doesNotMatch(src,/new CSS2DObject\(cap\)/);
-  assert.match(style,/\.gps-blue-dot\s*\{[^}]*width:18px;height:18px/s);
-  assert.match(style,/\.gps-blue-dot\s*\{[^}]*border:3px solid white/s);
+  assert.match(style,/\.gps-blue-dot__visual\s*\{[^}]*width:18px;height:18px/s);
+  assert.match(style,/\.gps-blue-dot__visual\s*\{[^}]*border:3px solid white/s);
 });
 
 test('routine GPS state is screen-reader only, errors alone may create a toast', () => {

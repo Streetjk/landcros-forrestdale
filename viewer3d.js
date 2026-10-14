@@ -14,11 +14,11 @@ import { resolvePublicSiteMetadata, resolveSiteBranding, sanitizePublicLogoUrl }
 import { loadPublicRuntimeConfig, loadPublicTransport, backendRedirectForScopedRoute, shouldProbeStaffSession, backendApiUrl } from './public-transport.js';
 import { getBasePublicVisitPointId } from './visit-analytics.js';
 import { createPointListItem } from './point-list-item.js';
-import { createSceneLabelPin, createSceneGroundFrame, SCENE_PIN_FLOAT_HEIGHT, SCENE_PIN_GROUND_Y, preloadSceneLabelPhotos , scenePhotoItems } from './scene-label-pin.js';
+import { createSceneLabelPin, createSceneGroundFrame, SCENE_PIN_FLOAT_HEIGHT, SCENE_PIN_GROUND_Y, preloadSceneLabelPhotos, scenePhotoItems, markerScaleForZoom } from './scene-label-pin.js?v=pinzoom-toggle-20261014b';
 import { renderScenePhotoGallery, hideScenePhotoGallery } from './scene-photo-gallery-view.js';
 import { createMobileDetailSheet, trackMapTaps } from './mobile-detail-sheet.js';
 import { gpsToScene, loadSiteGpsCalibration } from './site-gps-calibration.js';
-import { shouldRenderGpsFix, gpsSceneAccuracyRadius, gpsSceneHeading, gpsWithinSite } from './gps-tracking.js';
+import { shouldRenderGpsFix, gpsSceneAccuracyRadius, gpsWithinSite } from './gps-tracking.js';
 import { renderDetailContacts } from './detail-card.js';
 import { mapControlLabel, syncPressedButton, syncPressedButtons } from './map-controls.js';
 import { labelScaleForZoom, layoutLabels, forwardWheelToTarget } from './label-layout.js';
@@ -290,6 +290,7 @@ const _labelWorld = new THREE.Vector3();
 // Last scale() written to generic label layers. Public building labels use
 // collision-aware screen-space layout instead.
 let _lastLabelScale = null;
+let _lastPinVisualScale = null;
 function _invalidateLabelScale() {
   _lastLabelScale = null;
   _labelLayoutDirty = true;
@@ -693,6 +694,13 @@ function animate() {
 
   const _mobileScale = 0.8;
   const _zoom = camera.position.distanceTo(controls.target);
+  // World anchors are never scaled. Only the inner marker visuals follow
+  // the orange building-label curve (near 1.0, far capped at 2/3).
+  const _pinZoomScale = markerScaleForZoom(_zoom).toFixed(3);
+  if (_pinZoomScale !== _lastPinVisualScale) {
+    _lastPinVisualScale = _pinZoomScale;
+    labelsWrap.style.setProperty('--sn-pin-zoom', _pinZoomScale);
+  }
   // Shrink labels proportionally when far (zoom > 20), constant 1.0 when close.
   const _zoomScale = _zoom >= 20 ? Math.max(0.5, 20 / _zoom) : 1.0;
   const _finalScale = (_zoomScale * _mobileScale).toFixed(3);
@@ -812,7 +820,7 @@ function _buildCamButtons(cfg) {
   window.addEventListener('resize', syncLocate);
   _gpsLocateButton = locateBtn;
   _syncGpsLocateButton();
-  locateBtn.addEventListener('click', () => _locateUserOnce(locateBtn));
+  locateBtn.addEventListener('click', () => _toggleGpsTracking(locateBtn));
   wrap.appendChild(locateBtn);
 
 
@@ -1142,8 +1150,8 @@ function _syncGpsLocateButton() {
   _gpsLocateButton.setAttribute('aria-pressed', String(active));
   _gpsLocateButton.classList.toggle('gps-tracking-active', active);
   _gpsLocateButton.title = active
-    ? 'Recenter current GPS location (tracking is on)'
-    : 'Start live GPS location tracking';
+    ? 'Stop live GPS tracking and hide my location'
+    : 'Show my current location and start live tracking';
   _gpsLocateButton.setAttribute('aria-label', _gpsLocateButton.title);
   const stop = _ensureGpsStopControl();
   if (stop) stop.hidden = !active;
@@ -1188,66 +1196,32 @@ function _makeGpsMarker() {
   boundary.position.y = 0.052;
   boundary.renderOrder = 983;
 
-  // Optional heading wedge. The triangle is recalculated only when the
-  // phone reports a valid course and movement; stationary headings are noisy.
-  const wedgeGeometry = new THREE.BufferGeometry();
-  wedgeGeometry.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(9), 3));
-  const heading = new THREE.Mesh(wedgeGeometry,
-    new THREE.MeshBasicMaterial({
-      color: 0x60a5fa, transparent: true, opacity: 0.38,
-      side: THREE.DoubleSide, depthTest: false, depthWrite: false,
-    })
-  );
-  heading.name = 'gps-heading-cone';
-  heading.renderOrder = 984;
-  heading.visible = false;
-
   // Google Maps-style screen-constant blue dot with white halo. A single
   // CSS2D object is reused for every fix, avoiding duplicate overlay nodes.
   const dotElement = document.createElement('span');
   dotElement.className = 'gps-blue-dot';
   dotElement.setAttribute('aria-hidden', 'true');
   dotElement.style.pointerEvents = 'none';
+  const dotVisual = document.createElement('span');
+  dotVisual.className = 'gps-blue-dot__visual';
+  dotElement.appendChild(dotVisual);
   const dot = new CSS2DObject(dotElement);
   dot.name = 'gps-blue-dot';
   dot.position.set(0, 0.24, 0);
-  root.add(fill, boundary, heading, dot);
+  root.add(fill, boundary, dot);
   scene.add(root);
   _gpsPositionGroup = root;
-  _gpsMarkerMeshes = {fill, boundary, heading, dot};
+  _gpsMarkerMeshes = {fill, boundary, dot};
   return _gpsMarkerMeshes;
 }
 
-function _setGpsHeading(mesh, fix, calibration) {
-  const course = fix.coords?.heading == null ? NaN : Number(fix.coords.heading);
-  const speed = Number(fix.coords?.speed);
-  const direction = Number.isFinite(speed) && speed >= 0.5
-    ? gpsSceneHeading(fix.coords.latitude, fix.coords.longitude, course, calibration)
-    : null;
-  if (!direction) {
-    mesh.visible = false;
-    return;
-  }
-  const x = direction.x, z = direction.z;
-  const sideX = -z, sideZ = x;
-  const positions = mesh.geometry.attributes.position.array;
-  positions.set([
-    0, 0.075, 0,
-    x * 1.2 + sideX * 0.48, 0.075, z * 1.2 + sideZ * 0.48,
-    x * 1.2 - sideX * 0.48, 0.075, z * 1.2 - sideZ * 0.48,
-  ]);
-  mesh.geometry.attributes.position.needsUpdate = true;
-  mesh.visible = true;
-}
-
-function _renderCurrentGpsPosition(position, accuracyMetres, calibration, fix) {
+function _renderCurrentGpsPosition(position, accuracyMetres, calibration) {
   const marker = _makeGpsMarker();
   _gpsPositionGroup.position.set(position.x, 0, position.z);
   _gpsPositionGroup.visible = true;
   const radius = gpsSceneAccuracyRadius(accuracyMetres, calibration);
   marker.fill.scale.set(radius, radius, 1);
   marker.boundary.scale.set(radius, radius, 1);
-  _setGpsHeading(marker.heading, fix, calibration);
 }
 
 function _centreCameraOnGps(position) {
@@ -1322,7 +1296,7 @@ function _onGpsFix(fix, calibration, generation) {
   _gpsLastAccuracy = safeAccuracy;
   _gpsAccuracyMetres = safeAccuracy;
   _gpsLastScenePosition = position;
-  _renderCurrentGpsPosition(position, safeAccuracy, calibration, fix);
+  _renderCurrentGpsPosition(position, safeAccuracy, calibration);
   if (!_gpsFirstCentered) {
     _gpsFirstCentered = true;
     _centreCameraOnGps(position);
@@ -1342,16 +1316,12 @@ function _onGpsError(error, generation) {
   }
 }
 
-async function _locateUserOnce(button) {
-  // First tap starts a single watch. Later taps only recenter that same dot.
+async function _toggleGpsTracking(button) {
+  // First tap starts a single browser watch; any subsequent tap stops
+  // tracking and removes BOTH the dot and its geographic accuracy circle.
   _gpsLocateButton = button;
   if (_gpsWatchId !== null || _gpsWatchStarting) {
-    if (_gpsLastScenePosition) {
-      _centreCameraOnGps(_gpsLastScenePosition);
-      _showGpsStatus('GPS recentered. Accuracy approximately ' + Math.round(_gpsAccuracyMetres || 30) + ' metres.');
-    } else {
-      _showGpsStatus('Waiting for the first GPS fix.');
-    }
+    _stopGpsTracking(true);
     return;
   }
   if (!navigator.geolocation) {
@@ -1442,6 +1412,7 @@ function _addPinToScene(pt) {
 
   // SVG pin icon — tip aligns with anchor point
   const svgEl = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svgEl.classList.add('map-point-pin-icon'); // shared orange-label zoom limits
   svgEl.setAttribute('width', '28');
   svgEl.setAttribute('height', '40');
   svgEl.setAttribute('viewBox', '0 0 28 40');

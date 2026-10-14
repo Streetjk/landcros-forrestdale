@@ -12,7 +12,7 @@ const shell = start >= 0 && end > start ? style.slice(start, end) : '';
 test('public and staff viewer opt into the shared shell without another stylesheet request', () => {
   for (const [name, html] of [['index', index], ['viewer3d', viewer]]) {
     assert.match(html, /<div id="app" class="sitenav-shell">/);
-    assert.equal((html.match(/href="\.\/style\.css"/g) || []).length, 1, `${name} keeps the existing style.css request`);
+    assert.equal((html.match(/href="\.\/style\.css(?:\?[^"]*)?"/g) || []).length, 1, `${name} keeps the existing style.css request`);
     assert.doesNotMatch(html, /sitenav-ui\.css/);
   }
 });

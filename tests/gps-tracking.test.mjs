@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
   GPS_MIN_UPDATE_MS, shouldRenderGpsFix, gpsSceneAccuracyRadius,
-  gpsSceneHeading, gpsWithinSite,
+  gpsWithinSite,
 } from '../gps-tracking.js';
 
 const calibration = JSON.parse(
@@ -27,17 +27,6 @@ test('GPS accuracy circle scales to calibrated scene units without huge meshes',
   assert.equal(gpsSceneAccuracyRadius(0, calibration), gpsSceneAccuracyRadius(30, calibration));
   assert.equal(gpsSceneAccuracyRadius(10000, calibration), 6);
   assert.equal(gpsSceneAccuracyRadius(0.1, calibration), 0.16);
-});
-
-test('heading cone respects orientation of 3D site, rather than assuming north is screen up', () => {
-  const origin = calibration.origin;
-  const north = gpsSceneHeading(origin.latitude, origin.longitude, 0, calibration);
-  const east = gpsSceneHeading(origin.latitude, origin.longitude, 90, calibration);
-  assert.ok(north && east);
-  assert.ok(Math.abs(Math.hypot(north.x, north.z) - 1) < 1e-8);
-  assert.ok(Math.abs(Math.hypot(east.x, east.z) - 1) < 1e-8);
-  assert.ok(Math.abs(north.x * east.x + north.z * east.z) < .01);
-  assert.equal(gpsSceneHeading(origin.latitude, origin.longitude, NaN, calibration), null);
 });
 
 test('GPS respects a buffered site boundary; disallow impossible positions', () => {

@@ -11,7 +11,7 @@ import * as THREE from 'three';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import { CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
 import { generateQR } from './qr.js';
-import { createSceneLabelPin, createSceneGroundFrame, SCENE_PIN_FLOAT_HEIGHT, SCENE_PIN_GROUND_Y, scenePhotoItems } from './scene-label-pin.js';
+import { createSceneLabelPin, createSceneGroundFrame, SCENE_PIN_FLOAT_HEIGHT, SCENE_PIN_GROUND_Y, scenePhotoItems } from './scene-label-pin.js?v=pinzoom-toggle-20261014b';
 
 const SLUG = new URLSearchParams(location.search).get('site');
 // 'admin' (default) = the admin map; 'hazard' = the hazard report map. Same
