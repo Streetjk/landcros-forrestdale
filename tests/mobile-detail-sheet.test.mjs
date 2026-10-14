@@ -64,7 +64,7 @@ test('viewer dispatch selects pins first and dismisses only after a genuine empt
   const src=read('viewer3d.js');
   assert.match(src,/_mobileDetails\.repeat\('scene:' \+ obj\.id\)/);
   assert.match(src,/_mobileDetails\.repeat\('point:' \+ pt\.id\)/);
-  assert.match(src,/_mobileDetails\.isCompact\(\) && !_isMobileMapTap\(e\)/);
+  assert.match(src,/\(_mobileDetails\.isCompact\(\) \|\| _touchMapMode\(\)\) && !_isMobileMapTap\(e\)/);
   assert.match(src,/return; \/\/ Selecting a pin\/label\/action must never fall through to dismiss/);
   assert.match(src,/if \(!labelHit\) _mobileDetails\.dismiss\(\)/);
 });

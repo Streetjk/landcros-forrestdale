@@ -525,3 +525,17 @@ textarea.form-input      { resize: vertical; min-height: 68px; }
   transform:scale(var(--sn-pin-zoom,1));
   transform-origin:50% 100%;
 }
+
+
+/* Mobile/tablet: WebGL owns the full touch surface, including all projected
+   orange labels, public pins and custom scene-pin captions. A short canvas tap
+   hit-tests their on-screen bounds in JS; one-finger drag and two-finger pinch
+   reach OrbitControls directly. This is VISITOR-only: the editor keeps its
+   pointer-enabled drag handles and editing controls unchanged. */
+#app.sn-touch-gesture-map #labels-wrap,
+#app.sn-touch-gesture-map #labels-wrap * {
+  pointer-events:none !important;
+  touch-action:none !important;
+  -webkit-user-select:none !important;
+  user-select:none !important;
+}

@@ -17,6 +17,7 @@ import { createPointListItem } from './point-list-item.js';
 import { createSceneLabelPin, createSceneGroundFrame, SCENE_PIN_FLOAT_HEIGHT, SCENE_PIN_GROUND_Y, preloadSceneLabelPhotos, scenePhotoItems, markerScaleForZoom } from './scene-label-pin.js?v=pinzoom-toggle-20261014b';
 import { renderScenePhotoGallery, hideScenePhotoGallery } from './scene-photo-gallery-view.js';
 import { createMobileDetailSheet, trackMapTaps } from './mobile-detail-sheet.js';
+import { findLabelAtTap, isTouchMapDevice } from './map-touch-input.js';
 import { gpsToScene, loadSiteGpsCalibration } from './site-gps-calibration.js';
 import { shouldRenderGpsFix, gpsSceneAccuracyRadius, gpsWithinSite } from './gps-tracking.js';
 import { renderDetailContacts } from './detail-card.js';
@@ -1678,7 +1679,7 @@ function _renderSceneWidget(obj) {
   anchor.add(css2dObj);
 
   scene.add(anchor);
-  _sceneWidgets.set(obj.id, { obj, anchor, raycastMesh, groundFrame });
+  _sceneWidgets.set(obj.id, { obj, anchor, raycastMesh, groundFrame, element:div });
 }
 
 let _scenePhotoWarmImages = new Map();
@@ -2280,10 +2281,62 @@ const _mobileDetails = createMobileDetailSheet({
 });
 const _isMobileMapTap = trackMapTaps(renderer.domElement);
 
+// All coarse-pointer visitor gestures begin on the WebGL canvas, even when
+// their first touch lands on the caption of a scene pin or an orange building
+// label. The editor continues to use its original pointer-capable widgets.
+const _touchMedia = window.matchMedia?.('(any-pointer: coarse), (pointer: coarse)');
+function _touchMapMode() {
+  return !document.getElementById('add-label-btn') &&
+    !document.getElementById('admin-controls') &&
+    isTouchMapDevice();
+}
+function _syncTouchMapMode() {
+  document.getElementById('app')?.classList.toggle('sn-touch-gesture-map',_touchMapMode());
+}
+_syncTouchMapMode();
+_touchMedia?.addEventListener?.('change',_syncTouchMapMode);
+window.addEventListener('resize',_syncTouchMapMode);
+
+function _activateSceneWidget(obj) {
+  if (obj.kind === 'label') showSceneLabelDetail(obj);
+  else if (obj.kind === 'hazard' && typeof showHazardDetail === 'function') showHazardDetail(obj);
+  else if (obj.kind === 'widget' && obj.scriptSource) _runWidgetScript(obj.scriptSource,obj);
+  else _runWidgetAction(obj.props?.action,obj);
+}
+
+function _tapTargetOnCanvas(x,y) {
+  const entries=[];
+  for(const w of _sceneWidgets.values()) {
+    if (w.obj.kind === 'label') {
+      const pin=w.element?.querySelector('.scene-location-pin__button');
+      const caption=w.element?.querySelector('.scene-location-pin__caption');
+      const svg=w.element?.querySelector('.scene-location-pin__icon');
+      entries.push({priority:50,elements:[caption,svg,pin].filter(Boolean),
+        activate:()=>_activateSceneWidget(w.obj)});
+    } else if(w.element) {
+      entries.push({priority:35,elements:[w.element],activate:()=>_activateSceneWidget(w.obj)});
+    }
+  }
+  for(const p of Object.values(_pins)) {
+    entries.push({priority:40,elements:[p.labelInner,p.svgEl],padding:5,
+      activate:()=>selectPoint(p.pt)});
+  }
+  for(const ref of Object.values(_bldRefs)) {
+    const label=ref.css2d?._scaleEl;
+    if (label?.getAttribute('role')!=='button') continue;
+    entries.push({priority:20,elements:[label],activate:()=>label.click()});
+  }
+  const target=findLabelAtTap(entries,x,y);
+  if(!target)return false;
+  target.activate();
+  return true;
+}
+
+
 
 renderer.domElement.addEventListener('click', e => {
-  // Pointer movement and multi-touch are navigation, not tap-to-dismiss.
-  if (_mobileDetails.isCompact() && !_isMobileMapTap(e)) return;
+  // A pinch/drag is always navigation, even when begun on a label.
+  if ((_mobileDetails.isCompact() || _touchMapMode()) && !_isMobileMapTap(e)) return;
   const rect = renderer.domElement.getBoundingClientRect();
   _pointer.x =  (e.clientX - rect.left)  / rect.width  * 2 - 1;
   _pointer.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
@@ -2295,6 +2348,10 @@ renderer.domElement.addEventListener('click', e => {
     if (hits.length) _addMeasurePoint(hits[0].point);
     return; // don't select pins in measure mode
   }
+
+  // Rendered HTML labels are now touch-transparent; canvas taps are
+  // resolved against their *visible* bounds before the 3D raycast.
+  if (_touchMapMode() && _tapTargetOnCanvas(e.clientX,e.clientY)) return;
 
   _raycaster.setFromCamera(_pointer, camera);
 
