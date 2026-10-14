@@ -13,7 +13,7 @@ test('pins anchor to the projected centre of the floor square instead of world-h
   assert.match(pin,/SCENE_PIN_GROUND_Y = 0\.05/);
   assert.match(viewer,/obj\.kind === 'label' \? SCENE_PIN_GROUND_Y/);
   assert.match(editor,/obj\.kind === 'label' \? SCENE_PIN_GROUND_Y/);
-  assert.match(style,/\.scene-location-pin__button\s*\{[^}]*bottom:var\(--scene-pin-hover\)/s);
+  assert.match(style,/\.scene-location-pin__button\s*\{[^}]*bottom:calc\(var\(--scene-pin-hover\) \* var\(--sn-pin-zoom,1\)\)/s);
   assert.match(style,/\.scene-location-pin__tether\s*\{/);
 });
 

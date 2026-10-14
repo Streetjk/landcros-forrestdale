@@ -1,4 +1,14 @@
+import { labelScaleForZoom } from './label-layout.js';
+
 // Shared scene pin presentation for editor and viewer.
+// Match the orange building-label zoom curve, normalized so nearby pins
+// retain their current size. The farthest camera view never shrinks them
+// below two-thirds of their designed visual size.
+export function markerScaleForZoom(zoom) {
+  const nearbyScale = labelScaleForZoom(0); // 0.66
+  return Math.min(1, Math.max(2 / 3, labelScaleForZoom(zoom) / nearbyScale));
+}
+
 export function createSceneLabelPin(title, onActivate) {
   const root = document.createElement('div');
   root.className = 'scene-location-pin';
@@ -29,7 +39,12 @@ export function createSceneLabelPin(title, onActivate) {
   svg.appendChild(hole);
   const caption = document.createElement('span');
   caption.className = 'scene-location-pin__caption';
-  button.append(svg, caption);
+  // Scale only the painted marker; never the CSS2D world anchor or the
+  // accessible tap target. This keeps floor alignment and touch accuracy.
+  const visual = document.createElement('span');
+  visual.className = 'scene-location-pin__visual';
+  visual.append(svg, caption);
+  button.appendChild(visual);
   root.appendChild(button);
   const setTitle = text => {
     caption.textContent = String(text ?? '');
