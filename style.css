@@ -277,3 +277,46 @@ textarea.form-input      { resize: vertical; min-height: 68px; }
   background:#185fa5; text-decoration:underline;
 }
 .scene-location-pin__button:focus-visible { outline:2px solid #facc15; outline-offset:3px; }
+
+
+ /* Active live GPS uses the existing accessible pressed-button styling.
+    A single bottom status chip replaces repeated floating 3D text labels. */
+ #btn-locate-me[aria-pressed="true"] {
+   background:#1a73e8 !important;
+   color:#fff !important;
+   border-color:#bfdbfe !important;
+   box-shadow:0 0 0 2px rgba(147,197,253,.65),0 2px 10px rgba(0,0,0,.3) !important;
+ }
+ #gps-position-status[hidden], #gps-stop-tracking[hidden] {display:none!important;}
+ #gps-position-status button:focus-visible {
+   outline:2px solid #93c5fd;outline-offset:2px;
+ }
+
+
+/* Public-device location: one centred blue dot, one geographical accuracy
+   circle, no floating label or success notification. */
+.gps-blue-dot {
+  display:block;width:18px;height:18px;border-radius:50%;
+  background:#1a73e8;border:3px solid white;box-sizing:border-box;
+  box-shadow:0 1px 8px rgba(0,0,0,.6),0 0 0 1px rgba(26,115,232,.25);
+  pointer-events:none;
+}
+.gps-visually-hidden {
+  position:absolute!important;width:1px!important;height:1px!important;
+  padding:0!important;margin:-1px!important;overflow:hidden!important;
+  clip:rect(0,0,0,0)!important;white-space:nowrap!important;border:0!important;
+}
+.gps-error-toast {
+  position:absolute;z-index:39;bottom:calc(145px + env(safe-area-inset-bottom,0px));
+  left:50%;transform:translateX(-50%);max-width:calc(100vw - 32px);
+  background:rgba(127,29,29,.96);color:#fff;border:1px solid #fca5a5;
+  border-radius:9px;padding:8px 12px;pointer-events:none;text-align:center;
+  font:600 12px/1.4 'DM Sans',sans-serif;
+}
+.gps-error-toast[hidden], .gps-stop-control[hidden] {display:none!important;}
+.gps-stop-control {
+  display:block;min-height:36px;margin:8px 12px;padding:7px 13px;
+  border:1px solid #60a5fa;border-radius:9px;background:#163151;
+  color:#dbeafe;font:600 12px 'DM Sans',sans-serif;cursor:pointer;
+}
+.gps-stop-control:focus-visible {outline:2px solid #93c5fd;outline-offset:2px;}

@@ -10,6 +10,7 @@ import { initComparison, updateComparison, comparisonNeedsRender } from './splat
 import { createSceneLabelPin, createSceneGroundFrame, SCENE_PIN_FLOAT_HEIGHT, SCENE_PIN_GROUND_Y, preloadSceneLabelPhotos, scenePhotoItems } from './scene-label-pin.js';
 import { renderScenePhotoGallery, hideScenePhotoGallery } from './scene-photo-gallery-view.js';
 import { gpsToScene, loadSiteGpsCalibration } from './site-gps-calibration.js';
+import { shouldRenderGpsFix, gpsSceneAccuracyRadius, gpsSceneHeading, gpsWithinSite } from './gps-tracking.js';
 
 // ── Site config (loaded from data/config.json in boot()) ──────────────────
 let _cfg = {};
@@ -516,8 +517,9 @@ function _buildCamButtons(cfg) {
   locateBtn.type = 'button';
   locateBtn.id = 'btn-locate-me';
   locateBtn.className = 'cam-preset-btn';
-  locateBtn.title = 'Show current location (GPS)';
-  locateBtn.setAttribute('aria-label', 'Show my current GPS location');
+  locateBtn.title = 'Start live GPS location tracking';
+  locateBtn.setAttribute('aria-label', 'Start live GPS location tracking');
+  locateBtn.setAttribute('aria-pressed', 'false');
   locateBtn.innerHTML = `<div class="icon-wrap"><svg viewBox="0 0 24 24" width="20" height="20"
     fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
     stroke-linejoin="round" aria-hidden="true">
@@ -528,6 +530,8 @@ function _buildCamButtons(cfg) {
   };
   syncLocate();
   window.addEventListener('resize', syncLocate);
+  _gpsLocateButton = locateBtn;
+  _syncGpsLocateButton();
   locateBtn.addEventListener('click', () => _locateUserOnce(locateBtn));
   wrap.appendChild(locateBtn);
 
@@ -694,134 +698,346 @@ window.setCameraPreset = function setCameraPreset(name, duration = 2500) {
 
 // ── Pin rendering ──────────────────────────────────────────────────────────
 
-// One-shot private GPS overlay; no persisted coordinates or background watch.
+// Google Maps-style device GPS. watchPosition is strictly browser-local:
+// positions are not POSTed to SiteNav and no server polling is performed.
+// Reuse ONE mesh group; the old implementation leaked CSS2D labels on taps.
 let _gpsPositionGroup = null;
-let _gpsRequestSequence = 0;
-let _gpsStatusTimeout = null;
+let _gpsMarkerMeshes = null;
+let _gpsWatchId = null;
+let _gpsWatchGeneration = 0;
+let _gpsWatchStarting = false;
+let _gpsLocateButton = null;
+let _gpsLastScenePosition = null;
+let _gpsLastRenderedAt = -1;
+let _gpsLastAccuracy = Infinity;
+let _gpsAccuracyMetres = null;
+let _gpsFirstCentered = false;
 
-function _showGpsStatus(message) {
-  let label = document.getElementById('gps-position-status');
-  if (!label) {
-    label = document.createElement('div');
-    label.id = 'gps-position-status';
-    label.setAttribute('role', 'status');
-    label.setAttribute('aria-live', 'polite');
-    label.style.cssText = `position:absolute;top:12px;right:12px;z-index:36;
-      max-width:min(280px,60vw);font:600 12px/1.45 'DM Sans',sans-serif;
-      color:#fff;background:rgba(15,23,42,.91);border:1px solid rgba(255,255,255,.18);
-      border-radius:10px;padding:9px 12px;box-shadow:0 3px 14px rgba(0,0,0,.3);
-      pointer-events:none;`;
-    document.getElementById('canvas-wrap')?.appendChild(label);
-  }
-  label.textContent = message;
-  label.hidden = false;
-  clearTimeout(_gpsStatusTimeout);
-  _gpsStatusTimeout = setTimeout(() => { label.hidden = true; }, 7000);
+function _gpsStatusUI() {
+  // Invisible live announcement for assistive tech, never a floating label.
+  let status = document.getElementById('gps-position-status');
+  if (status) return status;
+  status = document.createElement('span');
+  status.id = 'gps-position-status';
+  status.setAttribute('role', 'status');
+  status.setAttribute('aria-live', 'polite');
+  status.className = 'gps-visually-hidden';
+  document.getElementById('canvas-wrap')?.appendChild(status);
+  return status;
 }
 
-function _renderCurrentGpsPosition(position, accuracyMetres, calibration) {
+function _showGpsStatus(message) {
+  _gpsStatusUI().textContent = message;
+}
+
+// Errors deserve actionable visual feedback; successful GPS fixes are shown
+// only by the blue dot and the accuracy circle.
+let _gpsErrorTimeout = null;
+function _showGpsError(message) {
+  _showGpsStatus(message);
+  let toast = document.getElementById('gps-error-toast');
+  if (!toast) {
+    toast = document.createElement('div');
+    toast.id = 'gps-error-toast';
+    toast.setAttribute('role', 'alert');
+    toast.className = 'gps-error-toast';
+    document.getElementById('canvas-wrap')?.appendChild(toast);
+  }
+  toast.textContent = message;
+  toast.hidden = false;
+  clearTimeout(_gpsErrorTimeout);
+  _gpsErrorTimeout = setTimeout(() => { toast.hidden = true; }, 4500);
+}
+
+function _ensureGpsStopControl() {
+  let stop = document.getElementById('gps-stop-tracking');
+  if (stop) return stop;
+  const list = document.getElementById('point-list');
+  if (!list) return null;
+  stop = document.createElement('button');
+  stop.id = 'gps-stop-tracking';
+  stop.type = 'button';
+  stop.className = 'gps-stop-control';
+  stop.hidden = true;
+  stop.textContent = 'Stop GPS tracking';
+  stop.setAttribute('aria-label', 'Stop live GPS tracking');
+  stop.addEventListener('click', event => {
+    event.stopPropagation();
+    _stopGpsTracking(true);
+  });
+  list.prepend(stop);
+  return stop;
+}
+
+function _syncGpsLocateButton() {
+  if (!_gpsLocateButton) return;
+  const active = _gpsWatchStarting || _gpsWatchId !== null;
+  _gpsLocateButton.setAttribute('aria-pressed', String(active));
+  _gpsLocateButton.classList.toggle('gps-tracking-active', active);
+  _gpsLocateButton.title = active
+    ? 'Recenter current GPS location (tracking is on)'
+    : 'Start live GPS location tracking';
+  _gpsLocateButton.setAttribute('aria-label', _gpsLocateButton.title);
+  const stop = _ensureGpsStopControl();
+  if (stop) stop.hidden = !active;
+}
+
+function _makeGpsMarker() {
+  // Three.js CSS2DRenderer does not always unlink removed object elements.
+  // These old labels are eliminated once, including any orphaned duplicates.
+  document.querySelectorAll('.gps-position-label').forEach(el => el.remove());
+  if (_gpsPositionGroup) return _gpsMarkerMeshes;
+  // Defensive invariant even after repeated map initialization.
+  for (const child of [...scene.children]) {
+    if (child.name === 'sitenav-gps-location') {
+      child.traverse(item => item.element?.remove?.());
+      scene.remove(child);
+    }
+  }
+
+  const root = new THREE.Group();
+  root.name = 'sitenav-gps-location';
+  const fill = new THREE.Mesh(
+    new THREE.CircleGeometry(1, 64),
+    new THREE.MeshBasicMaterial({
+      color: 0x60a5fa, transparent: true, opacity: 0.18,
+      depthTest: false, depthWrite: false, side: THREE.DoubleSide,
+    })
+  );
+  fill.name = 'gps-accuracy-fill';
+  fill.rotation.x = -Math.PI / 2;
+  fill.position.y = 0.045;
+  fill.renderOrder = 982;
+
+  const boundary = new THREE.Mesh(
+    new THREE.RingGeometry(0.977, 1, 64),
+    new THREE.MeshBasicMaterial({
+      color: 0x93c5fd, transparent: true, opacity: 0.73,
+      depthTest: false, depthWrite: false, side: THREE.DoubleSide,
+    })
+  );
+  boundary.name = 'gps-accuracy-outline';
+  boundary.rotation.x = -Math.PI / 2;
+  boundary.position.y = 0.052;
+  boundary.renderOrder = 983;
+
+  // Optional heading wedge. The triangle is recalculated only when the
+  // phone reports a valid course and movement; stationary headings are noisy.
+  const wedgeGeometry = new THREE.BufferGeometry();
+  wedgeGeometry.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(9), 3));
+  const heading = new THREE.Mesh(wedgeGeometry,
+    new THREE.MeshBasicMaterial({
+      color: 0x60a5fa, transparent: true, opacity: 0.38,
+      side: THREE.DoubleSide, depthTest: false, depthWrite: false,
+    })
+  );
+  heading.name = 'gps-heading-cone';
+  heading.renderOrder = 984;
+  heading.visible = false;
+
+  // Google Maps-style screen-constant blue dot with white halo. A single
+  // CSS2D object is reused for every fix, avoiding duplicate overlay nodes.
+  const dotElement = document.createElement('span');
+  dotElement.className = 'gps-blue-dot';
+  dotElement.setAttribute('aria-hidden', 'true');
+  dotElement.style.pointerEvents = 'none';
+  const dot = new CSS2DObject(dotElement);
+  dot.name = 'gps-blue-dot';
+  dot.position.set(0, 0.24, 0);
+  root.add(fill, boundary, heading, dot);
+  scene.add(root);
+  _gpsPositionGroup = root;
+  _gpsMarkerMeshes = {fill, boundary, heading, dot};
+  return _gpsMarkerMeshes;
+}
+
+function _setGpsHeading(mesh, fix, calibration) {
+  const course = fix.coords?.heading == null ? NaN : Number(fix.coords.heading);
+  const speed = Number(fix.coords?.speed);
+  const direction = Number.isFinite(speed) && speed >= 0.5
+    ? gpsSceneHeading(fix.coords.latitude, fix.coords.longitude, course, calibration)
+    : null;
+  if (!direction) {
+    mesh.visible = false;
+    return;
+  }
+  const x = direction.x, z = direction.z;
+  const sideX = -z, sideZ = x;
+  const positions = mesh.geometry.attributes.position.array;
+  positions.set([
+    0, 0.075, 0,
+    x * 1.2 + sideX * 0.48, 0.075, z * 1.2 + sideZ * 0.48,
+    x * 1.2 - sideX * 0.48, 0.075, z * 1.2 - sideZ * 0.48,
+  ]);
+  mesh.geometry.attributes.position.needsUpdate = true;
+  mesh.visible = true;
+}
+
+function _renderCurrentGpsPosition(position, accuracyMetres, calibration, fix) {
+  const marker = _makeGpsMarker();
+  _gpsPositionGroup.position.set(position.x, 0, position.z);
+  _gpsPositionGroup.visible = true;
+  const radius = gpsSceneAccuracyRadius(accuracyMetres, calibration);
+  marker.fill.scale.set(radius, radius, 1);
+  marker.boundary.scale.set(radius, radius, 1);
+  _setGpsHeading(marker.heading, fix, calibration);
+}
+
+function _centreCameraOnGps(position) {
+  if (!position) return;
+  _suppressLateSplatIntro = true;
+  stopAutoOrbit();
+  if (_camTween) {
+    _camTween.kill();
+    _camTween = null;
+    _camAnimating = false;
+  }
+  const target = new THREE.Vector3(position.x, 0, position.z);
+  const shift = target.clone().sub(controls.target);
+  camera.position.add(shift);
+  controls.target.copy(target);
+  controls.update();
+  _idleFrames = 0;
+  _lastRenderMs = 0;
+}
+
+function _clearGpsMarker() {
   if (_gpsPositionGroup) {
     _gpsPositionGroup.traverse(child => {
+      child.element?.remove?.();
       child.geometry?.dispose?.();
       if (Array.isArray(child.material)) child.material.forEach(m => m.dispose?.());
       else child.material?.dispose?.();
     });
     scene.remove(_gpsPositionGroup);
   }
-  const root = new THREE.Group();
-  root.name = 'sitenav-gps-location';
-  root.position.set(position.x, 0, position.z);
-  const metresPerUnit = calibration?.fit?.approxMetresPerSceneUnit || 12.5;
-  const radius = Math.min(6, Math.max(0.23, accuracyMetres / metresPerUnit));
-  const ring = new THREE.Mesh(
-    new THREE.RingGeometry(Math.max(0.05, radius - 0.055), radius, 48),
-    new THREE.MeshBasicMaterial({ color: 0x60a5fa, side: THREE.DoubleSide,
-      transparent: true, opacity: 0.82, depthTest: false, depthWrite: false })
-  );
-  ring.rotation.x = -Math.PI / 2;
-  ring.position.y = 0.09;
-  ring.renderOrder = 990;
-  root.add(ring);
-  const dot = new THREE.Mesh(
-    new THREE.SphereGeometry(0.18, 16, 12),
-    new THREE.MeshBasicMaterial({ color: 0x2563eb, depthTest: false })
-  );
-  dot.position.y = 0.2;
-  dot.renderOrder = 991;
-  root.add(dot);
-  const cap = document.createElement('div');
-  cap.className = 'gps-position-label';
-  cap.textContent = 'You are here · ±' + Math.round(accuracyMetres) + ' m';
-  cap.style.cssText = `white-space:nowrap;pointer-events:none;transform:translate(-50%,-155%);
-    background:#185fa5;color:white;border-radius:7px;padding:5px 9px;
-    font:700 12px/1.2 'DM Sans',sans-serif;box-shadow:0 2px 8px #0007;`;
-  const tag = new CSS2DObject(cap);
-  tag.position.set(0, 0.2, 0);
-  root.add(tag);
-  scene.add(root);
-  _gpsPositionGroup = root;
+  document.querySelectorAll('.gps-position-label').forEach(el => el.remove());
+  _gpsPositionGroup = null;
+  _gpsMarkerMeshes = null;
+}
+
+function _stopGpsTracking(quiet = false) {
+  ++_gpsWatchGeneration;
+  _gpsWatchStarting = false;
+  if (_gpsWatchId !== null) {
+    navigator.geolocation?.clearWatch?.(_gpsWatchId);
+    _gpsWatchId = null;
+  }
+  _gpsLastScenePosition = null;
+  _gpsLastRenderedAt = -1;
+  _gpsLastAccuracy = Infinity;
+  _gpsAccuracyMetres = null;
+  _gpsFirstCentered = false;
+  _clearGpsMarker();
+  _syncGpsLocateButton();
+  _showGpsStatus('GPS tracking stopped');
+  if (quiet) {
+    const toast = document.getElementById('gps-error-toast');
+    if (toast) toast.hidden = true;
+    clearTimeout(_gpsErrorTimeout);
+  }
+}
+
+function _onGpsFix(fix, calibration, generation) {
+  if (generation !== _gpsWatchGeneration || document.hidden) return;
+  const coords = fix.coords;
+  const position = gpsToScene(coords.latitude, coords.longitude, calibration);
+  if (!position || !gpsWithinSite(position, calibration)) {
+    if (_gpsPositionGroup) _gpsPositionGroup.visible = false;
+    _showGpsStatus('GPS is outside the mapped site. Tracking is still active.');
+    return;
+  }
+  const accuracy = Number(coords.accuracy);
+  const safeAccuracy = Number.isFinite(accuracy) && accuracy > 0 ? accuracy : 30;
+  const now = performance.now();
+  if (!shouldRenderGpsFix(now, _gpsLastRenderedAt, safeAccuracy, _gpsLastAccuracy)) return;
+  _gpsLastRenderedAt = now;
+  _gpsLastAccuracy = safeAccuracy;
+  _gpsAccuracyMetres = safeAccuracy;
+  _gpsLastScenePosition = position;
+  _renderCurrentGpsPosition(position, safeAccuracy, calibration, fix);
+  if (!_gpsFirstCentered) {
+    _gpsFirstCentered = true;
+    _centreCameraOnGps(position);
+  }
+  _showGpsStatus('GPS tracking active. Accuracy approximately ' + Math.round(safeAccuracy) + ' metres.');
+}
+
+function _onGpsError(error, generation) {
+  if (generation !== _gpsWatchGeneration) return;
+  if (error?.code === 1) {
+    _stopGpsTracking(true);
+    _showGpsError('Location permission denied. Enable location access in your browser.');
+  } else if (error?.code === 3) {
+    _showGpsError('GPS signal timed out. Try again outdoors.');
+  } else {
+    _showGpsError('GPS unavailable. Waiting for another fix.');
+  }
 }
 
 async function _locateUserOnce(button) {
+  // First tap starts a single watch. Later taps only recenter that same dot.
+  _gpsLocateButton = button;
+  if (_gpsWatchId !== null || _gpsWatchStarting) {
+    if (_gpsLastScenePosition) {
+      _centreCameraOnGps(_gpsLastScenePosition);
+      _showGpsStatus('GPS recentered. Accuracy approximately ' + Math.round(_gpsAccuracyMetres || 30) + ' metres.');
+    } else {
+      _showGpsStatus('Waiting for the first GPS fix.');
+    }
+    return;
+  }
   if (!navigator.geolocation) {
-    _showGpsStatus('GPS location is not supported on this device.');
+    _showGpsError('Your browser does not support GPS location.');
     return;
   }
   if (!window.isSecureContext) {
-    _showGpsStatus('GPS requires HTTPS.');
+    _showGpsError('GPS requires a secure HTTPS page.');
     return;
   }
-  const sequence = ++_gpsRequestSequence;
-  button.disabled = true;
-  _showGpsStatus('Finding your GPS location…');
+  const generation = ++_gpsWatchGeneration;
+  _gpsWatchStarting = true;
+  _syncGpsLocateButton();
+  _showGpsStatus('Locating. GPS tracking will stay on until stopped.');
+  const calibration = await _getSiteGpsCalibration();
+  if (generation !== _gpsWatchGeneration || document.hidden) return;
+  if (!calibration) {
+    _gpsWatchStarting = false;
+    _syncGpsLocateButton();
+    _showGpsError('This site has not been GPS-calibrated.');
+    return;
+  }
   try {
-    const fix = await new Promise((resolve, reject) => {
-      navigator.geolocation.getCurrentPosition(resolve, reject,
-        { enableHighAccuracy: true, timeout: 12000, maximumAge: 5000 });
-    });
-    const calibration = await _getSiteGpsCalibration();
-    if (sequence !== _gpsRequestSequence) return;
-    if (!calibration) {
-      _showGpsStatus('This site has not been GPS-calibrated.');
+    // watchPosition is event-driven, not a server poll. The redraw rate is
+    // capped at one every 3 s; device/browser may send fixes less often.
+    const watchId = navigator.geolocation.watchPosition(
+      fix => _onGpsFix(fix, calibration, generation),
+      error => _onGpsError(error, generation),
+      {enableHighAccuracy: true, timeout: 15000, maximumAge: 2000}
+    );
+    if (generation !== _gpsWatchGeneration || document.hidden) {
+      navigator.geolocation.clearWatch(watchId);
       return;
     }
-    const pos = gpsToScene(fix.coords.latitude, fix.coords.longitude, calibration);
-    if (!pos) throw Error('Invalid GPS coordinates');
-    const bounds = calibration.references;
-    if (!Array.isArray(bounds) || bounds.length < 3) {
-      _showGpsStatus('GPS calibration has no site boundary references.');
-      return;
-    }
-    const within = pos.x >= Math.min(...bounds.map(r=>r.sceneX)) - 4 &&
-      pos.x <= Math.max(...bounds.map(r=>r.sceneX)) + 4 &&
-      pos.z >= Math.min(...bounds.map(r=>r.sceneZ)) - 4 &&
-      pos.z <= Math.max(...bounds.map(r=>r.sceneZ)) + 4;
-    const accuracy = Number(fix.coords.accuracy);
-    if (!within) {
-      _showGpsStatus('Your GPS location is outside the mapped site.');
-      return;
-    }
-    _renderCurrentGpsPosition(pos, Number.isFinite(accuracy) ? accuracy : 30, calibration);
-    // Keep the current viewing angle; translate camera and orbit target by
-    // exactly the same delta, so GPS centring never rotates the model.
-    _suppressLateSplatIntro = true;
-    stopAutoOrbit();
-    const newTarget = new THREE.Vector3(pos.x, 0, pos.z);
-    const delta = newTarget.clone().sub(controls.target);
-    camera.position.add(delta);
-    controls.target.copy(newTarget);
-    controls.update();
-    _showGpsStatus('GPS location centred · ±' + Math.round(accuracy) + ' m' +
-      (accuracy > 25 ? ' (low accuracy)' : ''));
-  } catch (e) {
-    const code = e?.code;
-    _showGpsStatus(code === 1 ? 'Location permission was denied.' :
-      code === 3 ? 'GPS timed out. Try outdoors.' :
-      'Unable to determine your current GPS position.');
-  } finally {
-    button.disabled = false;
+    _gpsWatchId = watchId;
+    _gpsWatchStarting = false;
+    _syncGpsLocateButton();
+    if (!_gpsLastScenePosition) _showGpsStatus('Waiting for GPS fix.');
+  } catch (error) {
+    _gpsWatchStarting = false;
+    _syncGpsLocateButton();
+    _showGpsError('GPS could not start. Check location permissions.');
   }
 }
+
+// A hidden tab should neither consume GPS battery nor retain a potentially
+// stale location. Returning to it requires an explicit new tap.
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden && (_gpsWatchId !== null || _gpsWatchStarting)) _stopGpsTracking(true);
+});
+window.addEventListener('pagehide', () => {
+  if (_gpsWatchId !== null || _gpsWatchStarting) _stopGpsTracking(true);
+});
 
 const PIN_COLORS = { 'drop-off': 0x185FA5, 'collection': 0x1D9E75, 'both': 0x854F0B, 'meet-point': 0xF59E0B };
 

@@ -17,12 +17,20 @@ test('pins anchor to the projected centre of the floor square instead of world-h
   assert.match(style,/\.scene-location-pin__tether\s*\{/);
 });
 
-test('mobile GPS is permission-gated, calibrated, and does not enable a background watch',()=>{
+test('GPS tracking is a single opt-in, browser-side watch with cleanup',()=>{
   assert.match(viewer,/window\.innerWidth <= 1024/);
-  assert.match(viewer,/navigator\.geolocation\.getCurrentPosition/);
-  assert.doesNotMatch(viewer,/navigator\.geolocation\.watchPosition/);
-  assert.match(viewer,/GPS location centred/);
+  assert.match(viewer,/navigator\.geolocation\.watchPosition/);
+  assert.match(viewer,/navigator\.geolocation\?\.clearWatch/);
+  assert.match(viewer,/document\.addEventListener\('visibilitychange'/);
+  assert.match(viewer,/window\.addEventListener\('pagehide'/);
   assert.match(viewer,/_getSiteGpsCalibration\(\)/);
+  assert.match(viewer,/_gpsWatchId !== null \|\| _gpsWatchStarting/);
+  assert.match(viewer,/_gpsLocateButton\.setAttribute\('aria-pressed'/);
+  assert.match(viewer,/gps-position-status/);
+  assert.match(viewer,/gps-accuracy-fill/);
+  assert.match(viewer,/gps-accuracy-outline/);
+  assert.match(viewer,/gps-blue-dot/);
+  assert.doesNotMatch(viewer,/navigator\.geolocation\.getCurrentPosition/);
 });
 
 test('clone button is user initiated and the API demands editor authorization',()=>{
