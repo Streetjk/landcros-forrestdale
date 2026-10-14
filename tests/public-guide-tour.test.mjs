@@ -23,7 +23,7 @@ test('pin replacement and list return cancel an active tour first', () => {
   assert.match(source,
     /async function selectPoint\(pt, options = \{\}\) \{\n  _cancelActiveTour\(\);/);
   assert.match(source,
-    /window\.showPointList = function\(options = \{\}\) \{\n  _cancelActiveTour\(\);/);
+    /window\.showPointList = function\(options = \{\}\) \{\n  _cancelPinFocusFlight\(\);\n  _cancelActiveTour\(\);/);
 });
 
 test('startNav replaces prior owners and protects newer tours from stale callbacks', () => {
@@ -70,6 +70,7 @@ test('stale no-waypoint timer cannot tear down a newer guided tour', () => {
   const make = new Function(
     'document', 'controls', 'gsap', 'window', 'THREE', 'setTimeout', 'clearTimeout', 'stopAutoOrbit',
     `let _camTween = null; let _camAnimating = false;
+     const _cancelPinFocusFlight = () => {};
      const camera = { position: { clone() { return {}; } } };
      ${lifecycle}
      return { startNav: window.startNav, active: () => _activeTour, animating: () => _camAnimating };`,

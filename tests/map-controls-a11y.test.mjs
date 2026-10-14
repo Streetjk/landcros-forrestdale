@@ -67,10 +67,13 @@ test('rotate, measure and autopan lifecycle paths call shared pressed-state sync
   assert.match(viewer, /function _syncAutoPanButtons\(\)[\s\S]*?syncPressedButtons\(document, '\[data-map-toggle="autopan"\]', _orbitActive\)/);
   assert.match(viewer, /function startAutoOrbit[\s\S]*?_orbitActive = true;\s*_syncAutoPanButtons\(\)/);
   assert.match(viewer, /function stopAutoOrbit[\s\S]*?_orbitActive\s*=\s*false;[\s\S]*?_syncAutoPanButtons\(\)/);
-  const selectStart = viewer.indexOf('function selectPoint');
-  const selectEnd = viewer.indexOf('window.showPointList', selectStart);
-  const selectBlock = viewer.slice(selectStart, selectEnd);
-  assert.match(selectBlock, /_orbitActive = true;[\s\S]*?controls\.autoRotate\s*=\s*true;[\s\S]*?_syncAutoPanButtons\(\);[\s\S]*?window\._syncRotateBtn\?\.\(\)/);
+  const focusStart = viewer.indexOf('function _focusPinCamera(');
+  const focusEnd = viewer.indexOf('window._syncRotateBtn =', focusStart);
+  const focusBlock = viewer.slice(focusStart,focusEnd);
+  assert.match(focusBlock, /_orbitActive = true;[\s\S]*?controls\.autoRotate = true;[\s\S]*?_syncAutoPanButtons\(\);[\s\S]*?window\._syncRotateBtn\?\.\(\)/);
+  const selectStart = viewer.indexOf('function selectPoint(');
+  const selectEnd = viewer.indexOf('window.showPointList',selectStart);
+  assert.match(viewer.slice(selectStart,selectEnd),/_focusPinCamera\(new THREE\.Vector3/);
 });
 
 test('configured fullscreen presets are filtered and one shared fullscreen control is created', () => {

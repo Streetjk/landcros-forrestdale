@@ -22,6 +22,7 @@ import { shouldRenderGpsFix, gpsSceneAccuracyRadius, gpsWithinSite } from './gps
 import { renderDetailContacts } from './detail-card.js';
 import { mapControlLabel, syncPressedButton, syncPressedButtons } from './map-controls.js';
 import { labelScaleForZoom, layoutLabels, forwardWheelToTarget } from './label-layout.js';
+import { PIN_VIEW_ANGLE_DEG, PIN_ORBIT_SPEED, planPinCameraFlight, samplePinCameraFlight } from './pin-camera-flight.js';
 
 // ── Site config (loaded from data/config.json in boot()) ──────────────────
 let _cfg = {};
@@ -388,6 +389,7 @@ let _orbitElev   = Math.PI / 4; // 45° elevation
 const AUTO_PAN_RADIUS = 12;
 let _orbitTween = null;
 function startAutoOrbit(target, radius, elevDeg) {
+  _cancelPinFocusFlight();
   if (_orbitTween) { _orbitTween.kill(); _orbitTween = null; }
   _orbitTarget.copy(target);
   _orbitActive = true;
@@ -444,6 +446,120 @@ function stopAutoOrbit() {
 
 function _syncAutoPanButtons() {
   syncPressedButtons(document, '[data-map-toggle="autopan"]', _orbitActive);
+}
+
+
+// There is one owner of the pin-focus tween. Explicit cancellation avoids
+// races between a second pin click, map drag, camera preset, GPS, tour and a
+// delayed Gaussian-splat intro. All work is local to the browser.
+let _pinFocusFlight = null;
+
+function _cancelPinFocusFlight() {
+  const flight = _pinFocusFlight;
+  if (!flight) return false;
+  _pinFocusFlight = null;
+  renderer.domElement.removeEventListener('pointerdown',flight.interrupt,true);
+  renderer.domElement.removeEventListener('wheel',flight.interrupt,true);
+  window.removeEventListener('keydown',flight.keyInterrupt,true);
+  document.removeEventListener('visibilitychange',flight.visibilityInterrupt);
+  controls.removeEventListener('start',flight.interrupt);
+  if (window._interruptFlyTo === flight.interrupt) window._interruptFlyTo = null;
+  if (flight.tween) flight.tween.kill();
+  if (_camTween === flight.tween) _camTween = null;
+  controls.enabled = true;
+  _camAnimating = false;
+  return true;
+}
+
+function _focusPinCamera(pinWorld, {radius = null} = {}) {
+  // Staff/editor coordinates and transforms must never auto-orbit while
+  // placing labels. Preview visitors and My Pins can both focus pins.
+  if (document.getElementById('add-label-btn') || document.getElementById('admin-controls')) return false;
+  if (!pinWorld || ![pinWorld.x,pinWorld.y,pinWorld.z].every(Number.isFinite)) return false;
+  _suppressLateSplatIntro = true;
+  _cancelPinFocusFlight();
+  stopAutoOrbit();
+  if (typeof _cancelActiveTour === 'function') _cancelActiveTour();
+  if (_camTween) { _camTween.kill(); _camTween = null; }
+
+  const plan = planPinCameraFlight({
+    camera:camera.position, target:controls.target, pin:pinWorld,
+    viewRadius:radius ?? (window.innerWidth <= 760 ? 12 : 10.5),
+    elevationDeg:PIN_VIEW_ANGLE_DEG,
+    orbitAzimuth:controls.getAzimuthalAngle?.(),
+  });
+  if (!plan) return false;
+
+  const view = value => {
+    const sample = samplePinCameraFlight(plan,value);
+    camera.position.set(sample.camera.x,sample.camera.y,sample.camera.z);
+    controls.target.set(sample.target.x,sample.target.y,sample.target.z);
+    camera.lookAt(controls.target);
+    _idleFrames = 0;
+    _lastRenderMs = 0;
+  };
+  const complete = flight => {
+    if (_pinFocusFlight !== flight) return;
+    view(1);
+    _cancelPinFocusFlight();
+    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+      controls.update();
+      return;
+    }
+    // Handoff uses the same OrbitControls target, radius, and azimuth as
+    // the final frame: there is no second fly-in or discontinuous rotation.
+    _orbitActive = true;
+    _orbitTarget.copy(pinWorld);
+    controls.autoRotate = true;
+    controls.autoRotateSpeed = PIN_ORBIT_SPEED;
+    controls.update();
+    if (typeof _syncAutoPanButtons === 'function') _syncAutoPanButtons();
+    window._syncRotateBtn?.();
+  };
+
+  if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+    view(1);
+    controls.enabled = true;
+    _camAnimating = false;
+    controls.update();
+    return true;
+  }
+
+  const flight = {
+    tween:null, interrupt:null, keyInterrupt:null,
+    visibilityInterrupt:null,
+  };
+  flight.interrupt = () => {
+    if (_pinFocusFlight !== flight) return;
+    _cancelPinFocusFlight();
+    stopAutoOrbit();
+    controls.update();
+  };
+  flight.keyInterrupt = event => {
+    if (['Escape','ArrowUp','ArrowDown','ArrowLeft','ArrowRight','+','-'].includes(event.key)) {
+      flight.interrupt();
+    }
+  };
+  flight.visibilityInterrupt = () => {if (document.hidden) flight.interrupt();};
+  _pinFocusFlight = flight;
+  _camAnimating = true;
+  controls.enabled = false;
+  controls.autoRotate = false;
+  renderer.domElement.addEventListener('pointerdown',flight.interrupt,true);
+  renderer.domElement.addEventListener('wheel',flight.interrupt,{capture:true,passive:true});
+  window.addEventListener('keydown',flight.keyInterrupt,true);
+  document.addEventListener('visibilitychange',flight.visibilityInterrupt);
+  controls.addEventListener('start',flight.interrupt);
+  window._interruptFlyTo = flight.interrupt;
+  const progress = {t:0};
+  const tween = gsap.to(progress, {
+    t:1, duration:plan.duration, ease:'none',
+    onUpdate() {if(_pinFocusFlight === flight) view(progress.t);},
+    onComplete() {complete(flight);},
+  });
+  flight.tween = tween;
+  _camTween = tween;
+  return true;
 }
 
 window._syncRotateBtn = () => {
@@ -787,6 +903,7 @@ function _buildCamButtons(cfg) {
   syncPressedButton(rotBtn, controls.autoRotate);
   rotBtn.innerHTML = `<div class="icon-wrap">${icons.autopan}</div><span class="label-wrap">Rotate</span>`;
   rotBtn.onclick = () => {
+    _cancelPinFocusFlight();
     if (controls.autoRotate) {
       stopAutoOrbit();
       controls.autoRotate = false;
@@ -991,6 +1108,7 @@ function _applyBranding(cfg, publicSite = null) {
 }
 
 window.setCameraPreset = function setCameraPreset(name, duration = 2500) {
+  _cancelPinFocusFlight();
   // A deliberate camera selection must not be overwritten by a late model load.
   _suppressLateSplatIntro = true;
   stopAutoOrbit();
@@ -1225,6 +1343,7 @@ function _renderCurrentGpsPosition(position, accuracyMetres, calibration) {
 }
 
 function _centreCameraOnGps(position) {
+  _cancelPinFocusFlight();
   if (!position) return;
   _suppressLateSplatIntro = true;
   stopAutoOrbit();
@@ -1709,6 +1828,8 @@ function showSceneLabelDetail(obj) {
       frameId:'detail-scene-photo-wrap',imageId:'detail-scene-photo'});
   }
   _mobileDetails.open('scene:' + obj.id);
+  const [x=0,y=0,z=0] = obj.transform?.position || [];
+  _focusPinCamera(new THREE.Vector3(x,y,z));
 }
 
 // Hazard pin detail: title + description + photo thumbnails. Text goes in via
@@ -1976,6 +2097,8 @@ function _openDetailPanel() {
 // Invalidate in-flight pin photos before another panel takes ownership.
 // Also clears the selected pin used by the optional tour button.
 function _leavePinDetail() {
+  _cancelPinFocusFlight();
+  stopAutoOrbit();
   _mobileDetails.reset();
   highlightSceneLabelFrame(null);
   document.getElementById('app')?.classList.remove('scene-pin-selected');
@@ -2380,94 +2503,17 @@ async function selectPoint(pt, options = {}) {
     document.getElementById('app')?.classList.add('panel-open');
   }
 
-  // ── Camera: zoom in 10 units at 45° elevation then slow orbit ──────────
-  stopAutoOrbit();
-  if (_camTween) { _camTween.kill(); _camTween = null; }
-
-  const PIN_RADIUS = 10;
-  const PIN_ELEV   = 45; // degrees
-  const elevRad    = PIN_ELEV * Math.PI / 180;
-  const pinPos     = new THREE.Vector3(pt.position3d.x, pt.position3d.y, pt.position3d.z);
-
-  // Preserve current azimuth so camera moves toward the pin, not sideways
-  const fromTarget = new THREE.Vector3(
-    camera.position.x - controls.target.x,
-    0,
-    camera.position.z - controls.target.z
-  );
-  if (fromTarget.length() < 0.001) fromTarget.set(1, 0, 0);
-  fromTarget.normalize();
-
-  const flatR     = PIN_RADIUS * Math.cos(elevRad);
-  const targetPos = new THREE.Vector3(
-    pinPos.x + fromTarget.x * flatR,
-    pinPos.y + PIN_RADIUS * Math.sin(elevRad),
-    pinPos.z + fromTarget.z * flatR
-  );
-
-  controls.enabled = false;
-  _camAnimating = true;
-  const interruptFlyTo = () => {
-    controls.removeEventListener('start', interruptFlyTo);
-    window._interruptFlyTo = null;
-    if (_camTween) { _camTween.kill(); _camTween = null; }
-    controls.enabled = true;
-    _camAnimating = false;
-  };
-  window._interruptFlyTo = interruptFlyTo;
-  controls.addEventListener('start', interruptFlyTo);
-  controls.enabled = true;
-
-  const startLook = controls.target.clone();
-  const endLook   = pinPos.clone();
-  const startSph  = new THREE.Spherical().setFromVector3(camera.position.clone().sub(startLook));
-  const endSph    = new THREE.Spherical().setFromVector3(targetPos.clone().sub(endLook));
-  let dTheta = endSph.theta - startSph.theta;
-  if (dTheta >  Math.PI) dTheta -= 2 * Math.PI;
-  if (dTheta < -Math.PI) dTheta += 2 * Math.PI;
-  const endTheta = startSph.theta + dTheta;
-
-  // Orbit starts immediately from click — theta offset accumulates during fly-to.
-  const orbitStartTime   = performance.now();
-  const orbitRadsPerSec  = 2 * Math.PI * 0.45 / 60; // same speed as controls.autoRotateSpeed 0.45
-
-  const prog = { t: 0 };
-  _camTween = gsap.to(prog, {
-    t: 1,
-    duration: 2.5,
-    ease: 'power2.inOut',
-    onUpdate() {
-      const { t } = prog;
-      const look = startLook.clone().lerp(endLook, t);
-      controls.target.copy(look);
-      const orbitOffset = (performance.now() - orbitStartTime) / 1000 * orbitRadsPerSec;
-      const sph  = new THREE.Spherical(
-        THREE.MathUtils.lerp(startSph.radius, endSph.radius, t),
-        THREE.MathUtils.lerp(startSph.phi,    endSph.phi,    t),
-        THREE.MathUtils.lerp(startSph.theta,  endTheta,      t) - orbitOffset,
-      );
-      camera.position.copy(look).add(new THREE.Vector3().setFromSpherical(sph));
-      camera.lookAt(look);
-    },
-    onComplete() {
-      controls.removeEventListener('start', interruptFlyTo);
-      controls.target.copy(pinPos);
-      controls.enabled = true;
-      _camAnimating = false;
-      _camTween = null;
-      // Skip startAutoOrbit's extra fly-in — we're already at the right radius/elevation.
-      _orbitActive = true;
-      _orbitTarget.copy(pinPos);
-      controls.autoRotate      = true;
-      controls.autoRotateSpeed = 0.45;
-      controls.update();
-      _syncAutoPanButtons();
-      window._syncRotateBtn?.();
-    },
-  });
+  // One deterministic orbit-target flight for normal and scene pins.
+  if (focusCamera) {
+    const pos = pt.position3d;
+    if (pos && [pos.x,pos.y,pos.z].every(Number.isFinite)) {
+      _focusPinCamera(new THREE.Vector3(pos.x,pos.y,pos.z));
+    }
+  }
 }
 
 window.showPointList = function(options = {}) {
+  _cancelPinFocusFlight();
   _cancelActiveTour();
   const fromSiteInfo = _siteInfoDetailOpen;
   _siteInfoDetailOpen = false;
@@ -2580,6 +2626,7 @@ function _cancelActiveTour(expectedTour = null) {
 }
 
 window.startNav = function(pt) {
+  _cancelPinFocusFlight();
   // A tour owns camera animation until it completes or is explicitly interrupted.
   _cancelActiveTour();
   stopAutoOrbit();
@@ -2780,6 +2827,7 @@ async function renderBuildings(geoData) {
       label._scaleEl.setAttribute('tabindex', '0');
       label._scaleEl.setAttribute('aria-label', p.name || labelText);
       const onOpenBuilding = (e) => {
+        _cancelPinFocusFlight();
         e?.stopPropagation?.();
         if (_mobileDetails.repeat('building:' + p.id)) return;
         _leavePinDetail();

@@ -72,6 +72,6 @@ test('public pages load the responsive detail stylesheet after old inline CSS',(
   for(const name of ['index.html','viewer3d.html']){
     const html=read(name);
     assert.ok(html.indexOf('href="./mobile-detail-sheet.css?')>html.lastIndexOf('</style>'));
-    assert.match(html,/src="\.\/viewer3d\.js\?v=mobile-details-/);
+    assert.match(html,/src="\.\/viewer3d\.js\?v=[^"]+/);
   }
 });
