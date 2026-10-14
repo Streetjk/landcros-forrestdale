@@ -33,8 +33,10 @@ for (const name of htmlFiles) {
 }
 
 
-test('scene status chrome passes map taps through while its controls stay interactive', () => {
+test('public guest scenes hide the sign-in banner; accessible signed-in controls remain', () => {
+  assert.match(viewer, /if \(!signedIn && scene\.kind !== 'hazard'\)/);
+  assert.match(viewer, /document\.getElementById\('scene-status-bar'\)\?\.remove\(\)/);
   assert.match(viewer, /scene-status-bar[\s\S]*pointer-events:none/);
   assert.match(viewer, /b\.style\.cssText = `[^`]*pointer-events:auto;/);
-  assert.match(viewer, /a\.style\.cssText = '[^']*pointer-events:auto;'/);
+  assert.doesNotMatch(viewer, /a\.textContent = 'Sign in to update'/);
 });
