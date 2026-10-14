@@ -7,7 +7,8 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
 import { Sky } from 'three/addons/objects/Sky.js';
 import { initComparison, updateComparison, comparisonNeedsRender } from './splat-compare.js';
-import { createSceneLabelPin, createSceneGroundFrame, SCENE_PIN_FLOAT_HEIGHT, preloadSceneLabelPhotos } from './scene-label-pin.js';
+import { createSceneLabelPin, createSceneGroundFrame, SCENE_PIN_FLOAT_HEIGHT, SCENE_PIN_GROUND_Y, preloadSceneLabelPhotos } from './scene-label-pin.js';
+import { gpsToScene, loadSiteGpsCalibration } from './site-gps-calibration.js';
 
 // ── Site config (loaded from data/config.json in boot()) ──────────────────
 let _cfg = {};
@@ -17,6 +18,11 @@ let _cfg = {};
 // pos3d on buildings/roads overrides this when set manually.
 let _sceneBounds = null;
 let _planeGroup  = null;
+let _siteGpsCalibrationPromise = null;
+function _getSiteGpsCalibration() {
+  if (!_siteGpsCalibrationPromise) _siteGpsCalibrationPromise = loadSiteGpsCalibration();
+  return _siteGpsCalibrationPromise;
+}
 async function _getBounds() {
   if (_sceneBounds) return _sceneBounds;
   const r = await fetch('./assets/site-map-bounds.json');
@@ -24,6 +30,11 @@ async function _getBounds() {
   return _sceneBounds;
 }
 async function latlngToScene(lat, lng) {
+  // The legacy bounds have no rotation. Use the verified eight-reference
+  // affine calibration for landcros, while retaining the bounds fallback on
+  // other sites with no calibration file.
+  const position = gpsToScene(lat, lng, await _getSiteGpsCalibration());
+  if (position) return position;
   const { bounds } = await _getBounds();
   const [sw, ne] = bounds;
   const x = ((lng - sw[1]) / (ne[1] - sw[1]) - 0.5) * 40;
@@ -499,6 +510,28 @@ function _buildCamButtons(cfg) {
   };
   wrap.appendChild(rotBtn);
 
+  // Opt-in mobile/tablet GNSS: no automatic tracking and no location upload.
+  const locateBtn = document.createElement('button');
+  locateBtn.type = 'button';
+  locateBtn.id = 'btn-locate-me';
+  locateBtn.className = 'cam-preset-btn';
+  locateBtn.title = 'Show current location (GPS)';
+  locateBtn.setAttribute('aria-label', 'Show my current GPS location');
+  locateBtn.innerHTML = `<div class="icon-wrap"><svg viewBox="0 0 24 24" width="20" height="20"
+    fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+    stroke-linejoin="round" aria-hidden="true">
+    <circle cx="12" cy="12" r="3"/><path d="M12 2v3m0 14v3M2 12h3m14 0h3"/>
+    <circle cx="12" cy="12" r="8"/></svg></div><span class="label-wrap">Locate me</span>`;
+  const syncLocate = () => {
+    locateBtn.style.display = window.innerWidth <= 1024 ? '' : 'none';
+  };
+  syncLocate();
+  window.addEventListener('resize', syncLocate);
+  locateBtn.addEventListener('click', () => _locateUserOnce(locateBtn));
+  wrap.appendChild(locateBtn);
+
+
+
   (cfg.camera?.presets ?? []).forEach((p, i) => {
     const btn = document.createElement('button');
     btn.className = 'cam-preset-btn';
@@ -660,6 +693,135 @@ window.setCameraPreset = function setCameraPreset(name, duration = 2500) {
 
 // ── Pin rendering ──────────────────────────────────────────────────────────
 
+// One-shot private GPS overlay; no persisted coordinates or background watch.
+let _gpsPositionGroup = null;
+let _gpsRequestSequence = 0;
+let _gpsStatusTimeout = null;
+
+function _showGpsStatus(message) {
+  let label = document.getElementById('gps-position-status');
+  if (!label) {
+    label = document.createElement('div');
+    label.id = 'gps-position-status';
+    label.setAttribute('role', 'status');
+    label.setAttribute('aria-live', 'polite');
+    label.style.cssText = `position:absolute;top:12px;right:12px;z-index:36;
+      max-width:min(280px,60vw);font:600 12px/1.45 'DM Sans',sans-serif;
+      color:#fff;background:rgba(15,23,42,.91);border:1px solid rgba(255,255,255,.18);
+      border-radius:10px;padding:9px 12px;box-shadow:0 3px 14px rgba(0,0,0,.3);
+      pointer-events:none;`;
+    document.getElementById('canvas-wrap')?.appendChild(label);
+  }
+  label.textContent = message;
+  label.hidden = false;
+  clearTimeout(_gpsStatusTimeout);
+  _gpsStatusTimeout = setTimeout(() => { label.hidden = true; }, 7000);
+}
+
+function _renderCurrentGpsPosition(position, accuracyMetres, calibration) {
+  if (_gpsPositionGroup) {
+    _gpsPositionGroup.traverse(child => {
+      child.geometry?.dispose?.();
+      if (Array.isArray(child.material)) child.material.forEach(m => m.dispose?.());
+      else child.material?.dispose?.();
+    });
+    scene.remove(_gpsPositionGroup);
+  }
+  const root = new THREE.Group();
+  root.name = 'sitenav-gps-location';
+  root.position.set(position.x, 0, position.z);
+  const metresPerUnit = calibration?.fit?.approxMetresPerSceneUnit || 12.5;
+  const radius = Math.min(6, Math.max(0.23, accuracyMetres / metresPerUnit));
+  const ring = new THREE.Mesh(
+    new THREE.RingGeometry(Math.max(0.05, radius - 0.055), radius, 48),
+    new THREE.MeshBasicMaterial({ color: 0x60a5fa, side: THREE.DoubleSide,
+      transparent: true, opacity: 0.82, depthTest: false, depthWrite: false })
+  );
+  ring.rotation.x = -Math.PI / 2;
+  ring.position.y = 0.09;
+  ring.renderOrder = 990;
+  root.add(ring);
+  const dot = new THREE.Mesh(
+    new THREE.SphereGeometry(0.18, 16, 12),
+    new THREE.MeshBasicMaterial({ color: 0x2563eb, depthTest: false })
+  );
+  dot.position.y = 0.2;
+  dot.renderOrder = 991;
+  root.add(dot);
+  const cap = document.createElement('div');
+  cap.className = 'gps-position-label';
+  cap.textContent = 'You are here · ±' + Math.round(accuracyMetres) + ' m';
+  cap.style.cssText = `white-space:nowrap;pointer-events:none;transform:translate(-50%,-155%);
+    background:#185fa5;color:white;border-radius:7px;padding:5px 9px;
+    font:700 12px/1.2 'DM Sans',sans-serif;box-shadow:0 2px 8px #0007;`;
+  const tag = new CSS2DObject(cap);
+  tag.position.set(0, 0.2, 0);
+  root.add(tag);
+  scene.add(root);
+  _gpsPositionGroup = root;
+}
+
+async function _locateUserOnce(button) {
+  if (!navigator.geolocation) {
+    _showGpsStatus('GPS location is not supported on this device.');
+    return;
+  }
+  if (!window.isSecureContext) {
+    _showGpsStatus('GPS requires HTTPS.');
+    return;
+  }
+  const sequence = ++_gpsRequestSequence;
+  button.disabled = true;
+  _showGpsStatus('Finding your GPS location…');
+  try {
+    const fix = await new Promise((resolve, reject) => {
+      navigator.geolocation.getCurrentPosition(resolve, reject,
+        { enableHighAccuracy: true, timeout: 12000, maximumAge: 5000 });
+    });
+    const calibration = await _getSiteGpsCalibration();
+    if (sequence !== _gpsRequestSequence) return;
+    if (!calibration) {
+      _showGpsStatus('This site has not been GPS-calibrated.');
+      return;
+    }
+    const pos = gpsToScene(fix.coords.latitude, fix.coords.longitude, calibration);
+    if (!pos) throw Error('Invalid GPS coordinates');
+    const bounds = calibration.references;
+    if (!Array.isArray(bounds) || bounds.length < 3) {
+      _showGpsStatus('GPS calibration has no site boundary references.');
+      return;
+    }
+    const within = pos.x >= Math.min(...bounds.map(r=>r.sceneX)) - 4 &&
+      pos.x <= Math.max(...bounds.map(r=>r.sceneX)) + 4 &&
+      pos.z >= Math.min(...bounds.map(r=>r.sceneZ)) - 4 &&
+      pos.z <= Math.max(...bounds.map(r=>r.sceneZ)) + 4;
+    const accuracy = Number(fix.coords.accuracy);
+    if (!within) {
+      _showGpsStatus('Your GPS location is outside the mapped site.');
+      return;
+    }
+    _renderCurrentGpsPosition(pos, Number.isFinite(accuracy) ? accuracy : 30, calibration);
+    // Keep the current viewing angle; translate camera and orbit target by
+    // exactly the same delta, so GPS centring never rotates the model.
+    _suppressLateSplatIntro = true;
+    stopAutoOrbit();
+    const newTarget = new THREE.Vector3(pos.x, 0, pos.z);
+    const delta = newTarget.clone().sub(controls.target);
+    camera.position.add(delta);
+    controls.target.copy(newTarget);
+    controls.update();
+    _showGpsStatus('GPS location centred · ±' + Math.round(accuracy) + ' m' +
+      (accuracy > 25 ? ' (low accuracy)' : ''));
+  } catch (e) {
+    const code = e?.code;
+    _showGpsStatus(code === 1 ? 'Location permission was denied.' :
+      code === 3 ? 'GPS timed out. Try outdoors.' :
+      'Unable to determine your current GPS position.');
+  } finally {
+    button.disabled = false;
+  }
+}
+
 const PIN_COLORS = { 'drop-off': 0x185FA5, 'collection': 0x1D9E75, 'both': 0x854F0B, 'meet-point': 0xF59E0B };
 
 function _addPinToScene(pt) {
@@ -819,7 +981,7 @@ function _renderSceneWidget(obj) {
     div.textContent = _sceneObjDisplayText(obj);
   }
   const css2dObj = new CSS2DObject(div);
-  css2dObj.position.set(0, obj.kind === 'label' ? SCENE_PIN_FLOAT_HEIGHT
+  css2dObj.position.set(0, obj.kind === 'label' ? SCENE_PIN_GROUND_Y
     : (obj.kind === 'button' || obj.kind === 'widget') ? 0.4 : 0.1, 0);
   anchor.add(css2dObj);
 

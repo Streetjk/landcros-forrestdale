@@ -11,7 +11,7 @@ import * as THREE from 'three';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import { CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
 import { generateQR } from './qr.js';
-import { createSceneLabelPin, createSceneGroundFrame, SCENE_PIN_FLOAT_HEIGHT } from './scene-label-pin.js';
+import { createSceneLabelPin, createSceneGroundFrame, SCENE_PIN_FLOAT_HEIGHT, SCENE_PIN_GROUND_Y } from './scene-label-pin.js';
 
 const SLUG = new URLSearchParams(location.search).get('site');
 
@@ -121,6 +121,20 @@ function renderScenesList() {
     del.textContent = '✕';
     del.title = 'Delete scene';
     del.addEventListener('click', e => { e.stopPropagation(); onDeleteSceneClick(scene.id); });
+    if (typeof MODE === 'undefined' || MODE === 'admin') {
+      const copy = document.createElement('button');
+      copy.type = 'button';
+      copy.className = 'scene-duplicate-btn';
+      copy.textContent = 'Copy';
+      copy.title = 'Duplicate ' + scene.name + ' into an independent scene';
+      copy.setAttribute('aria-label', 'Duplicate scene ' + scene.name);
+      copy.dataset.action = 'duplicate';
+      copy.addEventListener('click', event => {
+        event.stopPropagation();
+        onDuplicateSceneClick(scene, copy);
+      });
+      row.appendChild(copy);
+    }
     row.appendChild(del);
     row.addEventListener('click', () => selectScene(scene.id));
     list.appendChild(row);
@@ -205,6 +219,39 @@ async function onNewSceneConfirm() {
   onNewSceneCancel();
   _scenes.push(created);
   await selectScene(created.id);
+}
+
+// User-initiated atomic copy, with new IDs, independent photo storage and
+// a new share capability. Never edit the source scene in this handler.
+async function onDuplicateSceneClick(scene, button) {
+  if (!scene?.id || button.disabled) return;
+  const name = scene.name.slice(0, 113).trimEnd() + ' (Copy)';
+  button.disabled = true;
+  button.textContent = '...';
+  try {
+    if (_currentSceneId === scene.id) await flushAllPending();
+    const response = await fetch(
+      `/api/sites/${encodeURIComponent(SLUG)}/scenes/${encodeURIComponent(scene.id)}/duplicate`,
+      { method: 'POST', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) }
+    );
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      if (response.status === 401) window._snShowLoginGate?.();
+      throw new Error(data.error || `Copy failed (${response.status})`);
+    }
+    if (!data.id || !data.shareCode || data.id === scene.id || data.shareCode === scene.shareCode) {
+      throw new Error('Server did not return an independent scene copy');
+    }
+    _scenes.push({ ...data, isMine: true });
+    await selectScene(data.id);
+    showToast('Scene copied · ' + (data.copiedObjects ?? 0) + ' objects');
+  } catch (error) {
+    showToast(error.message || 'Scene could not be copied');
+  } finally {
+    button.disabled = false;
+    button.textContent = 'Copy';
+  }
 }
 
 async function onDeleteSceneClick(id) {
@@ -293,7 +340,7 @@ function renderObject(obj) {
     div.textContent = objectDisplayText(obj);
   }
   const css2dObj = new CSS2DObject(div);
-  css2dObj.position.set(0, obj.kind === 'label' ? SCENE_PIN_FLOAT_HEIGHT
+  css2dObj.position.set(0, obj.kind === 'label' ? SCENE_PIN_GROUND_Y
     : (obj.kind === 'button' || obj.kind === 'widget') ? 0.4
     : 0.1, 0);
   anchor.add(css2dObj);

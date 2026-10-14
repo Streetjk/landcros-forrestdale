@@ -1,5 +1,6 @@
 import { getContacts, getPoints, savePoint, deletePoint, saveContact } from './db.js';
 import { generateQR, downloadQR } from './qr.js';
+import { sceneToGps, loadSiteGpsCalibration } from './site-gps-calibration.js';
 
 // ── State ─────────────────────────────────────────────────────────────────────
 let _v3d           = null;
@@ -8,6 +9,7 @@ let _personalPins  = [];
 let _contacts      = [];
 let _contactsAll   = [];
 let _siteBounds    = null;
+let _siteGpsCalibration = null;
 let _editingPoint  = null;
 let _editingType   = null;
 let _editingScope  = 'personal';
@@ -35,7 +37,10 @@ window.addEventListener('viewer3d:ready', async () => {
   wrap.addEventListener('pointerup', _onWrapPointerUp, { capture: true });
   wrap.addEventListener('click', _onWrapClick, { capture: true });
 
-  _siteBounds = await fetch('./assets/site-map-bounds.json').then(r => r.json());
+  [_siteBounds, _siteGpsCalibration] = await Promise.all([
+    fetch('./assets/site-map-bounds.json').then(r => r.json()),
+    loadSiteGpsCalibration(),
+  ]);
   [_points, _contacts] = await Promise.all([getPoints(), getContacts()]);
   _contactsAll = [..._contacts];
 
@@ -143,6 +148,8 @@ function _addToHistory(pt) {
 
 // ── Inverse coord: scene pos3d → [lat, lng] ───────────────────────────────────
 function _sceneToLatlng(x, z) {
+  const calibrated = sceneToGps(x, z, _siteGpsCalibration);
+  if (calibrated) return calibrated;
   const [sw, ne] = _siteBounds.bounds;
   const lng = (x / 40 + 0.5) * (ne[1] - sw[1]) + sw[1];
   const lat = (-z / 30 + 0.5) * (ne[0] - sw[0]) + sw[0];

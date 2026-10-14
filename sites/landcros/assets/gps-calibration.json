@@ -1,0 +1,81 @@
+{
+  "version": 1,
+  "status": "provisional",
+  "source": "Eight visitor-supplied Google Maps coordinates associated with scene label locations; excludes Fire Hose maintenance label",
+  "sceneCode": "47h76jdqn5",
+  "origin": {
+    "latitude": -32.139645625,
+    "longitude": 115.95369625
+  },
+  "metresPerDegreeLatitude": 111320,
+  "metresPerDegreeLongitude": 94260.657409,
+  "sceneFromMetres": {
+    "x": [
+      0.05669067494,
+      0.05692485009,
+      -1.98669970093
+    ],
+    "z": [
+      0.05727636107,
+      -0.05630748022,
+      1.11608443064
+    ]
+  },
+  "fit": {
+    "referenceCount": 8,
+    "rmsSceneUnits": 0.09353,
+    "maxSceneUnits": 0.14299,
+    "approxMetresPerSceneUnit": 12.449,
+    "rmsMetresApprox": 1.164
+  },
+  "references": [
+    {
+      "latitude": -32.141467,
+      "longitude": 115.953585,
+      "sceneX": -14.07210298708516,
+      "sceneZ": 11.823500231894801
+    },
+    {
+      "latitude": -32.139425,
+      "longitude": 115.955607,
+      "sceneX": 9.697420774935457,
+      "sceneZ": 9.9347255332651
+    },
+    {
+      "latitude": -32.13772,
+      "longitude": 115.9537,
+      "sceneX": 10.219287262565906,
+      "sceneZ": -10.970046641655046
+    },
+    {
+      "latitude": -32.139219,
+      "longitude": 115.95094,
+      "sceneX": -13.974220323151364,
+      "sceneZ": -16.421641698031625
+    },
+    {
+      "latitude": -32.140768,
+      "longitude": 115.954381,
+      "sceneX": -5.542922124321169,
+      "sceneZ": 11.947414042868447
+    },
+    {
+      "latitude": -32.13999,
+      "longitude": 115.955288,
+      "sceneX": 4.345395325100034,
+      "sceneZ": 11.955956851255475
+    },
+    {
+      "latitude": -32.13946,
+      "longitude": 115.951808,
+      "sceneX": -10.921801862935535,
+      "sceneZ": -10.24820011423767
+    },
+    {
+      "latitude": -32.139116,
+      "longitude": 115.954261,
+      "sceneX": 4.355346327169219,
+      "sceneZ": 0.9069672394527004
+    }
+  ]
+}
