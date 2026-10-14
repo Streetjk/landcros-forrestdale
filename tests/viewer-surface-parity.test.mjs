@@ -9,7 +9,7 @@ test('all 3D SiteNav surfaces use the shared viewer and shared mobile stylesheet
   for (const name of surfaces) {
     const html = read(name);
     assert.match(html, /<link rel="stylesheet" href="\.\/style\.css">/);
-    assert.match(html, /<script type="module" src="\.\/viewer3d\.js"><\/script>/);
+    assert.match(html, /<script type="module" src="\.\/viewer3d\.js(?:\?[^\"]*)?"><\/script>/);
   }
 });
 

@@ -11,7 +11,7 @@ const adminRuntime = fs.readFileSync('admin3d.js', 'utf8');
 test('both viewer pages load the shared panel-state adapter before viewer runtime', () => {
   for (const [name, html, mode] of [['index', index, 'sheet'], ['viewer3d', viewer, 'fold']]) {
     const adapter = html.indexOf('src="./panel-state.js"');
-    const viewerScript = html.indexOf('type="module" src="./viewer3d.js"');
+    const viewerScript = html.search(/type="module" src="\.\/viewer3d\.js(?:\?[^"]*)?"/);
     assert.ok(adapter >= 0, `${name} loads panel-state.js`);
     assert.ok(viewerScript > adapter, `${name} loads adapter before viewer3d.js`);
     assert.match(html, new RegExp(`SiteNavPanelState\\.init\\(\\{ mode: '${mode}' \\}\\)`));
