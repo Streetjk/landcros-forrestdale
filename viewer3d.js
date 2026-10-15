@@ -18,6 +18,7 @@ import { createSceneLabelPin, createSceneGroundFrame, SCENE_PIN_FLOAT_HEIGHT, SC
 import { renderScenePhotoGallery, hideScenePhotoGallery } from './scene-photo-gallery-view.js';
 import { createMobileDetailSheet, trackMapTaps } from './mobile-detail-sheet.js?v=brand-dock-20261015a';
 import { loadSharedSceneBundle } from './scene-bundle-loader.js';
+import { singleSharedSceneLabelPosition } from './shared-scene-startup-focus.js';
 import { findLabelAtTap, isTouchMapDevice } from './map-touch-input.js';
 import { gpsToScene, loadSiteGpsCalibration } from './site-gps-calibration.js';
 import { shouldRenderGpsFix, gpsSceneAccuracyRadius, gpsWithinSite } from './gps-tracking.js';
@@ -1754,6 +1755,34 @@ let _scenePhotoWarmImages = new Map();
 
 function renderSceneWidgets(list) {
   list.filter(o => o.kind === 'label' || o.kind === 'button' || o.kind === 'widget' || o.kind === 'hazard').forEach(_renderSceneWidget);
+}
+
+// A shared-scene link with one custom label should show that label on its
+// FIRST visit, including narrow portrait viewports where the default intro
+// camera can otherwise leave it outside the clipped map. Reuse the existing
+// interruptible flight, never auto-orbit, and never override manual navigation.
+function _focusFirstSharedSceneLabel(objects) {
+  if (!_params.get('scene') || _params.has('id') || _publicMyPinMode
+      || document.getElementById('add-label-btn')
+      || document.getElementById('admin-controls')) return false;
+  const point = singleSharedSceneLabelPosition(objects);
+  if (!point || !_sceneWidgets.has(point.id)) return false;
+  const reveal = () => {
+    if (document.hidden || _suppressLateSplatIntro) return false;
+    return _focusPinCamera(new THREE.Vector3(point.x, point.y, point.z), {
+      orbitAfterArrival: false, source: 'shared-scene-startup',
+    });
+  };
+  if (document.hidden) {
+    const onVisible = () => {
+      if (document.hidden) return;
+      document.removeEventListener('visibilitychange', onVisible);
+      reveal();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return true;
+  }
+  return reveal();
 }
 
 // ── Scene status bar (both map kinds) ──────────────────────────────────
@@ -4637,6 +4666,9 @@ async function boot() {
       renderSceneWidgets(_sceneBundle.objects);
       _earlySceneWidgetsRendered = true;
     }
+    // The scene link's sole custom label may be outside the default phone
+    // camera even though its DOM and mesh loaded correctly. Frame it once.
+    _focusFirstSharedSceneLabel(_sceneBundle.objects);
   }
   // My Pins is a one-guide public capability, not a mutable scene workflow.
   if (_sceneBundle?.scene && _sceneCode && !_publicMyPinMode) renderSceneStatusBar(_sceneCode, _sceneBundle);
