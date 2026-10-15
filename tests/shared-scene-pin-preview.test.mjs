@@ -91,6 +91,8 @@ test('SQL RPC permits only admin shared labels and no direct anonymous scene tab
   assert.match(sql,/grant execute on function public\.sitenav_shared_scene_pin_preview\(text, text\)\s+to anon/i);
   assert.doesNotMatch(sql,/grant\s+select\s+on\s+.*scene_objects/i);
   assert.doesNotMatch(sql,/\b(photoUrls|photoUrl|description|script_source|phone|contact_ids)\b/);
+  const grants=src('supabase/migrations/0022_revoke_anon_scene_table_grants.sql');
+  assert.match(grants,/revoke all privileges on table[\s\S]*public\.scenes,[\s\S]*public\.scene_objects,[\s\S]*public\.scripts[\s\S]*from anon;/i);
 });
 
 test('viewer starts Supabase preview before the scene build, reconciles full data, and keeps vanilla private',()=>{
