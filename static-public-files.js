@@ -4,7 +4,7 @@
 // Only entries declared here may cross the unauthenticated static-file boundary.
 const PUBLIC_ROOT_FILES = Object.freeze([
   'index.html', 'viewer3d.html', 'admin3d.html', 'gallery.html', 'editor.html',
-  'portal.html', 'reset-pin.html', 'start.html', 'style.css',
+  'portal.html', 'reset-pin.html', 'start.html', 'style.css', 'site-brand-layout.css',
   'coi-serviceworker.js', 'auth-gate.js', 'panel-state.js', 'panel-mobile.js', 'mobile-detail-sheet.js', 'mobile-detail-sheet.css',
   'staff-map-shell.js', 'staff-nav.js', 'admin3d.js', 'gallery.js',
   'scene-editor.js', 'scene-label-pin.js', 'scene-bundle-loader.js', 'scene-photo-gallery-view.js', 'site-gps-calibration.js', 'gps-tracking.js', 'viewer3d.js', 'db.js', 'detail-card.js', 'guide-url.js',

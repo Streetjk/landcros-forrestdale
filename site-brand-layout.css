@@ -1,0 +1,25 @@
+/* Public SiteNav: one fixed brand anchor across portrait, landscape and desktop.
+   Detail sheets and right-side drawers must not move, dim or hide this block. */
+#app #site-brand {
+  position: fixed !important;
+  top: calc(16px + var(--safe-top, env(safe-area-inset-top, 0px))) !important;
+  left: calc(16px + env(safe-area-inset-left, 0px)) !important;
+  right: auto !important;
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: flex-start !important;
+  max-width: min(42vw, 320px);
+  visibility: visible !important;
+  opacity: 1 !important;
+  z-index: 40 !important;
+  pointer-events: none;
+}
+#app #site-brand img {
+  max-width: 100%;
+  width: auto;
+  object-fit: contain;
+}
+#app #site-brand #site-address {
+  display: block !important;
+  text-align: left !important;
+}

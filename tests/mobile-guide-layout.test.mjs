@@ -56,7 +56,8 @@ test('landscape compact layout moves the info panel to a desktop-style right dra
   assert.match(index, /#side-panel\.detail-open #panel-header\s*\{\s*display:\s*none !important;\s*\}/);
   assert.match(index, /#btn-fullscreen,[\s\S]*?#app\.sheet-open #btn-fullscreen\s*\{[\s\S]*?right:\s*16px !important;[\s\S]*?bottom:\s*calc\(16px \+ var\(--safe-bottom\)\) !important;/);
   assert.match(index, /#app\.sheet-open #btn-fullscreen\s*\{\s*right:\s*calc\(var\(--sn-landscape-panel-width\) \+ 16px\) !important;\s*\}/);
-  assert.match(index, /window\._snLandscapeCompact = \(\) =>[\s\S]*?orientation: landscape[\s\S]*?window\.togglePanelOpen = \(\) => window\._snLandscapeCompact\(\)[\s\S]*?SiteNavPanelState\.toggle\(\)[\s\S]*?SiteNavPanelState\.toggleDesktop\(\)/);
+  assert.match(index, /window\._snLandscapeCompact = \(\) =>[\s\S]*?orientation: landscape/);
+  assert.match(index, /window\.togglePanelOpen = \(\) => \{[\s\S]*?window\._snShowLocationsFromSideTab\?\.\(\)[\s\S]*?SiteNavPanelState\.toggle\(\)[\s\S]*?SiteNavPanelState\.toggleDesktop\(\)/);
 });
 
 test('mobile camera controls snap immediately when the information panel changes height', () => {

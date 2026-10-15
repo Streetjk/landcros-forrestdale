@@ -92,13 +92,7 @@ export function createMobileDetailSheet({ onDismiss = () => {}, enabled = () => 
     const browse = make('button','sn-details-browse','Locations');
     browse.id = 'sn-details-browse'; browse.type = 'button';
     browse.setAttribute('aria-label','Open locations');
-    browse.addEventListener('click', () => {
-      reset();
-      panel.classList.remove('panel-folded');
-      panel.classList.add('sheet-mid');
-      window.SiteNavPanelState?.openDetail?.();
-      window._updateCamPresetsBottom?.();
-    });
+    browse.addEventListener('click', browseLocations);
     app.appendChild(browse);
     ui = { panel, detail, app, header, expand, close, summary, title, kind, description,
       picture, image, photoCount, footer, browse };
@@ -194,6 +188,16 @@ export function createMobileDetailSheet({ onDismiss = () => {}, enabled = () => 
     change({type:'expand'});
     return true;
   }
+  function browseLocations() {
+    const parts = ensure();
+    if (!parts) return false;
+    reset();
+    parts.panel.classList.remove('panel-folded','sheet-full');
+    parts.panel.classList.add('sheet-mid');
+    window.SiteNavPanelState?.openDetail?.();
+    window._updateCamPresetsBottom?.();
+    return true;
+  }
   function reset() {
     state = {stage:'idle',key:null};
     if (!ui) return;
@@ -211,5 +215,5 @@ export function createMobileDetailSheet({ onDismiss = () => {}, enabled = () => 
     return true;
   }
   window.addEventListener('resize', () => { if (ui) apply(); });
-  return Object.freeze({open,repeat,reset,dismiss,refresh,snapshot:()=>({...state}),isCompact:compact});
+  return Object.freeze({open,repeat,reset,dismiss,browseLocations,refresh,snapshot:()=>({...state}),isCompact:compact});
 }

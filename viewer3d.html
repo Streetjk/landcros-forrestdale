@@ -820,7 +820,8 @@
       outline:2px solid #93c5fd;outline-offset:2px;
     }
   </style>
-  <link rel="stylesheet" href="./mobile-detail-sheet.css?v=20261014a">
+  <link rel="stylesheet" href="./mobile-detail-sheet.css?v=20261015b">
+  <link rel="stylesheet" href="./site-brand-layout.css?v=20261015a">
 </head>
 <body>
 <div id="app" class="sitenav-shell">
@@ -941,7 +942,8 @@
   window.SiteNavPanelState.init({ mode: 'fold' });
   window._updateCamPresetsBottom = () => window.SiteNavPanelState.sync();
   window.togglePanel = () => window.SiteNavPanelState.toggle();
-  window.togglePanelOpen = window.togglePanel;
+  window.togglePanelOpen = () =>
+    window._snShowLocationsFromSideTab?.() || window.togglePanel();
 
   window.addEventListener('error', e => {
     const el = document.getElementById('load-msg');
@@ -953,6 +955,6 @@
     if (el && r) el.textContent = 'Error: ' + (r?.message || (typeof r === 'string' ? r : 'unknown'));
   });
 </script>
-<script type="module" src="./viewer3d.js?v=logo-scene-boot-20261014f"></script>
+<script type="module" src="./viewer3d.js?v=brand-dock-20261015a"></script>
 </body>
 </html>

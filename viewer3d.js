@@ -16,7 +16,7 @@ import { getBasePublicVisitPointId } from './visit-analytics.js';
 import { createPointListItem } from './point-list-item.js';
 import { createSceneLabelPin, createSceneGroundFrame, SCENE_PIN_FLOAT_HEIGHT, SCENE_PIN_GROUND_Y, preloadSceneLabelPhotos, scenePhotoItems, markerScaleForZoom } from './scene-label-pin.js?v=pinzoom-toggle-20261014b';
 import { renderScenePhotoGallery, hideScenePhotoGallery } from './scene-photo-gallery-view.js';
-import { createMobileDetailSheet, trackMapTaps } from './mobile-detail-sheet.js';
+import { createMobileDetailSheet, trackMapTaps } from './mobile-detail-sheet.js?v=brand-dock-20261015a';
 import { loadSharedSceneBundle } from './scene-bundle-loader.js';
 import { findLabelAtTap, isTouchMapDevice } from './map-touch-input.js';
 import { gpsToScene, loadSiteGpsCalibration } from './site-gps-calibration.js';
@@ -2350,6 +2350,10 @@ const _mobileDetails = createMobileDetailSheet({
   // Closing a UI sheet must not cancel its independently running 3D camera.
   onDismiss: () => window.showPointList?.({historyMode:'none',preserveCamera:true}),
 });
+// Reopen the Locations side drawer after a landscape detail is dismissed.
+window._snShowLocationsFromSideTab = () =>
+  document.getElementById('app')?.classList.contains('sn-details-dismissed')
+    ? _mobileDetails.browseLocations() : false;
 const _isMobileMapTap = trackMapTaps(renderer.domElement);
 
 // All coarse-pointer visitor gestures begin on the WebGL canvas, even when

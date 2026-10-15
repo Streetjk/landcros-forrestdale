@@ -113,7 +113,6 @@
   #app.sn-details-full #cam-presets, #app.sn-details-full #btn-fullscreen,
   #app.sn-details-full #nav-progress {visibility:hidden!important;pointer-events:none!important;}
   #app.sn-details-active #panel-tab {display:none!important;}
-  #app.sn-details-full #site-brand {opacity:.7;}
 
   /* Empty-map tap closes the entire information sheet. A small Locations
      button preserves access to the list and the GPS Stop control. */
@@ -151,8 +150,10 @@
   #app.sn-details-active #side-panel[data-detail-stage="full"] {width:min(72vw,650px)!important;}
   #app.sn-details-active #cam-presets {bottom:16px!important;}
   #app.sn-details-active #btn-fullscreen {visibility:hidden!important;}
-  #app.sn-details-active #site-brand {visibility:hidden!important;}
   #app.sn-details-active .sn-detail-summary {overflow-y:auto!important;flex:1 1 auto!important;}
+  /* Landscape has a side drawer; never display the portrait Locations dock. */
+  #app.sn-details-dismissed #sn-details-browse {display:none!important;}
+  #app.sn-details-dismissed #panel-tab {display:flex!important;right:0!important;}
   #app.sn-details-dismissed #side-panel {transform:translateX(110%)!important;}
 }
 @media (prefers-reduced-motion:reduce) {

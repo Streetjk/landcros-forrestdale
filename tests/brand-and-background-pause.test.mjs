@@ -17,7 +17,7 @@ test('desktop and landscape branding anchors to the left independent of the righ
     const landscape = html.slice(html.indexOf('@media (max-width: 1024px) and (orientation: landscape)'));
     assert.match(landscape, /#site-brand[^{}]*\{[^}]*left:\s*calc\(16px \+ env\(safe-area-inset-left, 0px\)\) !important;[^}]*right:\s*auto !important;/s, name + ' landscape');
     assert.match(landscape, /#site-address\s*\{\s*text-align:\s*left !important;/);
-    assert.match(html, /#site-brand[^{}]*\{[^}]*right:\s*16px !important;/s, name + ' portrait positioning unchanged');
+    assert.match(html, /site-brand-layout\.css\?v=20261015a/,name + ' portrait uses shared fixed-left branding');
   }
   assert.doesNotMatch(index, /#app\.sheet-open #site-brand\s*\{\s*right:\s*calc/);
 });
