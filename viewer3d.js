@@ -17,7 +17,7 @@ import { createPointListItem } from './point-list-item.js';
 import { createSceneLabelPin, createSceneGroundFrame, SCENE_PIN_FLOAT_HEIGHT, SCENE_PIN_GROUND_Y, preloadSceneLabelPhotos, scenePhotoItems, markerScaleForZoom } from './scene-label-pin.js?v=pinzoom-toggle-20261014b';
 import { renderScenePhotoGallery, hideScenePhotoGallery } from './scene-photo-gallery-view.js';
 import { createMobileDetailSheet, trackMapTaps } from './mobile-detail-sheet.js?v=brand-dock-20261015a';
-import { loadSharedSceneBundle } from './scene-bundle-loader.js';
+import { loadSharedSceneBundle } from './scene-bundle-loader.js?v=scene-firstload-retry-20261015c';
 import { singleSharedSceneLabelPosition } from './shared-scene-startup-focus.js';
 import { findLabelAtTap, isTouchMapDevice } from './map-touch-input.js';
 import { gpsToScene, loadSiteGpsCalibration } from './site-gps-calibration.js';
@@ -4640,6 +4640,10 @@ async function boot() {
     }
   } else if (_sceneCode && !_publicMyPinMode && !document.getElementById('add-label-btn')) {
     document.getElementById('app')?.classList.add('scene-share-view');
+    // The public map may be ready before a sleeping API wakes. Keep the
+    // loading state truthful while the bounded shared-scene retries run.
+    const sceneLoadingMessage = document.getElementById('load-msg');
+    if (sceneLoadingMessage) sceneLoadingMessage.textContent = 'Loading shared scene pins…';
     try {
       const result = await (_earlySharedScene ??
         loadSharedSceneBundle(_apiUrl('/api/scenes/by-code/'+encodeURIComponent(_sceneCode))));
