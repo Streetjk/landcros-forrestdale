@@ -151,6 +151,17 @@
   #app.sn-details-active #cam-presets {bottom:16px!important;}
   #app.sn-details-active #btn-fullscreen {visibility:hidden!important;}
   #app.sn-details-active .sn-detail-summary {overflow-y:auto!important;flex:1 1 auto!important;}
+  /* The 58px dismissed control lift is reserved for the portrait Locations
+     dock. Landscape has no bottom dock, so return controls to their normal
+     16px map-edge position after full details are closed. */
+  #app.sn-details-dismissed #cam-presets,
+  #app.sn-details-dismissed #btn-fullscreen {
+    bottom:calc(16px + var(--safe-bottom))!important;
+  }
+  body[data-staff-nav-mounted="true"] #app.sn-details-dismissed #cam-presets,
+  body[data-staff-nav-mounted="true"] #app.sn-details-dismissed #btn-fullscreen {
+    bottom:calc(var(--sn-map-staff-nav-lift,55px) + 16px + var(--safe-bottom))!important;
+  }
   /* Landscape has a side drawer; never display the portrait Locations dock. */
   #app.sn-details-dismissed #sn-details-browse {display:none!important;}
   #app.sn-details-dismissed #panel-tab {display:flex!important;right:0!important;}

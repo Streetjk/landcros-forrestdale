@@ -16,7 +16,7 @@ test('logo and address have one fixed top-left anchor in all orientations and st
   assert.doesNotMatch(detailCss,/#app\.sn-details-full #site-brand\s*\{\s*opacity:/);
   for(const page of ['index.html','viewer3d.html']){
     const html=read(page);
-    assert.ok(html.indexOf('site-brand-layout.css?v=20261015a')>html.indexOf('mobile-detail-sheet.css?v=20261015b'),page+' brand overrides must load last');
+    assert.ok(html.indexOf('site-brand-layout.css?v=20261015a')>html.indexOf('mobile-detail-sheet.css?v=20261015c'),page+' brand overrides must load last');
   }
 });
 
