@@ -33,7 +33,10 @@ test('interruptions remove listeners and cancel the owner-only tween',()=>{
     assert.ok(cancel.includes("removeEventListener('"+event+"'"),event);
   assert.match(cancel,/if \(_camTween === flight\.tween\)/);
   assert.match(cancel,/flight\.tween\.kill\(\)/);
-  assert.match(src,/function _centreCameraOnGps\(position\)\s*\{\s*_cancelPinFocusFlight\(\)/);
+  const gpsFocus=src.slice(src.indexOf('function _centreCameraOnGps('),src.indexOf('function _clearGpsMarker('));
+  assert.match(gpsFocus,/_focusPinCamera\(new THREE\.Vector3\(position\.x, 0, position\.z\)/);
+  assert.match(gpsFocus,/orbitAfterArrival: false/);
+  assert.match(gpsFocus,/source: 'gps'/);
   assert.match(src,/function startAutoOrbit\(target, radius, elevDeg\)\s*\{\s*_cancelPinFocusFlight\(\)/);
   assert.match(src,/window\.setCameraPreset = function setCameraPreset\(name, duration = 2500\)\s*\{\s*_cancelPinFocusFlight\(\)/);
   assert.match(src,/window\.startNav = function\(pt\)\s*\{\s*_cancelPinFocusFlight\(\)/);

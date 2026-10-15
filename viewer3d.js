@@ -513,10 +513,10 @@ function _cancelPinFocusFlight() {
   return true;
 }
 
-function _focusPinCamera(pinWorld, {radius = null} = {}) {
-  // Staff/editor coordinates and transforms must never auto-orbit while
-  // placing labels. Preview visitors and My Pins can both focus pins.
-  if (document.getElementById('add-label-btn') || document.getElementById('admin-controls')) return false;
+function _focusPinCamera(pinWorld, {radius = null, orbitAfterArrival = true, source = 'pin'} = {}) {
+  // Pin selection must not move the camera while editing. GPS centering is
+  // an explicit user action and uses the same smooth flight without an orbit.
+  if (orbitAfterArrival && (document.getElementById('add-label-btn') || document.getElementById('admin-controls'))) return false;
   if (!pinWorld || ![pinWorld.x,pinWorld.y,pinWorld.z].every(Number.isFinite)) return false;
   _suppressLateSplatIntro = true;
   _cancelPinFocusFlight();
@@ -544,6 +544,10 @@ function _focusPinCamera(pinWorld, {radius = null} = {}) {
     if (_pinFocusFlight !== flight) return;
     view(1);
     _cancelPinFocusFlight();
+    if (!orbitAfterArrival) {
+      controls.update();
+      return;
+    }
     if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
       controls.update();
       return;
@@ -568,7 +572,7 @@ function _focusPinCamera(pinWorld, {radius = null} = {}) {
   }
 
   const flight = {
-    tween:null, interrupt:null, keyInterrupt:null,
+    source, tween:null, interrupt:null, keyInterrupt:null,
     visibilityInterrupt:null,
   };
   flight.interrupt = () => {
@@ -1390,22 +1394,13 @@ function _renderCurrentGpsPosition(position, accuracyMetres, calibration) {
 }
 
 function _centreCameraOnGps(position) {
-  _cancelPinFocusFlight();
-  if (!position) return;
-  _suppressLateSplatIntro = true;
-  stopAutoOrbit();
-  if (_camTween) {
-    _camTween.kill();
-    _camTween = null;
-    _camAnimating = false;
-  }
-  const target = new THREE.Vector3(position.x, 0, position.z);
-  const shift = target.clone().sub(controls.target);
-  camera.position.add(shift);
-  controls.target.copy(target);
-  controls.update();
-  _idleFrames = 0;
-  _lastRenderMs = 0;
+  if (!position) return false;
+  // The first valid fix flies in like a drop pin, but never starts the
+  // drop-pin orbit. Later GPS fixes only move the blue dot, not the camera.
+  return _focusPinCamera(new THREE.Vector3(position.x, 0, position.z), {
+    orbitAfterArrival: false,
+    source: 'gps',
+  });
 }
 
 function _clearGpsMarker() {
@@ -1424,6 +1419,12 @@ function _clearGpsMarker() {
 }
 
 function _stopGpsTracking(quiet = false) {
+  // Turning GPS off mid-flight must not finish centering on a hidden dot.
+  // Never cancel a newer, unrelated pin selection.
+  if (_pinFocusFlight?.source === 'gps') {
+    _cancelPinFocusFlight();
+    controls.update();
+  }
   ++_gpsWatchGeneration;
   _gpsWatchStarting = false;
   if (_gpsWatchId !== null) {
