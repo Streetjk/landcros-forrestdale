@@ -662,10 +662,13 @@
       #app.panel-open #side-panel { transform: translateX(0); }
 
       #site-brand {
-        right: 16px !important;
-        transition: right 0.35s cubic-bezier(0.2, 0.8, 0.2, 1);
+        top: calc(16px + var(--safe-top)) !important;
+        left: calc(16px + env(safe-area-inset-left, 0px)) !important;
+        right: auto !important;
+        align-items: flex-start !important;
+        max-width: min(40vw, 320px);
       }
-      #app.panel-open #site-brand { right: calc(200px + 16px) !important; }
+      #site-address { text-align: left !important; }
     }
 
     /* ── Mobile bottom sheet (≤767px) ── */
@@ -937,9 +940,15 @@
         bottom: calc(20px + var(--safe-bottom)) !important;
       }
 
-      #app.sheet-open #site-brand {
-        right: calc(var(--sn-landscape-panel-width) + 16px) !important;
+      /* Brand stays anchored left when the right-hand drawer opens. */
+      #site-brand, #app.sheet-open #site-brand {
+        left: calc(16px + env(safe-area-inset-left, 0px)) !important;
+        right: auto !important;
+        align-items: flex-start !important;
+        max-width: min(40vw, 320px);
       }
+      #site-brand img { max-width: 100%; object-fit: contain; }
+      #site-address { text-align: left !important; }
 
       body[data-staff-nav-mounted="true"] #side-panel {
         top: 0 !important;
@@ -988,7 +997,6 @@
     @media (min-width:1025px) {
       #app.scene-pin-selected #side-panel { width:320px !important; }
       #app.scene-pin-selected.panel-open #panel-tab { right:320px !important; }
-      #app.scene-pin-selected.panel-open #site-brand { right:336px !important; }
     }
     /* Scene pin multi-photo viewer. All images retain CORS and signed links. */
     .scene-photo-gallery-view[hidden] {display:none!important;}

@@ -809,23 +809,44 @@ let _pins = {}; // id → { group, pinGroup, sphere, icon, label, squareMat, squ
 // detaching the marker from the spot it labels.
 const PIN_FLOAT_HEIGHT = 1.3;
 let _pageHidden = document.hidden === true;
-document.addEventListener('visibilitychange', () => {
-  _pageHidden = document.hidden === true;
-  _perf.visibility(_pageHidden);
-  if (!_pageHidden) {
-    _idleFrames = 0;
-    _lastRenderMs = 0;
+let _viewerAnimationFrameId = null;
+
+// Mobile browsers throttle hidden tabs, but keeping a perpetual rAF pending
+// still wastes wakeups on browsers/WebViews that deliver background frames.
+// Never queue another frame until the page becomes visible again.
+function _queueViewerFrame() {
+  if (_pageHidden || _viewerAnimationFrameId !== null) return;
+  _viewerAnimationFrameId = requestAnimationFrame(animate);
+}
+
+function _setViewerPageVisibility(hidden) {
+  if (_pageHidden === hidden) return;
+  _pageHidden = hidden;
+  _perf.visibility(hidden);
+  if (hidden) {
+    if (_viewerAnimationFrameId !== null) cancelAnimationFrame(_viewerAnimationFrameId);
+    _viewerAnimationFrameId = null;
+    return;
   }
-});
+  _idleFrames = 0;
+  _lastRenderMs = 0;
+  _queueViewerFrame();
+}
+
+document.addEventListener('visibilitychange', () => _setViewerPageVisibility(document.hidden === true));
+window.addEventListener('pagehide', () => _setViewerPageVisibility(true));
+// A bfcache restore can fire pageshow without a new visibilitychange.
+window.addEventListener('pageshow', () => _setViewerPageVisibility(document.hidden === true));
 let _selectedId = null;
 const _sceneWidgets = new Map(); // id → { obj, anchor, raycastMesh } — read-only 'button' scene_objects (Phase 2 SLICE 4)
 
 function animate() {
-  requestAnimationFrame(animate);
+  _viewerAnimationFrameId = null;
   if (_pageHidden) {
     _perf.frame({ hidden: true });
     return;
   }
+  _queueViewerFrame();
   if (!_camAnimating) {
     controls.update(); // drives autoRotate when _orbitActive
   }
