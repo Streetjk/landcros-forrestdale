@@ -29,7 +29,8 @@ test('valid My Pins recipient route uses progressive base-guide reveal without b
   assert.equal(block.includes('scene'), false);
   assert.equal(block.includes('share'), false);
   assert.equal(block.includes('code'), false);
-  assert.ok(source.includes('const _progressivePublic = !_compOnly && _isVanillaProgressiveRoute();'));
+  assert.match(source,/const _progressivePublic = !_compOnly && \(_isVanillaProgressiveRoute\(\)[\s\S]*?_scopedPreviewForReveal\?\.objects\?\.length/);
+  assert.match(source,/_sharedLinkAllowed = _earlySharedCode && !_publicMyPinMode[\s\S]*?!_params\.has\('id'\)/);
   assert.ok(source.includes("if (_progressivePublic && _splatStatus !== 'ready')"));
   assert.ok(source.includes('fetch(`/api/my-pins/points/${encodeURIComponent(_deepId)}`'));
 });

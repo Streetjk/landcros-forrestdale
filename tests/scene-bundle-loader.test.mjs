@@ -8,7 +8,7 @@ test('both public viewer routes cache-bust the shared scene retry loader',()=>{
   assert.match(viewer,/scene-bundle-loader\.js\?v=scene-firstload-retry-20261015c/);
   for(const html of ['index.html','viewer3d.html']){
     const src=readFileSync(new URL('../'+html,import.meta.url),'utf8');
-    assert.match(src,/viewer3d\.js\?v=scene-firstload-retry-20261015c/);
+    assert.match(src,/viewer3d\.js\?v=supabase-pin-preview-20261015a/);
   }
 });
 

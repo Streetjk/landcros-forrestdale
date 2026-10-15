@@ -18,6 +18,7 @@ import { createSceneLabelPin, createSceneGroundFrame, SCENE_PIN_FLOAT_HEIGHT, SC
 import { renderScenePhotoGallery, hideScenePhotoGallery } from './scene-photo-gallery-view.js';
 import { createMobileDetailSheet, trackMapTaps } from './mobile-detail-sheet.js?v=brand-dock-20261015a';
 import { loadSharedSceneBundle } from './scene-bundle-loader.js?v=scene-firstload-retry-20261015c';
+import { loadSharedScenePinPreview } from './shared-scene-pin-preview.js';
 import { singleSharedSceneLabelPosition } from './shared-scene-startup-focus.js';
 import { findLabelAtTap, isTouchMapDevice } from './map-touch-input.js';
 import { gpsToScene, loadSiteGpsCalibration } from './site-gps-calibration.js';
@@ -1698,7 +1699,7 @@ let _scenePhotos = [];
 
 const _WIDGET_COLORS = { button: 0x0f766e, widget: 0x7c3aed, hazard: 0xf59e0b };
 
-function _renderSceneWidget(obj) {
+function _renderSceneWidget(obj,{preview=false}={}) {
   const [x, y, z] = obj.transform?.position ?? [0, 0, 0];
   const anchor = new THREE.Object3D();
   anchor.position.set(x, y, z);
@@ -1729,11 +1730,21 @@ function _renderSceneWidget(obj) {
 
   let groundFrame = null;
   let div;
+  let pinVisual = null;
   if (obj.kind === 'label') {
     groundFrame = createSceneGroundFrame(THREE);
     anchor.add(groundFrame.group);
     registerSceneGroundFrame(groundFrame);
-    div = createSceneLabelPin(_sceneObjDisplayText(obj), () => showSceneLabelDetail(obj)).root;
+    pinVisual = createSceneLabelPin(_sceneObjDisplayText(obj), () => {
+      // Preview labels are real authorised coordinates, but full descriptions
+      // are still loading. The activation always reads the current hydrated
+      // object, not a stale preview captured in a click handler.
+      const entry = _sceneWidgets.get(obj.id);
+      if (!entry) return;
+      if (entry.preview) showWidgetDetail(_sceneObjDisplayText(entry.obj), 'Loading shared scene details…');
+      else showSceneLabelDetail(entry.obj);
+    });
+    div = pinVisual.root;
   } else {
     div = document.createElement('div');
     div.className = 'scene-obj-label';
@@ -1748,13 +1759,56 @@ function _renderSceneWidget(obj) {
   anchor.add(css2dObj);
 
   scene.add(anchor);
-  _sceneWidgets.set(obj.id, { obj, anchor, raycastMesh, groundFrame, element:div });
+  _sceneWidgets.set(obj.id, { obj, anchor, raycastMesh, groundFrame, element:div, pinVisual, preview });
 }
 
 let _scenePhotoWarmImages = new Map();
 
-function renderSceneWidgets(list) {
-  list.filter(o => o.kind === 'label' || o.kind === 'button' || o.kind === 'widget' || o.kind === 'hazard').forEach(_renderSceneWidget);
+function _removeSceneWidget(id, entry) {
+  if (entry.groundFrame) {
+    unregisterSceneGroundFrame(entry.groundFrame);
+    entry.groundFrame.dispose();
+  }
+  entry.anchor.traverse(node => {
+    node.element?.remove?.();
+    node.geometry?.dispose?.();
+    if (Array.isArray(node.material)) node.material.forEach(m => m.dispose?.());
+    else node.material?.dispose?.();
+  });
+  scene.remove(entry.anchor);
+  _sceneWidgets.delete(id);
+}
+
+function renderSceneWidgets(list, {preview=false}={}) {
+  if (!Array.isArray(list)) return;
+  const objects = list.filter(o => ['label','button','widget','hazard'].includes(o?.kind));
+  if (!preview) {
+    const freshIds = new Set(objects.map(o => o.id));
+    // RPC previews must not persist after the authoritative full scene changes
+    // (label deletion, kind change, or revoked content).
+    for (const [id, entry] of _sceneWidgets) {
+      if (entry.preview && !freshIds.has(id)) _removeSceneWidget(id,entry);
+    }
+  }
+  for (const obj of objects) {
+    const existing = _sceneWidgets.get(obj.id);
+    if (!existing) {
+      _renderSceneWidget(obj,{preview});
+      continue;
+    }
+    if (preview) continue; // full scene already won the network race
+    if (existing.obj.kind !== obj.kind) {
+      _removeSceneWidget(obj.id,existing);
+      _renderSceneWidget(obj);
+      continue;
+    }
+    existing.obj = obj;
+    existing.preview = false;
+    existing.pinVisual?.setTitle(_sceneObjDisplayText(obj));
+    const p = obj.transform?.position;
+    if (Array.isArray(p) && p.length === 3 && p.every(Number.isFinite))
+      existing.anchor.position.set(p[0],p[1],p[2]);
+  }
 }
 
 // A shared-scene link with one custom label should show that label on its
@@ -2402,7 +2456,11 @@ _touchMedia?.addEventListener?.('change',_syncTouchMapMode);
 window.addEventListener('resize',_syncTouchMapMode);
 
 function _activateSceneWidget(obj) {
-  if (obj.kind === 'label') showSceneLabelDetail(obj);
+  if (obj.kind === 'label') {
+    const current = _sceneWidgets.get(obj.id);
+    if (current?.preview) showWidgetDetail(_sceneObjDisplayText(current.obj), 'Loading shared scene details…');
+    else showSceneLabelDetail(current?.obj || obj);
+  }
   else if (obj.kind === 'hazard' && typeof showHazardDetail === 'function') showHazardDetail(obj);
   else if (obj.kind === 'widget' && obj.scriptSource) _runWidgetScript(obj.scriptSource,obj);
   else _runWidgetAction(obj.props?.action,obj);
@@ -2474,7 +2532,7 @@ renderer.domElement.addEventListener('click', e => {
     const hitMesh = widgetHits[0].object;
     const widget = Array.from(_sceneWidgets.values()).find(w => w.raycastMesh === hitMesh);
     if (widget && widget.obj.kind === 'label') {
-      showSceneLabelDetail(widget.obj);
+      _activateSceneWidget(widget.obj);
     } else if (widget && widget.obj.kind === 'hazard') {
       showHazardDetail(widget.obj);
     } else if (widget && widget.obj.kind === 'widget' && widget.obj.scriptSource) {
@@ -4408,16 +4466,40 @@ async function boot() {
   // visit. Retry only transient transport/5xx errors; authorization failures
   // remain denied.
   const _earlySharedCode = _params.get('scene');
+  const _sharedLinkAllowed = _earlySharedCode && !_publicMyPinMode
+    && !_params.has('id') && !document.getElementById('add-label-btn')
+    && !document.getElementById('admin-controls');
+  // The tiny, share-code-scoped RPC runs on Supabase independently of the
+  // Render API. It returns only label titles/positions, never scene details.
+  const _earlySharedPreview = _sharedLinkAllowed
+    ? loadSharedScenePinPreview(_runtime,_earlySharedCode) : null;
   const _earlySharedScene = _earlySharedCode && !_publicMyPinMode && !document.getElementById('add-label-btn')
     ? loadSharedSceneBundle(_apiUrl('/api/scenes/by-code/'+encodeURIComponent(_earlySharedCode)))
     : null;
-  let _earlySceneWidgetsRendered = false;
+  let _fullSceneWidgetsRendered = false;
+  let _previewSceneObjects = null;
+  let _baseSceneForPreviewReady = false;
+  let _previewSceneCameraFocused = false;
+  const _maybeFocusScenePreview = () => {
+    if (!_baseSceneForPreviewReady || _previewSceneCameraFocused || !_previewSceneObjects?.length) return;
+    _previewSceneCameraFocused = _focusFirstSharedSceneLabel(_previewSceneObjects);
+  };
+  _earlySharedPreview?.then(preview => {
+    if (!preview?.objects?.length || _fullSceneWidgetsRendered) return;
+    try {
+      renderSceneWidgets(preview.objects,{preview:true});
+      _previewSceneObjects = preview.objects;
+      _maybeFocusScenePreview();
+    } catch (error) {
+      console.warn('[scene] lightweight label preview unavailable:',error.message);
+    }
+  });
   _earlySharedScene?.then(({data}) => {
-    if (!Array.isArray(data?.objects) || _earlySceneWidgetsRendered) return;
+    if (!Array.isArray(data?.objects) || _fullSceneWidgetsRendered) return;
     try {
       _scenePhotoWarmImages = preloadSceneLabelPhotos(data.objects,{saveData:!!navigator.connection?.saveData});
       renderSceneWidgets(data.objects);
-      _earlySceneWidgetsRendered = true;
+      _fullSceneWidgetsRendered = true;
     } catch (error) {
       console.warn('[scene] early pin render will retry:', error.message);
     }
@@ -4471,7 +4553,12 @@ async function boot() {
   const _route = _parseRoute();
   const _compOnly = _isComparisonOnly();
   const _showOverlays = _cfg.scene?.showSiteOverlays !== false && !_compOnly;
-  const _progressivePublic = !_compOnly && _isVanillaProgressiveRoute();
+  // A valid Supabase-scoped label preview can reveal the map while Render
+  // wakes up to provide full details. Invalid/private/hazard codes cannot.
+  // The preview network request is capped at four seconds independently.
+  const _scopedPreviewForReveal = _earlySharedPreview ? await _earlySharedPreview : null;
+  const _progressivePublic = !_compOnly && (_isVanillaProgressiveRoute()
+    || (!!_sharedLinkAllowed && !!_scopedPreviewForReveal?.objects?.length));
 
   let _splatStatus = null;
   let _splatPct = 0;
@@ -4544,6 +4631,8 @@ async function boot() {
   _restoreCustomLabels();
   _jsonRoutes = trafficRes?.routes ?? [];
   _redrawTraffic();
+  _baseSceneForPreviewReady = true;
+  _maybeFocusScenePreview();
   if (_debugMode) _initEditorUI();
 
   _perf.mark('baseGuideReady');
@@ -4666,13 +4755,13 @@ async function boot() {
     _scenePhotoWarmImages = preloadSceneLabelPhotos(_sceneBundle.objects, {
       saveData: !!navigator.connection?.saveData,
     });
-    if (!_earlySceneWidgetsRendered) {
+    if (!_fullSceneWidgetsRendered) {
       renderSceneWidgets(_sceneBundle.objects);
-      _earlySceneWidgetsRendered = true;
+      _fullSceneWidgetsRendered = true;
     }
-    // The scene link's sole custom label may be outside the default phone
-    // camera even though its DOM and mesh loaded correctly. Frame it once.
-    _focusFirstSharedSceneLabel(_sceneBundle.objects);
+    // If Supabase has already framed the preview, never restart the flight
+    // when the full signed-photo scene finally arrives from Render.
+    if (!_previewSceneCameraFocused) _focusFirstSharedSceneLabel(_sceneBundle.objects);
   }
   // My Pins is a one-guide public capability, not a mutable scene workflow.
   if (_sceneBundle?.scene && _sceneCode && !_publicMyPinMode) renderSceneStatusBar(_sceneCode, _sceneBundle);
