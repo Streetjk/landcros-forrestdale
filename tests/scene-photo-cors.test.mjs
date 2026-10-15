@@ -17,7 +17,7 @@ test('scene editor previews private Supabase images using CORS', () => {
 
 test('public viewer opts into CORS before setting signed photo src', () => {
   const backendForm = viewer.includes('function resetSceneLabelPhoto(');
-  const start = viewer.indexOf(backendForm ? 'function resetSceneLabelPhoto(' : 'function showSceneLabelDetail(');
+  const start = viewer.indexOf(backendForm ? 'function resetSceneLabelPhoto(' : 'function _renderSceneLabelBody(');
   assert.ok(start >= 0);
   const end = viewer.indexOf(backendForm ? '// ── Point selection' : '// Hazard pin detail:', start);
   assert.ok(end > start);

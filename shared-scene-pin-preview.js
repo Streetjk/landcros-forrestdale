@@ -1,6 +1,6 @@
-// Lightweight, anonymous preview of labels from exactly one shared scene.
-// The Supabase RPC owns authorization and never returns scripts, photo URLs,
-// descriptions, contacts or private scene tables. No browser storage/cache.
+// Lightweight preview of labels from exactly one share-code-authorised admin
+// scene. The RPC returns only bounded public title, description and position;
+// photos, scripts, contacts and other scene tables remain inaccessible.
 const CODE_RE = /^[a-z0-9]{10}$/;
 const SLUG_RE = /^[a-z0-9][a-z0-9-]{1,62}$/;
 const UUID_RE = /^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/i;
@@ -12,15 +12,17 @@ export function sanitizeSharedScenePinPreview(payload) {
   for (const row of payload.objects) {
     const coords = row?.transform?.position;
     const text = row?.props?.text;
+    const description = row?.props?.description ?? '';
     if (row?.kind !== 'label' || typeof row.id !== 'string' || !UUID_RE.test(row.id)
       || seen.has(row.id) || !Array.isArray(coords) || coords.length !== 3
       || !coords.every(v => typeof v === 'number' && Number.isFinite(v) && Math.abs(v) <= 200)
-      || typeof text !== 'string' || !text.trim() || text.length > 160) return null;
+      || typeof text !== 'string' || !text.trim() || text.length > 160
+      || typeof description !== 'string' || description.length > 4000) return null;
     seen.add(row.id);
     objects.push({
       id: row.id, kind: 'label',
       transform: { position: [...coords] },
-      props: { text },
+      props: { text, description },
     });
   }
   return {objects};

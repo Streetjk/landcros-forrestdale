@@ -9,7 +9,7 @@ const runtime={
   supabasePublishableKey:'sb_publishable_'+'x'.repeat(32),
 };
 const label=(id='00000000-0000-4000-a000-000000000001')=>({
-  id,kind:'label',transform:{position:[1.5,0,-6]},props:{text:'Shared label'},
+  id,kind:'label',transform:{position:[1.5,0,-6]},props:{text:'Shared label',description:'Authorized public description'},
 });
 const src=name=>readFileSync(new URL('../'+name,import.meta.url),'utf8');
 
@@ -53,6 +53,8 @@ test('anonymous preview rejects contaminated or excessive scene data instead of 
     {objects:[{...label(),transform:{position:[0,NaN,1]}}]},
     {objects:[{...label(),transform:{position:[0,0,201]}}]},
     {objects:[{...label(),props:{text:'X'.repeat(161)}}]},
+    {objects:[{...label(),props:{text:'Label',description:'X'.repeat(4001)}}]},
+    {objects:[{...label(),props:{text:'Label',description:{private:true}}}]},
     {objects:[label(),label()]}, {objects:Array.from({length:26},(_,i)=>label('00000000-0000-4000-a000-'+String(i+1).padStart(12,'0')))},
   ])assert.equal(sanitizeSharedScenePinPreview(invalid),null);
 });
@@ -107,6 +109,6 @@ test('viewer starts Supabase preview before the scene build, reconciles full dat
   assert.match(viewer,/_params\.has\('id'\)/);
   assert.match(viewer,/!_publicMyPinMode/);
   for(const html of ['index.html','viewer3d.html']){
-    assert.match(src(html),/viewer3d\.js\?v=supabase-pin-preview-20261015a/);
+    assert.match(src(html),/viewer3d\.js\?v=scene-detail-hydrate-20261015a/);
   }
 });

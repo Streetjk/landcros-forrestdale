@@ -18,7 +18,7 @@ import { createSceneLabelPin, createSceneGroundFrame, SCENE_PIN_FLOAT_HEIGHT, SC
 import { renderScenePhotoGallery, hideScenePhotoGallery } from './scene-photo-gallery-view.js';
 import { createMobileDetailSheet, trackMapTaps } from './mobile-detail-sheet.js?v=brand-dock-20261015a';
 import { loadSharedSceneBundle } from './scene-bundle-loader.js?v=scene-firstload-retry-20261015c';
-import { loadSharedScenePinPreview } from './shared-scene-pin-preview.js';
+import { loadSharedScenePinPreview } from './shared-scene-pin-preview.js?v=scene-detail-hydrate-20261015a';
 import { singleSharedSceneLabelPosition } from './shared-scene-startup-focus.js';
 import { findLabelAtTap, isTouchMapDevice } from './map-touch-input.js';
 import { gpsToScene, loadSiteGpsCalibration } from './site-gps-calibration.js';
@@ -1741,8 +1741,7 @@ function _renderSceneWidget(obj,{preview=false}={}) {
       // object, not a stale preview captured in a click handler.
       const entry = _sceneWidgets.get(obj.id);
       if (!entry) return;
-      if (entry.preview) showWidgetDetail(_sceneObjDisplayText(entry.obj), 'Loading shared scene details…');
-      else showSceneLabelDetail(entry.obj);
+      showSceneLabelDetail(entry.obj);
     });
     div = pinVisual.root;
   } else {
@@ -1775,6 +1774,9 @@ function _removeSceneWidget(id, entry) {
     if (Array.isArray(node.material)) node.material.forEach(m => m.dispose?.());
     else node.material?.dispose?.();
   });
+  // A deleted/revoked label cannot retain its old preview in an open panel.
+  if (document.getElementById('point-detail')?.dataset.sceneLabelId === id)
+    window.showPointList?.({historyMode:'none', preserveCamera:true});
   scene.remove(entry.anchor);
   _sceneWidgets.delete(id);
 }
@@ -1809,6 +1811,7 @@ function renderSceneWidgets(list, {preview=false}={}) {
     if (Array.isArray(p) && p.length === 3 && p.every(Number.isFinite))
       existing.anchor.position.set(p[0],p[1],p[2]);
   }
+  if (!preview) _hydrateOpenSceneLabelDetails();
 }
 
 // A shared-scene link with one custom label should show that label on its
@@ -1933,18 +1936,15 @@ function highlightSceneLabelFrame(id) {
   }
 }
 
-function showSceneLabelDetail(obj) {
-  if (_mobileDetails.repeat('scene:' + obj.id)) return;
-  showWidgetDetail(obj.props?.text || 'Untitled pin', obj.props?.description || '');
-  highlightSceneLabelFrame(obj.id);
-  const detail = document.getElementById('point-detail');
-  if (!detail) return;
-  document.getElementById('app')?.classList.add('scene-pin-selected');
-  detail.classList.add('scene-pin-detail');
+// The description and signed photos can be refreshed without closing or
+// reopening the selected sheet. In particular, keep the user's full/summary
+// state and camera unchanged when the slow Render API finally responds.
+function _renderSceneLabelBody(obj) {
   const chip = document.getElementById('detail-chip');
   chip.className = 'chip chip-dropoff';
   chip.textContent = 'Location';
   const notes = document.getElementById('detail-notes');
+  notes.textContent = obj.props?.description || '';
   let frame = document.getElementById('detail-scene-photo-wrap');
   if (!frame) {
     frame = document.createElement('div');
@@ -1979,9 +1979,37 @@ function showSceneLabelDetail(obj) {
     renderScenePhotoGallery({props:obj.props,title:obj.props?.text,
       frameId:'detail-scene-photo-wrap',imageId:'detail-scene-photo'});
   }
+}
+
+function showSceneLabelDetail(obj) {
+  if (_mobileDetails.repeat('scene:' + obj.id)) return;
+  showWidgetDetail(obj.props?.text || 'Untitled pin', obj.props?.description || '');
+  highlightSceneLabelFrame(obj.id);
+  const detail = document.getElementById('point-detail');
+  if (!detail) return;
+  detail.dataset.sceneLabelId = obj.id;
+  document.getElementById('app')?.classList.add('scene-pin-selected');
+  detail.classList.add('scene-pin-detail');
+  _renderSceneLabelBody(obj);
   _mobileDetails.open('scene:' + obj.id);
   const [x=0,y=0,z=0] = obj.transform?.position || [];
   _focusPinCamera(new THREE.Vector3(x,y,z));
+}
+
+function _hydrateOpenSceneLabelDetails() {
+  const detail = document.getElementById('point-detail');
+  const id = detail?.dataset.sceneLabelId;
+  if (!id || !detail.classList.contains('visible')) return;
+  const entry = _sceneWidgets.get(id);
+  if (!entry || entry.preview || entry.obj.kind !== 'label') return;
+  if (_mobileDetails.isCompact()) {
+    const { key, stage } = _mobileDetails.snapshot();
+    if (key !== 'scene:' + id || !['summary', 'full'].includes(stage)) return;
+  }
+  const title = document.getElementById('detail-label');
+  if (title) title.textContent = _sceneObjDisplayText(entry.obj);
+  _renderSceneLabelBody(entry.obj);
+  _mobileDetails.refresh();
 }
 
 // Hazard pin detail: title + description + photo thumbnails. Text goes in via
@@ -2256,7 +2284,9 @@ function _leavePinDetail({preserveCamera = false} = {}) {
   _mobileDetails.reset();
   highlightSceneLabelFrame(null);
   document.getElementById('app')?.classList.remove('scene-pin-selected');
-  document.getElementById('point-detail')?.classList.remove('scene-pin-detail');
+  const openDetail = document.getElementById('point-detail');
+  if (openDetail) delete openDetail.dataset.sceneLabelId;
+  openDetail?.classList.remove('scene-pin-detail');
   hideScenePhotoGallery('detail-scene-photo-wrap');
   _clearPublicPhotoUrls();
   document.getElementById('point-detail')?.classList.remove('public-location-detail');
@@ -2458,8 +2488,7 @@ window.addEventListener('resize',_syncTouchMapMode);
 function _activateSceneWidget(obj) {
   if (obj.kind === 'label') {
     const current = _sceneWidgets.get(obj.id);
-    if (current?.preview) showWidgetDetail(_sceneObjDisplayText(current.obj), 'Loading shared scene details…');
-    else showSceneLabelDetail(current?.obj || obj);
+    if (current) showSceneLabelDetail(current.obj);
   }
   else if (obj.kind === 'hazard' && typeof showHazardDetail === 'function') showHazardDetail(obj);
   else if (obj.kind === 'widget' && obj.scriptSource) _runWidgetScript(obj.scriptSource,obj);
@@ -4494,8 +4523,17 @@ async function boot() {
       console.warn('[scene] lightweight label preview unavailable:',error.message);
     }
   });
-  _earlySharedScene?.then(({data}) => {
-    if (!Array.isArray(data?.objects) || _fullSceneWidgetsRendered) return;
+  _earlySharedScene?.then(({data,status}) => {
+    if (!Array.isArray(data?.objects)) {
+      // A subsequently revoked/deleted/denied scene must not leave an old
+      // Supabase preview visible just because the RPC returned first.
+      if (!_fullSceneWidgetsRendered && [401,403,404,410].includes(status)) {
+        renderSceneWidgets([]);
+        _fullSceneWidgetsRendered = true;
+      }
+      return;
+    }
+    if (_fullSceneWidgetsRendered) return;
     try {
       _scenePhotoWarmImages = preloadSceneLabelPhotos(data.objects,{saveData:!!navigator.connection?.saveData});
       renderSceneWidgets(data.objects);
