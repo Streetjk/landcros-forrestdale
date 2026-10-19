@@ -158,6 +158,24 @@ async function _managedSceneOrRespond(res, slug, sceneId, session) {
   return meta;
 }
 
+// A photo is attached to an existing scene object, not to a client-supplied
+// scene ID. Resolve its authoritative site+scene first; clients may arrive
+// with an omitted sceneId after a reload or editor-state restoration.
+async function _managedGallerySceneOrRespond(res, slug, objectId, requestedSceneId, session) {
+  const object = await sceneDb.getSceneObjectMeta(slug, objectId);
+  if (!object?.sceneId) { _json(res, 404, { error: 'not found' }); return null; }
+  // Verify ownership before revealing whether this object belongs to the
+  // scene named by the caller. A wrong-scene error must not become an
+  // existence probe against another staff member's private pins.
+  const scene = await _managedSceneOrRespond(res, slug, object.sceneId, session);
+  if (!scene) return null;
+  if (requestedSceneId != null && requestedSceneId !== object.sceneId) {
+    _json(res, 409, { error: 'Pin scene changed; reload the scene before uploading.' });
+    return null;
+  }
+  return object.sceneId;
+}
+
 // Phase 3: admin+ role on :slug — gates webhook CRUD (webhooks.secret must
 // never be readable/writable below admin).
 function _requireSiteAdmin(req, res, slug, cb) {
@@ -570,10 +588,11 @@ const server = http.createServer((req, res) => {
         if (err || !body || typeof body!=='object' || Array.isArray(body))
           return _json(res,400,{error:'Invalid photo data'});
         (async()=>{
-          if (!await _managedSceneOrRespond(res,slug,body.sceneId,session)) return;
+          const sceneId = await _managedGallerySceneOrRespond(res,slug,body.objectId,body.sceneId,session);
+          if (!sceneId) return;
           const result = req.method==='POST'
-            ? await scenePhotoGallery.createGalleryPhoto(slug,body.sceneId,body.objectId,body.dataUrl)
-            : await scenePhotoGallery.deleteGalleryPhoto(slug,body.sceneId,body.objectId,body.photoPath);
+            ? await scenePhotoGallery.createGalleryPhoto(slug,sceneId,body.objectId,body.dataUrl)
+            : await scenePhotoGallery.deleteGalleryPhoto(slug,sceneId,body.objectId,body.photoPath);
           _json(res,200,result);
         })().catch(e=>{
           if(res.writableEnded)return;

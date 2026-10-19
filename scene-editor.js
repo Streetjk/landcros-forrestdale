@@ -1124,18 +1124,24 @@ async function onPhotoInput(event) {
   if(!slots)return showToast('Maximum six photos per pin');
   if(files.length>slots)showToast('Only '+slots+' more photo'+(slots===1?'':'s')+' can be added');
   const selectedFiles=files.slice(0,slots);
-  const sceneId=entry.obj.sceneId;
+  // Scene selection is authoritative in the editor. Older/restored objects
+  // may lack sceneId even though the object exists server-side.
+  const sceneId = _currentSceneId;
   const status=document.getElementById('prop-photo-status');
   _galleryBusy=true;
   document.getElementById('prop-photo-upload-btn').disabled=true;
   let uploadFailure = null;
   try {
+    if (!sceneId || (entry.obj.sceneId && entry.obj.sceneId !== sceneId)) {
+      throw new Error('Pin scene changed. Reload this scene and retry.');
+    }
     // Flush debounced text/transform changes before the DB-owned gallery
     // update; otherwise an older full-object write can race against the photo.
     if(!await flushSave(id))throw new Error('Save the pin before adding photos');
     let added=0;
     for(const file of selectedFiles){
-      if(_objects.get(id)!==entry || entry.obj.sceneId!==sceneId)break;
+      if (_objects.get(id)!==entry || _currentSceneId!==sceneId ||
+          (entry.obj.sceneId && entry.obj.sceneId!==sceneId)) break;
       status.textContent='Preparing photo '+(added+1)+' of '+selectedFiles.length+'…';
       const dataUrl=await photoAsSmallJpeg(file);
       status.textContent='Uploading photo '+(added+1)+' of '+selectedFiles.length+'…';
@@ -1184,7 +1190,7 @@ async function onPhotoRemove() {
     if(!await flushSave(id))throw new Error('Save the pin before removing photos');
     const r=await fetch('/api/sites/'+encodeURIComponent(SLUG)+'/scene-photos/gallery',{
       method:'DELETE',credentials:'same-origin',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({sceneId:entry.obj.sceneId,objectId:id,photoPath:path}),
+      body:JSON.stringify({sceneId:_currentSceneId,objectId:id,photoPath:path}),
     });
     const result=await r.json().catch(()=>({}));
     if(!r.ok){
