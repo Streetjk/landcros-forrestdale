@@ -11,7 +11,8 @@ import * as THREE from 'three';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import { CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
 import { generateQR } from './qr.js';
-import { createSceneLabelPin, createSceneGroundFrame, SCENE_PIN_FLOAT_HEIGHT, SCENE_PIN_GROUND_Y, scenePhotoItems } from './scene-label-pin.js?v=pinzoom-toggle-20261014b';
+import { createPhotoZoom } from './photo-zoom.js';
+import { createSceneLabelPin, createSceneGroundFrame, SCENE_PIN_FLOAT_HEIGHT, SCENE_PIN_GROUND_Y, scenePhotoItems, preloadSceneLabelPhotos } from './scene-label-pin.js?v=pinzoom-toggle-20261014b';
 
 const SLUG = new URLSearchParams(location.search).get('site');
 
@@ -23,6 +24,10 @@ let _objects           = new Map(); // id -> { obj, anchor, raycastMesh, css2dOb
 let _selectedId        = null;
 let _selectedPinPhotoPath = null;
 let _galleryBusy = false;
+let _photoZoom = null;
+let _previewKey = null;
+let _editorPhotoWarmImages = new Map(); // current-scene only; signed links stay in memory
+let _editorThumbnailAbort = null;
 let _placingKind       = null; // 'label' | 'button' | null
 let _justDragged       = false;
 const _saveTimers      = new Map();
@@ -230,6 +235,12 @@ async function init() {
     document.getElementById('prop-photo-input').click();
   });
   document.getElementById('prop-photo-input').addEventListener('change', onPhotoInput);
+  // Photo interactions stay in the inspector and never reach the map canvas.
+  const photoPreview = document.getElementById('prop-photo-preview');
+  _photoZoom = createPhotoZoom(photoPreview, { label: 'Selected pin photo' });
+  photoPreview.parentElement.insertBefore(
+    _photoZoom.container, document.getElementById('prop-photo-gallery'));
+  _photoZoom.container.hidden = true;
   document.getElementById('prop-photo-remove-btn').addEventListener('click', onPhotoRemove);
   document.getElementById('prop-delete-btn').addEventListener('click', onDeleteClick);
   document.getElementById('prop-action-type').addEventListener('change', onActionTypeChange);
@@ -336,6 +347,7 @@ async function selectScene(id) {
   // in-flight edit (scheduleSave/flushSave, 400ms debounce) is silently
   // dropped: disposeEntry() clearTimeouts the pending save without sending it.
   await flushAllPending();
+  _editorPhotoWarmImages.clear();
   Array.from(_objects.keys()).forEach(disposeEntry);
   _currentSceneId = id;
   _sceneObjectsReady = false;
@@ -496,6 +508,12 @@ async function loadObjects() {
   // clicking between scenes) — a stale response must not render into
   // whatever scene is current now.
   if (_currentSceneId !== requestedSceneId) return;
+  // Prime at most two signed photos as soon as the authorised scene arrives.
+  // Browser CORS mode matches the inspector; no disk cache or URL persistence.
+  _editorPhotoWarmImages.clear();
+  _editorPhotoWarmImages = preloadSceneLabelPhotos(list, {
+    maxPhotos: 2, saveData: !!navigator.connection?.saveData,
+  });
   list.filter(o => o.kind === 'label' || o.kind === 'button' || o.kind === 'widget').forEach(renderObject);
   _sceneObjectsReady = true;
   updateAddButtonsEnabled();
@@ -736,6 +754,9 @@ function hidePropertyPanel() {
 }
 
 function renderPinPhoto(obj) {
+  _editorThumbnailAbort?.abort();
+  const thumbnailAbort=new AbortController();
+  _editorThumbnailAbort=thumbnailAbort;
   const img=document.getElementById('prop-photo-preview');
   const thumbs=document.getElementById('prop-photo-gallery');
   const count=document.getElementById('prop-photo-count');
@@ -745,12 +766,16 @@ function renderPinPhoto(obj) {
   if (count) count.textContent=photos.length + ' / 6 photos';
   const selected=photos.find(p=>p.path===_selectedPinPhotoPath) || photos[0] || null;
   _selectedPinPhotoPath=selected?.path || null;
+  const key = (obj.id || _selectedId || '') + ':' + (_selectedPinPhotoPath || '');
+  if (_previewKey !== key) { _previewKey = key; _photoZoom?.reset(); }
+  if (_photoZoom) _photoZoom.container.hidden = !selected;
   img.crossOrigin='anonymous';img.referrerPolicy='no-referrer';
-  img.loading='eager';img.decoding='async';
+  img.loading='eager';img.decoding='async';img.fetchPriority='high';
   img.style.display=selected?'block':'none';
   if(selected)img.src=selected.url;
   else img.removeAttribute('src');
   thumbs.replaceChildren();
+  const pendingThumbnails=[];
   for(const [index,item] of photos.entries()){
     const tile=document.createElement('button');
     tile.type='button';tile.className='editor-gallery-thumb';
@@ -760,7 +785,10 @@ function renderPinPhoto(obj) {
     const picture=document.createElement('img');
     picture.alt='Photo '+(index+1);picture.crossOrigin='anonymous';
     picture.referrerPolicy='no-referrer';picture.loading='lazy';
-    picture.src=item.url;
+    picture.decoding='async';picture.fetchPriority='low';
+    // The inspector shares each signed URL with the full-size preview.
+    // Start thumbnails only once the primary photo is ready.
+    pendingThumbnails.push({picture,url:item.url});
     const indexBadge=document.createElement('span');
     indexBadge.textContent=String(index+1);
     tile.append(picture,indexBadge);
@@ -769,6 +797,15 @@ function renderPinPhoto(obj) {
       renderPinPhoto(obj);
     });
     thumbs.appendChild(tile);
+  }
+  if(selected) {
+    const releaseThumbnails=()=>{
+      if(thumbnailAbort.signal.aborted)return;
+      for(const {picture,url} of pendingThumbnails)picture.src=url;
+    };
+    img.addEventListener('load',releaseThumbnails,{once:true,signal:thumbnailAbort.signal});
+    img.addEventListener('error',releaseThumbnails,{once:true,signal:thumbnailAbort.signal});
+    if(img.complete)releaseThumbnails();
   }
   remove.style.display=selected?'':'none';
   if(selected)remove.textContent='Remove photo '+(photos.indexOf(selected)+1);
