@@ -45,6 +45,20 @@ function _validateName(name) {
   }
 }
 
+const UUID_RE = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+
+// Minimal scene metadata for owner checks. Always bind both site and scene;
+// never trust an object/scene owner supplied by the browser.
+async function getSceneMeta(slug, id) {
+  if (typeof id !== 'string' || !UUID_RE.test(id)) return null;
+  const siteId = await getSiteId(slug);
+  const { rows } = await _getPool().query(
+    'select id, created_by from scenes where id = $1 and site_id = $2',
+    [id, siteId]
+  );
+  return rows.length ? { id: rows[0].id, createdBy: rows[0].created_by } : null;
+}
+
 async function listScenes(slug) {
   const siteId = await getSiteId(slug);
   const { rows } = await _getPool().query(
@@ -163,6 +177,7 @@ async function deleteScene(slug, id, changedBy = null) {
 
 module.exports = {
   listScenes,
+  getSceneMeta,
   createScene,
   updateScene,
   deleteScene,

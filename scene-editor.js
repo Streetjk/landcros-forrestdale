@@ -29,6 +29,7 @@ const _saveTimers      = new Map();
 let _editingScriptId   = null;
 let _scenes            = []; // scenes this site owns (Scenes feature, Slice 4)
 let _currentSceneId    = null;
+let _sceneObjectsReady = false; // prevent edits while saved pins are unavailable
 
 // Personal organisation: a group is just a view of an editor's scene list.
 // Group deletion never deletes scenes; archived scenes remain in the archive.
@@ -258,12 +259,34 @@ async function init() {
 // "unscoped" set of objects to fall back to. Selecting a scene clears the
 // canvas and loads only that scene's objects; placement is disabled until a
 // scene exists and is selected.
+function showSceneReloadError(message, retry, replaceList = false) {
+  const list = document.getElementById('scenes-list');
+  if (!list) return;
+  if (replaceList) list.replaceChildren();
+  else list.querySelector('.scene-load-error')?.remove();
+  const notice = document.createElement('div');
+  notice.className = 'scene-load-error';
+  notice.setAttribute('role', 'alert');
+  const text = document.createElement('p');
+  text.textContent = message + ' This loading error did not delete any records.';
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.textContent = 'Retry loading';
+  button.addEventListener('click', () => void retry());
+  notice.append(text, button);
+  list.prepend(notice);
+}
+
 async function loadScenes() {
   try {
-    const r = await fetch(`/api/sites/${encodeURIComponent(SLUG)}/scenes`);
-    if (r.ok) _scenes = await r.json();
+    const response = await fetch(`/api/sites/${encodeURIComponent(SLUG)}/scenes`, { credentials: 'same-origin' });
+    if (!response.ok) throw new Error('scene list unavailable');
+    const data = await response.json();
+    if (!Array.isArray(data)) throw new Error('invalid scene list');
+    _scenes = data;
   } catch {
-    showToast('Could not load scenes');
+    showSceneReloadError('Saved scenes could not be loaded.', loadScenes, true);
+    return;
   }
   renderScenesList();
   if (!_currentSceneId && _scenes.length) await selectScene(_scenes[0].id);
@@ -315,6 +338,7 @@ async function selectScene(id) {
   await flushAllPending();
   Array.from(_objects.keys()).forEach(disposeEntry);
   _currentSceneId = id;
+  _sceneObjectsReady = false;
   renderScenesList();
   updateAddButtonsEnabled();
   const scene = _scenes.find(s => s.id === id);
@@ -354,7 +378,7 @@ async function onCopySceneShareUrl() {
 }
 
 function updateAddButtonsEnabled() {
-  const enabled = !!_currentSceneId;
+  const enabled = !!_currentSceneId && _sceneObjectsReady;
   ['add-label-btn', 'add-button-btn', 'add-widget-btn'].forEach(id => {
     document.getElementById(id).disabled = !enabled;
   });
@@ -453,18 +477,28 @@ async function onDeleteSceneClick(id) {
 async function loadObjects() {
   if (!_currentSceneId) return;
   const requestedSceneId = _currentSceneId;
+  _sceneObjectsReady = false;
+  updateAddButtonsEnabled();
   let list = [];
   try {
-    const r = await fetch(`/api/sites/${encodeURIComponent(SLUG)}/objects?scene=${encodeURIComponent(requestedSceneId)}`);
-    if (r.ok) list = await r.json();
+    const response = await fetch(`/api/sites/${encodeURIComponent(SLUG)}/objects?scene=${encodeURIComponent(requestedSceneId)}`, { credentials: 'same-origin' });
+    if (!response.ok) throw new Error('pin list unavailable');
+    list = await response.json();
+    if (!Array.isArray(list)) throw new Error('invalid pin list');
   } catch {
-    showToast('Could not load scene objects');
+    if (_currentSceneId === requestedSceneId) {
+      showSceneReloadError('Saved pins could not be loaded.', loadObjects);
+    }
+    return;
   }
+  document.getElementById('scenes-list')?.querySelector('.scene-load-error')?.remove();
   // Scene may have changed again while this fetch was in flight (fast
   // clicking between scenes) — a stale response must not render into
   // whatever scene is current now.
   if (_currentSceneId !== requestedSceneId) return;
   list.filter(o => o.kind === 'label' || o.kind === 'button' || o.kind === 'widget').forEach(renderObject);
+  _sceneObjectsReady = true;
+  updateAddButtonsEnabled();
 }
 
 // ── Render (kind → mesh + CSS2D text) ───────────────────────────────────
@@ -1094,6 +1128,7 @@ async function onPhotoInput(event) {
   const status=document.getElementById('prop-photo-status');
   _galleryBusy=true;
   document.getElementById('prop-photo-upload-btn').disabled=true;
+  let uploadFailure = null;
   try {
     // Flush debounced text/transform changes before the DB-owned gallery
     // update; otherwise an older full-object write can race against the photo.
@@ -1123,12 +1158,15 @@ async function onPhotoInput(event) {
     }
     if(added)showToast(added+' photo'+(added===1?'':'s')+' uploaded');
   }catch(error){
-    showToast(error.message || 'Photo upload failed');
+    uploadFailure = error.message || 'Photo upload failed';
+    showToast(uploadFailure);
   }finally{
     _galleryBusy=false;
     if(_selectedId===id){
-      status.textContent='';
       renderPinPhoto(entry.obj);
+      // Keep failures visible after the short toast. A successful retry
+      // clears the previous error once the gallery is refreshed.
+      status.textContent = uploadFailure ? uploadFailure + ' — photo was not added.' : '';
     }
   }
 }
