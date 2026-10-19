@@ -45,7 +45,7 @@ function _validateName(name) {
   }
 }
 
-const UUID_RE = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+const UUID_RE = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
 
 // Minimal scene metadata for owner checks. Always bind both site and scene;
 // never trust an object/scene owner supplied by the browser.
