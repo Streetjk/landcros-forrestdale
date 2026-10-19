@@ -15,7 +15,7 @@ import { loadPublicRuntimeConfig, loadPublicTransport, backendRedirectForScopedR
 import { getBasePublicVisitPointId } from './visit-analytics.js';
 import { createPointListItem } from './point-list-item.js';
 import { createSceneLabelPin, createSceneGroundFrame, SCENE_PIN_FLOAT_HEIGHT, SCENE_PIN_GROUND_Y, preloadSceneLabelPhotos, scenePhotoItems, markerScaleForZoom } from './scene-label-pin.js?v=pinzoom-toggle-20261014b';
-import { renderScenePhotoGallery, hideScenePhotoGallery } from './scene-photo-gallery-view.js';
+import { renderScenePhotoGallery, hideScenePhotoGallery } from './scene-photo-gallery-view.js?v=photozoom-20261019a';
 import { createMobileDetailSheet, trackMapTaps } from './mobile-detail-sheet.js?v=brand-dock-20261015a';
 import { loadSharedSceneBundle } from './scene-bundle-loader.js?v=scene-firstload-retry-20261015c';
 import { loadSharedScenePinPreview } from './shared-scene-pin-preview.js?v=scene-detail-hydrate-20261015a';
@@ -1975,7 +1975,7 @@ function _renderSceneLabelBody(obj) {
   } else {
     photo.removeAttribute('src');
   }
-  if (items.length > 1) {
+  if (items.length > 0) {
     renderScenePhotoGallery({props:obj.props,title:obj.props?.text,
       frameId:'detail-scene-photo-wrap',imageId:'detail-scene-photo'});
   }

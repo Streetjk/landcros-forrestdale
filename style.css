@@ -539,3 +539,31 @@ textarea.form-input      { resize: vertical; min-height: 68px; }
   -webkit-user-select:none !important;
   user-select:none !important;
 }
+
+/* Scene photo inspection: isolate gestures from OrbitControls/map touches.
+   One pointer pans only while magnified; two pointers pinch at their midpoint. */
+.sn-photo-zoom-container { width:100%;min-width:0; }
+.sn-photo-zoom {
+  position:relative;display:block;width:100%;height:clamp(190px,28vh,310px);
+  overflow:hidden;touch-action:none;overscroll-behavior:contain;
+  user-select:none;-webkit-user-select:none;border-radius:9px;
+  border:1px solid rgba(129,152,172,.32);background:#15212b;
+  cursor:zoom-in;contain:layout paint;
+}
+.sn-photo-zoom.sn-photo-zoomed { cursor:grab; }
+.sn-photo-zoom.sn-photo-zoomed:active { cursor:grabbing; }
+.sn-photo-zoom .sn-photo-zoom-image {
+  display:block!important;width:100%!important;height:100%!important;
+  max-height:none!important;object-fit:contain!important;
+  transform-origin:center center;pointer-events:none;
+  user-select:none;-webkit-user-drag:none;
+}
+.sn-photo-zoom:focus-visible { outline:2px solid #38bdf8;outline-offset:2px; }
+.sn-photo-zoom-controls { display:flex;gap:6px;justify-content:flex-end;margin-top:5px; }
+.sn-photo-zoom-controls button {
+  min-width:36px;height:32px;padding:3px 8px;border:1px solid #71869a;
+  border-radius:6px;background:#203447;color:#fff;font-size:12px;
+  font-weight:600;cursor:pointer;
+}
+.sn-photo-zoom-controls button:hover { background:#305571; }
+.sn-photo-zoom-controls button:focus-visible { outline:2px solid #38bdf8;outline-offset:2px; }
