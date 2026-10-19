@@ -102,28 +102,67 @@ async function signPhoto(path) {
   }
 }
 
-async function withSignedPhotos(objects) {
-  return Promise.all(objects.map(async obj => {
-    if (obj.kind !== 'label') return obj;
-    const props={...(obj.props||{})};
-    const legacy=photoPath(obj.sceneId,obj.id);
-    const prefix=obj.sceneId+'/'+obj.id+'/gallery/';
-    const gallery=Array.isArray(props.photoPaths) ? props.photoPaths.filter(path=>
-      typeof path==='string' && path.startsWith(prefix) &&
-      UUID_RE.test(path.slice(prefix.length,-4)) && path.endsWith('.jpg')
-    ).slice(0,6) : [];
-    const paths=[...(props.photoPath===legacy?[legacy]:[]),...new Set(gallery)];
-    const items=(await Promise.all(paths.map(async path=>{
-      const url=await signPhoto(path);
-      return url?{path,url}:null;
-    }))).filter(Boolean);
-    // Response-only links: saveSceneObject strips these before any DB write.
-    props.photoItems=items;
-    props.photoUrls=items.map(item=>item.url);
-    props.photoUrl=props.photoPath===legacy
-      ? items.find(item=>item.path===legacy)?.url || null : null;
-    return {...obj,props};
+// Supabase Storage supports signing multiple private paths in one request.
+// Never persist URLs or construct public bucket links: authorisation remains
+// enforced by the scene/object API before this helper is called.
+async function signPhotoPaths(paths, {
+  signMany = batch => storageClient().storage.from(BUCKET).createSignedUrls(batch, 3600),
+  signOne = signPhoto,
+} = {}) {
+  const signed = new Map();
+  const unique = [...new Set(paths)].filter(path => typeof path === 'string');
+  if (!unique.length) return signed;
+  const BATCH = 50;
+  await Promise.all(Array.from({length: Math.ceil(unique.length / BATCH)}, async (_, i) => {
+    const chunk = unique.slice(i * BATCH, (i + 1) * BATCH);
+    try {
+      const {data,error} = await signMany(chunk);
+      if (error || !Array.isArray(data)) throw error || new Error('Invalid photo batch signature response');
+      const expected = new Set(chunk);
+      for (const entry of data) {
+        if (!expected.has(entry?.path) || typeof entry.signedUrl !== 'string'
+            || !entry.signedUrl.startsWith('https://')) continue;
+        signed.set(entry.path, entry.signedUrl);
+      }
+    } catch (error) {
+      // Service errors must not turn a valid scene into a crash or publish an
+      // unsigned URL. Individual signing is a bounded compatibility fallback.
+      console.error('[scene-photos] Photo batch signing unavailable:', error.message);
+    }
+    await Promise.all(chunk.filter(path => !signed.has(path)).map(async path => {
+      const url = await signOne(path);
+      if (typeof url === 'string' && url.startsWith('https://')) signed.set(path,url);
+    }));
   }));
+  return signed;
+}
+
+async function withSignedPhotos(objects, { signPaths = signPhotoPaths } = {}) {
+  // Keep per-object ordering, validating private storage paths against the
+  // authoritative scene ID. Unknown paths are never sent to Storage.
+  const prepared = objects.map(obj => {
+    if (obj.kind !== 'label') return {obj};
+    const props = {...(obj.props || {})};
+    const legacy = photoPath(obj.sceneId, obj.id);
+    const prefix = obj.sceneId + '/' + obj.id + '/gallery/';
+    const gallery = Array.isArray(props.photoPaths) ? props.photoPaths.filter(path =>
+      typeof path === 'string' && path.startsWith(prefix) &&
+      UUID_RE.test(path.slice(prefix.length, -4)) && path.endsWith('.jpg')
+    ).slice(0, 6) : [];
+    const paths = [...new Set([...(props.photoPath === legacy ? [legacy] : []),...gallery])];
+    return {obj,props,legacy,paths};
+  });
+  const signed = await signPaths(prepared.flatMap(row => row.paths || []));
+  return prepared.map(({obj,props,legacy,paths}) => {
+    if (!props) return obj;
+    const items = paths.flatMap(path => signed.get(path) ? [{path,url:signed.get(path)}] : []);
+    // Response-only links: saveSceneObject strips these before any DB write.
+    props.photoItems = items;
+    props.photoUrls = items.map(item => item.url);
+    props.photoUrl = props.photoPath === legacy
+      ? items.find(item => item.path === legacy)?.url || null : null;
+    return {...obj,props};
+  });
 }
 
 async function uploadGalleryObject(path,bytes) {
@@ -148,7 +187,7 @@ async function copyGalleryPhotoPath(sourceSceneId,sourceObjectId,sourcePath,targ
 }
 
 module.exports = { BUCKET, MAX_PHOTO_BYTES, photoPath, decodeJpegDataUrl,
-  assertOwnsLabel, uploadPhoto, deletePhoto, signPhoto, withSignedPhotos };
+  assertOwnsLabel, uploadPhoto, deletePhoto, signPhoto, signPhotoPaths, withSignedPhotos };
 
 // Server-only image duplication: each copied scene gets its own private
 // storage object, so deleting or editing either scene cannot alter the other.

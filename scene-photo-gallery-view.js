@@ -20,6 +20,8 @@ export function renderScenePhotoGallery({
   // Keep the legacy image with its stable ID: resetSceneLabelPhoto() uses it
   // when switching away from a custom scene-pin photo.
   const existing=frame.querySelector('img[id]');
+  frame._thumbAbort?.abort();
+  frame._thumbAbort=null;
   frame._photoZoom?.destroy();
   frame._photoZoom=null;
   frame.replaceChildren();
@@ -65,6 +67,20 @@ export function renderScenePhotoGallery({
 
   let selected=0;
   const buttons=[];
+  const thumbnailQueue=[];
+  const thumbnailAbort=new AbortController();
+  frame._thumbAbort=thumbnailAbort;
+  // Never start six full-sized JPEG thumbnail downloads ahead of the main
+  // image. Release low-priority thumbnails once the selected photo loads
+  // (or fails), preserving a fast first visible image on slow connections.
+  let thumbnailsStarted=false;
+  const startThumbnails=()=>{
+    if(thumbnailsStarted || thumbnailAbort.signal.aborted || frame._photoZoom!==photoZoom)return;
+    thumbnailsStarted=true;
+    for(const {img,url} of thumbnailQueue) img.src=url;
+  };
+  main.addEventListener('load',startThumbnails,{once:true,signal:thumbnailAbort.signal});
+  main.addEventListener('error',startThumbnails,{once:true,signal:thumbnailAbort.signal});
   const show=index=>{
     selected=(index+photos.length)%photos.length;
     photoZoom.reset();
@@ -82,7 +98,8 @@ export function renderScenePhotoGallery({
     button.setAttribute('aria-label','View photo '+(i+1)+' of '+photos.length);
     const img=document.createElement('img');
     img.alt='';img.crossOrigin='anonymous';img.referrerPolicy='no-referrer';
-    img.loading='lazy';img.src=item.url;
+    img.loading='lazy';img.decoding='async';img.fetchPriority='low';
+    thumbnailQueue.push({img,url:item.url});
     button.appendChild(img);
     button.addEventListener('click',()=>show(i));
     thumbs.appendChild(button);
@@ -91,6 +108,7 @@ export function renderScenePhotoGallery({
   prev.addEventListener('click',()=>show(selected-1));
   next.addEventListener('click',()=>show(selected+1));
   show(0);
+  if(main.complete)startThumbnails(); // cached preloaded image
   return frame;
 }
 
@@ -101,6 +119,8 @@ export function hideScenePhotoGallery(frameId='detail-scene-photo-wrap') {
   // Preserve the legacy image element. The single-photo renderer references
   // its stable ID when the visitor switches back from a multi-photo pin.
   const main=frame.querySelector('img[id]');
+  frame._thumbAbort?.abort();
+  frame._thumbAbort=null;
   frame._photoZoom?.destroy();
   frame._photoZoom=null;
   main?.removeAttribute('src');
