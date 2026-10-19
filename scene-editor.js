@@ -772,8 +772,10 @@ function renderPinPhoto(obj) {
   img.crossOrigin='anonymous';img.referrerPolicy='no-referrer';
   img.loading='eager';img.decoding='async';img.fetchPriority='high';
   img.style.display=selected?'block':'none';
-  if(selected)img.src=selected.url;
-  else img.removeAttribute('src');
+  // This shared loader owns the image request and shows a delayed spinner
+  // only when the selected signed photo really takes time to arrive.
+  if(selected)_photoZoom.setSource(selected.url);
+  else _photoZoom.clearSource();
   thumbs.replaceChildren();
   const pendingThumbnails=[];
   for(const [index,item] of photos.entries()){

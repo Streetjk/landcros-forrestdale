@@ -15,24 +15,106 @@ export function createPhotoZoom(image, { label = 'Photo' } = {}) {
   image.draggable = false;
   viewport.appendChild(image);
 
-  const buttons = document.createElement('div');
-  buttons.className = 'sn-photo-zoom-controls';
-  const makeButton = (symbol, title, action) => {
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.textContent = symbol;
-    button.title = title;
-    button.setAttribute('aria-label', title);
-    button.addEventListener('pointerdown', event => event.stopPropagation());
-    button.addEventListener('click', event => { event.stopPropagation(); action(); });
-    buttons.appendChild(button);
-    return button;
-  };
+  // The photo is gesture-driven. Keep the viewport clean: no +/- or 1:1
+  // buttons. A delayed, non-interactive loading treatment lives above the
+  // image and never captures pinches, wheel events or pointer drags.
+  const overlay = document.createElement('div');
+  overlay.className = 'sn-photo-loading-overlay';
+  overlay.setAttribute('role', 'status');
+  overlay.setAttribute('aria-live', 'polite');
+  const halo = document.createElement('span');
+  halo.className = 'sn-photo-loading-halo';
+  halo.setAttribute('aria-hidden', 'true');
+  const glyph = document.createElement('span');
+  glyph.className = 'sn-photo-loading-glyph';
+  halo.appendChild(glyph);
+  const loadingTitle = document.createElement('strong');
+  loadingTitle.className = 'sn-photo-loading-title';
+  loadingTitle.textContent = 'Loading photo';
+  const loadingNote = document.createElement('span');
+  loadingNote.className = 'sn-photo-loading-note';
+  loadingNote.textContent = 'Preparing your image…';
+  overlay.append(halo, loadingTitle, loadingNote);
+  viewport.appendChild(overlay);
 
   const pointers = new Map();
   let zoom = 1;
   let x = 0;
   let y = 0;
+  let requestedUrl = null;
+  let loadingTimer = null;
+  let destroyed = false;
+  const LOADING_DELAY_MS = 180;
+
+  function cancelLoadingTimer() {
+    if (loadingTimer !== null) clearTimeout(loadingTimer);
+    loadingTimer = null;
+  }
+
+  function setPhotoState(state) {
+    viewport.dataset.photoState = state;
+    viewport.classList.toggle('sn-photo-pending', state === 'pending' || state === 'loading');
+    viewport.classList.toggle('sn-photo-loading', state === 'loading');
+    viewport.classList.toggle('sn-photo-error', state === 'error');
+    viewport.setAttribute('aria-busy', String(state === 'pending' || state === 'loading'));
+    if (state === 'loading') {
+      loadingTitle.textContent = 'Loading photo';
+      loadingNote.textContent = 'Preparing your image…';
+    } else if (state === 'error') {
+      loadingTitle.textContent = 'Photo unavailable';
+      loadingNote.textContent = 'Reopen this scene to refresh the photo link';
+    }
+  }
+
+  function onImageLoad() {
+    if (destroyed) return;
+    paint();
+    if (!requestedUrl || image.getAttribute('src') !== requestedUrl) return;
+    cancelLoadingTimer();
+    setPhotoState('ready');
+  }
+
+  function onImageError() {
+    if (destroyed || !requestedUrl || image.getAttribute('src') !== requestedUrl) return;
+    cancelLoadingTimer();
+    setPhotoState('error');
+  }
+
+  function setSource(url) {
+    if (destroyed) return;
+    if (typeof url !== 'string' || !url) { clearSource(); return; }
+    // Re-rendering the same selected pin must not restart an in-flight image
+    // request or flash a loader for a decoded, cache-warmed photo.
+    if (requestedUrl === url && image.getAttribute('src') === url) {
+      if (image.complete && image.naturalWidth > 0) onImageLoad();
+      return;
+    }
+    requestedUrl = url;
+    cancelLoadingTimer();
+    setPhotoState('pending');
+    image.src = url;
+    if (image.complete && image.naturalWidth > 0) {
+      onImageLoad();
+      return;
+    }
+    loadingTimer = setTimeout(() => {
+      loadingTimer = null;
+      if (!destroyed && requestedUrl === url && image.getAttribute('src') === url
+          && (!image.complete || image.naturalWidth === 0)
+          && viewport.dataset.photoState === 'pending') {
+        setPhotoState('loading');
+      }
+    }, LOADING_DELAY_MS);
+  }
+
+  function clearSource() {
+    if (destroyed) return;
+    requestedUrl = null;
+    cancelLoadingTimer();
+    image.removeAttribute('src');
+    setPhotoState('empty');
+    paint();
+  }
 
   function bounds(scale) {
     const width = viewport.clientWidth;
@@ -156,10 +238,6 @@ export function createPhotoZoom(image, { label = 'Photo' } = {}) {
     event.stopPropagation();
   }
 
-  makeButton('+', 'Zoom in', () => zoomAt(zoom * 1.4));
-  makeButton('−', 'Zoom out', () => zoomAt(zoom / 1.4));
-  makeButton('1:1', 'Reset photo zoom', reset);
-
   viewport.addEventListener('pointerdown', pointerDown);
   viewport.addEventListener('pointermove', pointerMove);
   viewport.addEventListener('pointerup', pointerUp);
@@ -168,11 +246,15 @@ export function createPhotoZoom(image, { label = 'Photo' } = {}) {
   viewport.addEventListener('wheel', wheel, { passive: false });
   viewport.addEventListener('dblclick', doubleClick);
   viewport.addEventListener('keydown', keyboard);
-  image.addEventListener('load', paint);
+  image.addEventListener('load', onImageLoad);
+  image.addEventListener('error', onImageError);
   const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(paint) : null;
   observer?.observe(viewport);
 
   function destroy() {
+    destroyed = true;
+    requestedUrl = null;
+    cancelLoadingTimer();
     observer?.disconnect();
     viewport.removeEventListener('pointerdown', pointerDown);
     viewport.removeEventListener('pointermove', pointerMove);
@@ -182,17 +264,20 @@ export function createPhotoZoom(image, { label = 'Photo' } = {}) {
     viewport.removeEventListener('wheel', wheel);
     viewport.removeEventListener('dblclick', doubleClick);
     viewport.removeEventListener('keydown', keyboard);
-    image.removeEventListener('load', paint);
+    image.removeEventListener('load', onImageLoad);
+    image.removeEventListener('error', onImageError);
     pointers.clear();
-    buttons.replaceChildren();
     image.style.transform = '';
   }
 
-  // Controls intentionally live outside the clipped viewport so they remain
-  // usable while the photo is enlarged or panned.
   const container = document.createElement('div');
   container.className = 'sn-photo-zoom-container';
-  container.append(viewport, buttons);
+  container.append(viewport);
+  setPhotoState('empty');
   paint();
-  return { container, viewport, reset, zoomAt, destroy, get zoom() { return zoom; } };
+  return {
+    container, viewport, reset, zoomAt, setSource, clearSource, destroy,
+    get zoom() { return zoom; },
+    get photoState() { return viewport.dataset.photoState; },
+  };
 }

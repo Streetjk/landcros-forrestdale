@@ -371,9 +371,11 @@
     }
     #prop-description { resize:vertical; min-height:97px; max-height:260px; }
     .editor-field-hint { color:#8899a6; font-size:10px; line-height:1.35; }
+    /* Image fills its clipped interactive viewport; the viewport supplies
+       the border/rounding and the new loader overlays it when necessary. */
     #prop-photo-preview {
-      max-height:190px!important; width:100%!important; object-fit:cover;
-      border-radius:9px; border:1px solid #d5e1e7;
+      width:100%!important;height:100%!important;max-height:none!important;
+      object-fit:contain!important;border:0!important;border-radius:0!important;
     }
     #prop-photo-upload-btn {
       flex:none!important; display:flex; align-items:center; width:100%; min-height:69px;
