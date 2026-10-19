@@ -1,5 +1,5 @@
 import { scenePhotoItems } from './scene-label-pin.js';
-import { createPhotoZoom } from './photo-zoom.js';
+import { createPhotoZoom } from './photo-zoom.js?v=photoload-20261019b';
 
 // Shared responsive photo gallery for public/admin scene pin details.
 // DOM API only (no HTML interpolation); all images use anonymous CORS because
@@ -41,12 +41,15 @@ export function renderScenePhotoGallery({
   main.loading='eager';
   main.decoding='async';
   main.fetchPriority='high';
+  // The legacy plain-photo path may have installed an inline error callback
+  // that hides the whole gallery. The new loader owns loading/error UI.
+  main.onerror=null;
   const photoZoom=createPhotoZoom(main, { label: 'Photo of '+(title||'scene location') });
   frame._photoZoom=photoZoom;
   frame.appendChild(photoZoom.container);
 
   if(photos.length===1) {
-    main.src=photos[0].url;
+    photoZoom.setSource(photos[0].url);
     return frame;
   }
   const bar=document.createElement('div');
@@ -84,7 +87,7 @@ export function renderScenePhotoGallery({
   const show=index=>{
     selected=(index+photos.length)%photos.length;
     photoZoom.reset();
-    main.src=photos[selected].url;
+    photoZoom.setSource(photos[selected].url);
     count.textContent=(selected+1)+' / '+photos.length;
     buttons.forEach((button,i)=>{
       button.setAttribute('aria-pressed',String(selected===i));
