@@ -91,6 +91,40 @@ renderer.toneMapping = _Q.toneMapping;
 renderer.toneMappingExposure = 0.6;
 renderer.setClearColor(0x0f1117, 1); // match app background so pre-sky frames aren't flash-black
 
+// Use the same opt-in local performance probe as the static shared-scene
+// viewer. ?perf=1 enables the HUD and copyable metrics; without it there is
+// no frame-sampling or network telemetry.
+const _perfParams = new URLSearchParams(window.location.search);
+const _perfEnabled = _perfParams.get('perf') === '1';
+const _perfDragDprRaw = _perfEnabled ? Number.parseFloat(_perfParams.get('dragDpr')) : NaN;
+const _perfDragDpr = Number.isFinite(_perfDragDprRaw)
+  ? Math.max(0.5, _perfDragDprRaw) : null;
+const _PERF_NOOP = Object.freeze({
+  enabled: false,
+  mark() {}, begin() { return () => 0; }, frame() {}, resolutionSwitch() {},
+  asset() {}, visibility() {}, refreshHud() {}, snapshot() { return { enabled: false }; },
+});
+let _perf = _PERF_NOOP;
+if (_perfEnabled) {
+  import('./viewer-perf.js').then(({ createPerfProbe }) => {
+    _perf = createPerfProbe({
+      enabled: true,
+      quality: {
+        tier: _Q.tier, skipSplat: _Q.skipSplat, antialias: _Q.antialias,
+        pixelRatio: _Q.pixelRatio, idleAfter: _Q.idleAfter,
+        idleInterval: _Q.idleInterval, dragDprExperiment: _perfDragDpr,
+      },
+      renderer,
+    });
+    if (_perfParams.get('perfHud') !== '0') _perf.installHud();
+    window.__sitenavPerf = Object.freeze({
+      snapshot: () => _perf.snapshot(),
+      refresh: () => _perf.refreshHud(),
+    });
+    _perf.mark('viewerInit');
+  }).catch(() => { /* optional instrumentation must not affect the viewer */ });
+}
+
 // On low-tier devices remove expensive backdrop-filter blurs (GPU compositing cost)
 if (_Q.tier === 'low') {
   const s = document.createElement('style');
@@ -571,14 +605,69 @@ function unregisterSceneGroundFrame(frame) {
 }
 
 let _lastRenderMs = 0;
+let _lastLabelScale = null; // label transform depends on zoom, not every frame
+function _invalidateLabelScale() { _lastLabelScale = null; }
 const IDLE_AFTER = _Q.idleAfter;
 const IDLE_INTERVAL = _Q.idleInterval;
 let _pins = {}; // id → { group, pinGroup, sphere, icon, label, squareMat, squareGroup, pt }
 let _selectedId = null;
 const _sceneWidgets = new Map(); // id → { obj, anchor, raycastMesh } — read-only 'button' scene_objects (Phase 2 SLICE 4)
 
+// Mirror the static viewer's adaptive resolution. Rasterizing 3D splats
+// at full device pixel ratio during a drag is GPU-bound; briefly use 1x
+// while moving, then restore crisp stills after camera damping settles.
+// Restore cooldown avoids expensive framebuffer reallocations on wheel ticks;
+// dropping resolution on the first drag frame must never be delayed.
+const _DRAG_PIXEL_RATIO = _perfDragDpr != null ? Math.min(_Q.pixelRatio, _perfDragDpr) : Math.min(_Q.pixelRatio, 1.0);
+const _RESTORE_AFTER_IDLE_FRAMES = 45;
+const _MIN_SWITCH_INTERVAL_MS = 400;
+let _lowResActive = false;
+let _lastResSwitchMs = 0;
+function _setLowRes(on) {
+  if (on === _lowResActive || (on && _DRAG_PIXEL_RATIO >= _Q.pixelRatio)) return;
+  const now = performance.now();
+  // Prioritize responsive interaction: only the high-res restoration may
+  // wait for a cooldown. A new drag can start immediately after a restore.
+  if (!on && now - _lastResSwitchMs < _MIN_SWITCH_INTERVAL_MS) return;
+  _lastResSwitchMs = now;
+  _lowResActive = on;
+  renderer.setPixelRatio(on ? _DRAG_PIXEL_RATIO : _Q.pixelRatio);
+  resize();
+  _perf.resolutionSwitch(renderer.getPixelRatio());
+}
+
+// Match the static viewer's visibility-aware render lifecycle. A hidden editor
+// should not waste GPU cycles continually sorting splats or updating labels.
+let _pageHidden = document.hidden === true;
+let _viewerAnimationFrameId = null;
+function _queueViewerFrame() {
+  if (_pageHidden || _viewerAnimationFrameId !== null) return;
+  _viewerAnimationFrameId = requestAnimationFrame(animate);
+}
+function _setViewerPageVisibility(hidden) {
+  if (_pageHidden === hidden) return;
+  _pageHidden = hidden;
+  _perf.visibility(hidden);
+  if (hidden) {
+    if (_viewerAnimationFrameId !== null) cancelAnimationFrame(_viewerAnimationFrameId);
+    _viewerAnimationFrameId = null;
+    return;
+  }
+  _idleFrames = 0;
+  _lastRenderMs = 0;
+  _queueViewerFrame();
+}
+document.addEventListener('visibilitychange', () => _setViewerPageVisibility(document.hidden === true));
+window.addEventListener('pagehide', () => _setViewerPageVisibility(true));
+window.addEventListener('pageshow', () => _setViewerPageVisibility(document.hidden === true));
+
 function animate() {
-  requestAnimationFrame(animate);
+  _viewerAnimationFrameId = null;
+  if (_pageHidden) {
+    _perf.frame({ hidden: true });
+    return;
+  }
+  _queueViewerFrame();
   if (!_camAnimating) {
     controls.update(); // drives autoRotate when _orbitActive
   }
@@ -590,12 +679,17 @@ function animate() {
     _idleFrames = 0;
     _prevCamPos.copy(camera.position);
     _prevCamQuat.copy(camera.quaternion);
+    _setLowRes(true);
   } else {
     _idleFrames++;
+    if (_lowResActive && _idleFrames >= _RESTORE_AFTER_IDLE_FRAMES) _setLowRes(false);
   }
 
   const now = performance.now();
-  if (_idleFrames > IDLE_AFTER && now - _lastRenderMs < IDLE_INTERVAL && !comparisonNeedsRender()) return;
+  if (_idleFrames > IDLE_AFTER && now - _lastRenderMs < IDLE_INTERVAL && !comparisonNeedsRender()) {
+    _perf.frame({ rendered: false, moving: moved || _camAnimating });
+    return;
+  }
   _lastRenderMs = now;
 
   _updateCamHud();
@@ -612,8 +706,13 @@ function animate() {
   // Shrink labels proportionally when far (zoom > 20), constant 1.0 when close.
   const _zoomScale = _zoom >= 20 ? Math.max(0.5, 20 / _zoom) : 1.0;
   const _finalScale = (_zoomScale * _mobileScale).toFixed(3);
-  // Apply to all label types (buildings, pins, zones) via unified array.
-  for (const el of _allScaleEls) el.style.transform = `scale(${_finalScale})`;
+  // Apply to all label types, but only when zoom changes: writing the
+  // same style.transform to every label each frame forces unnecessary DOM
+  // styling work during orbit/pan at a fixed camera distance.
+  if (_finalScale !== _lastLabelScale) {
+    _lastLabelScale = _finalScale;
+    for (const el of _allScaleEls) el.style.transform = `scale(${_finalScale})`;
+  }
 
 
   // Pulse ground squares on all pins (smooth sine, no abs bounce)
@@ -628,13 +727,20 @@ function animate() {
   }
 
   const compActive = updateComparison();
+  let splatUpdateMs = 0;
   if (!compActive) {
-    if (_splatViewer) _splatViewer.update();
+    if (_splatViewer) {
+      const splatStart = _perf.enabled ? performance.now() : null;
+      _splatViewer.update();
+      if (splatStart !== null) splatUpdateMs = performance.now() - splatStart;
+    }
     renderer.render(scene, camera);
   }
   css2d.render(scene, camera);
+  _perf.frame({ rendered: true, moving: moved || _camAnimating, splatUpdateMs });
+  _perf.refreshHud();
 }
-animate();
+_queueViewerFrame();
 
 // ── Camera presets ─────────────────────────────────────────────────────────
 
@@ -1238,6 +1344,7 @@ function _addPinToScene(pt) {
   });
   iconWrap.appendChild(labelDiv);
   _allScaleEls.push(labelInner);
+  _invalidateLabelScale();
 
   const icon = new CSS2DObject(iconWrap);
   icon.position.set(0, 0, 0);
@@ -1281,7 +1388,7 @@ function removePin(id) {
   const animIdx = _pinAnimatables.findIndex(a => a.squareMat === pin.squareMat);
   if (animIdx >= 0) _pinAnimatables.splice(animIdx, 1);
   const scaleIdx = _allScaleEls.indexOf(pin.labelInner);
-  if (scaleIdx >= 0) _allScaleEls.splice(scaleIdx, 1);
+  if (scaleIdx >= 0) { _allScaleEls.splice(scaleIdx, 1); _invalidateLabelScale(); }
   delete _pins[id];
 }
 
@@ -2219,7 +2326,7 @@ async function renderBuildings(geoData) {
     label.position.set(lx, ly, lz);
     scene.add(label);
     _bldRefs[p.id] = { css2d: label, name: p.name, x: lx, y: ly, z: lz };
-    if (label._scaleEl) _allScaleEls.push(label._scaleEl);
+    if (label._scaleEl) { _allScaleEls.push(label._scaleEl); _invalidateLabelScale(); }
 
     // Loading zone floor patch
     const zone = p.loadingZone;
@@ -2255,6 +2362,7 @@ async function renderBuildings(geoData) {
       const zoneLabel = new CSS2DObject(zoneWrapper);
       zoneLabel._scaleEl = zoneDiv;
       _allScaleEls.push(zoneDiv);
+      _invalidateLabelScale();
       zoneLabel.position.set(cx, 0.5, cz);
       scene.add(zoneLabel);
     }
@@ -2516,7 +2624,7 @@ function _restoreCustomLabels() {
     label.position.set(data.x, data.y, data.z);
     scene.add(label);
     _bldRefs[id] = { css2d: label, name: data.name, x: data.x, y: data.y, z: data.z, isCustom: true };
-    if (label._scaleEl) _allScaleEls.push(label._scaleEl);
+    if (label._scaleEl) { _allScaleEls.push(label._scaleEl); _invalidateLabelScale(); }
   }
 }
 
@@ -2529,7 +2637,7 @@ function _addCustomLabel() {
   label.position.set(x, 1.5, z);
   scene.add(label);
   _bldRefs[id] = { css2d: label, name: 'New Label', x, y: 1.5, z, isCustom: true };
-  if (label._scaleEl) _allScaleEls.push(label._scaleEl);
+  if (label._scaleEl) { _allScaleEls.push(label._scaleEl); _invalidateLabelScale(); }
   const panel = document.getElementById('sn-editor-panel');
   if (panel) _renderEdPanel(panel);
 }
@@ -2539,7 +2647,7 @@ function _removeCustomLabel(id) {
   if (!ref || !ref.isCustom) return;
   scene.remove(ref.css2d);
   const idx = _allScaleEls.indexOf(ref.css2d._scaleEl);
-  if (idx !== -1) _allScaleEls.splice(idx, 1);
+  if (idx !== -1) { _allScaleEls.splice(idx, 1); _invalidateLabelScale(); }
   delete _bldRefs[id];
   delete _customLabelData[id];
   localStorage.setItem(_LS_CUSTOM_LABELS, JSON.stringify(_customLabelData));
@@ -3319,7 +3427,12 @@ async function loadSplatBackground(opts = {}) {
   for (const path of candidates) {
     try {
       const r = await fetch(path, { method: 'HEAD' });
-      if (r.ok) { splatPath = path; break; }
+      if (r.ok) {
+        splatPath = path;
+        const size = Number.parseInt(r.headers.get('content-length') || '', 10);
+        _perf.asset({ path, bytes: Number.isFinite(size) ? size : null, phase: 'select', status: 'ok' });
+        break;
+      }
     } catch {}
   }
   if (!splatPath) return;
@@ -3338,7 +3451,10 @@ async function loadSplatBackground(opts = {}) {
     // Pass 1: fetch raw bytes and scan positions for bounding box.
     // Only valid for .splat (32-byte records) — skip pre-scan for .ply to avoid NaN bounds.
     if (!onProgress && msg) msg.textContent = `Scanning ${ext}…`;
+    const endFetch = _perf.begin('splatFetch', { asset: splatPath.split('/').pop() });
     rawBuf = ext === 'SPLAT' ? await fetch(splatPath).then(r => r.arrayBuffer()) : null;
+    endFetch({ bytes: rawBuf?.byteLength ?? null });
+    if (rawBuf) _perf.asset({ path: splatPath, bytes: rawBuf.byteLength, phase: 'fetched', status: 'ok' });
     const STRIDE = 32;
     let cx = 0, cy = 0, cz = 0, scale = 1;
     if (rawBuf) {

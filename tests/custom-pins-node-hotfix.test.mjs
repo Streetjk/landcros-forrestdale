@@ -24,7 +24,7 @@ test('gallery writes enforce scene ownership as well as editor role and site sco
   assert.match(server, /scenesDb\.getSceneMeta\(slug, sceneId\)/);
   assert.match(server, /canManageScene\(meta, session, auth\.isPlatformAdmin\(session\.email\)\)/);
   assert.match(scenes, /select id, created_by from scenes where id = \$1 and site_id = \$2/);
-  assert.match(server, /if \(!await _managedSceneOrRespond\(res,slug,body\.sceneId,session\)\) return/);
+  assert.match(server, /const sceneId = await _managedGallerySceneOrRespond\(res,slug,body\.objectId,body\.sceneId,session\)/);
 });
 
 test('only the owner, platform admin, or legacy ownerless scene can receive a write', () => {
@@ -48,6 +48,37 @@ test('failed scene or pin loads stay visible as failures and can be retried', ()
   assert.match(editor, /const enabled = !!_currentSceneId && _sceneObjectsReady/);
   assert.match(editor, /_sceneObjectsReady = true;\s*updateAddButtonsEnabled\(\)/);
   assert.match(editor, /status\.textContent = uploadFailure \? uploadFailure \+ ' — photo was not added\.'/);
+});
+
+test('gallery finds the stored scene from the pin before checking caller scene IDs', () => {
+  const db = read('scene-db.js');
+  assert.match(db, /async function getSceneObjectMeta\(slug, id\)/);
+  assert.match(db, /select id, scene_id from scene_objects where id = \$1::uuid and site_id = \$2::uuid/);
+  const helper = server.slice(
+    server.indexOf('async function _managedGallerySceneOrRespond('),
+    server.indexOf('// Phase 3: admin+ role', server.indexOf('async function _managedGallerySceneOrRespond(')),
+  );
+  assert.match(helper, /sceneDb\.getSceneObjectMeta\(slug, objectId\)/);
+  assert.match(helper, /_managedSceneOrRespond\(res, slug, object\.sceneId, session\)/);
+  assert.match(helper, /requestedSceneId != null && requestedSceneId !== object\.sceneId/);
+  // Authorization before mismatch means wrong-owner pins cannot be probed.
+  assert.ok(helper.indexOf('_managedSceneOrRespond(') < helper.indexOf('requestedSceneId != null'));
+  assert.match(server, /createGalleryPhoto\(slug,sceneId,body\.objectId,body\.dataUrl\)/);
+  assert.match(editor, /const sceneId = _currentSceneId;/);
+  assert.match(editor, /Pin scene changed\. Reload this scene and retry\./);
+});
+
+test('moving camera lowers splat raster resolution and skips unchanged label DOM writes', () => {
+  assert.match(viewer, /const _DRAG_PIXEL_RATIO = _perfDragDpr != null/);
+  assert.match(viewer, /: Math\.min\(_Q\.pixelRatio, 1\.0\)/);
+  assert.match(viewer, /const _RESTORE_AFTER_IDLE_FRAMES = 45/);
+  assert.match(viewer, /const _MIN_SWITCH_INTERVAL_MS = 400/);
+  assert.match(viewer, /if \(!on && now - _lastResSwitchMs < _MIN_SWITCH_INTERVAL_MS\) return/);
+  assert.match(viewer, /_setLowRes\(true\)/);
+  assert.match(viewer, /_lowResActive && _idleFrames >= _RESTORE_AFTER_IDLE_FRAMES\) _setLowRes\(false\)/);
+  assert.match(viewer, /if \(_finalScale !== _lastLabelScale\)/);
+  assert.match(viewer, /function _invalidateLabelScale\(\) \{ _lastLabelScale = null; \}/);
+  assert.match(viewer, /_allScaleEls\.push\(labelInner\);\s*_invalidateLabelScale\(\)/);
 });
 
 test('editor splat worker matches static performance policy with Edge/Brave fallback', () => {
