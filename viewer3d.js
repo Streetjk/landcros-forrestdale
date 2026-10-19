@@ -3363,13 +3363,25 @@ async function loadSplatBackground(opts = {}) {
 
     if (!onProgress && msg) msg.textContent = `Loading ${ext}… 0%`;
     const GS3D = await import('@mkkellogg/gaussian-splats-3d');
+
+    // Match the static public viewer's proven sorting path. GPU sorting is
+    // faster on standard Chromium but its transform-feedback readback is
+    // unreliable on Edge and Brave, where we deliberately retain CPU sort.
+    let gpuSortOk = true;
+    try {
+      if (navigator.brave && await navigator.brave.isBrave()) gpuSortOk = false;
+      else if (/Edg\//.test(navigator.userAgent)) gpuSortOk = false;
+    } catch { gpuSortOk = false; }
+    // Worker shared memory is independent of GPU sorting. Use it only on
+    // cross-origin-isolated pages where SharedArrayBuffer is actually allowed.
+    const sharedMemOk = typeof SharedArrayBuffer !== 'undefined' && self.crossOriginIsolated === true;
     const sv = new GS3D.Viewer({
       selfDrivenMode: false,
       useBuiltInControls: false,
       renderer,
       camera,
-      gpuAcceleratedSort: false,
-      sharedMemoryForWorkers: false,
+      gpuAcceleratedSort: gpuSortOk,
+      sharedMemoryForWorkers: sharedMemOk,
       splatAlphaRemovalThreshold: 1,
     });
 

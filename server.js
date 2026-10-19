@@ -34,12 +34,22 @@ const webhookDelivery = require('./webhook-delivery');
 const scriptsDb     = require('./scripts-db');
 const scenesDb      = require('./scenes-db');
 const sceneDuplicate = require('./scene-duplicate');
+const { canManageScene } = require('./resource-ownership');
 
 // Generic client error body — logs the real error server-side, never leaks
 // DB/schema/config detail (e.message) to the client.
 function _errBody(e) {
   console.error('[api]', (e && e.message) ? e.message : e);
   return JSON.stringify({ error: 'Internal error' });
+}
+
+// Shared JSON response used by scene gallery, groups and duplication routes.
+// Without this helper those requests threw ReferenceError, crashed the Node
+// process, and interrupted scene reloads after refresh.
+function _json(res, code, obj) {
+  if (res.writableEnded) return;
+  res.writeHead(code, { 'Content-Type': 'application/json' });
+  res.end(JSON.stringify(obj));
 }
 
 const ROOT      = __dirname;
@@ -134,6 +144,18 @@ function _requireSiteRole(req, res, slug, minRole, cb) {
 // Phase 2 SLICE 2a: editor+ role on :slug.
 function _requireSiteEditor(req, res, slug, cb) {
   _requireSiteRole(req, res, slug, 'editor', cb);
+}
+
+// Gallery writes are scene-owned, not merely site-scoped. A membership/subscription
+// grants viewing access but not edits to another author's scene.
+async function _managedSceneOrRespond(res, slug, sceneId, session) {
+  const meta = await scenesDb.getSceneMeta(slug, sceneId);
+  if (!meta) { _json(res, 404, { error: 'not found' }); return null; }
+  if (!canManageScene(meta, session, auth.isPlatformAdmin(session.email))) {
+    _json(res, 403, { error: 'forbidden' });
+    return null;
+  }
+  return meta;
 }
 
 // Phase 3: admin+ role on :slug — gates webhook CRUD (webhooks.secret must
