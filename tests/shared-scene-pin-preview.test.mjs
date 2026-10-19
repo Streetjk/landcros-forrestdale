@@ -109,6 +109,6 @@ test('viewer starts Supabase preview before the scene build, reconciles full dat
   assert.match(viewer,/_params\.has\('id'\)/);
   assert.match(viewer,/!_publicMyPinMode/);
   for(const html of ['index.html','viewer3d.html']){
-    assert.match(src(html),/viewer3d\.js\?v=photozoom-20261019a/);
+    assert.match(src(html),/viewer3d\.js\?v=photoload-20261019b/);
   }
 });
