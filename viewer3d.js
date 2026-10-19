@@ -1976,7 +1976,7 @@ function showSceneLabelDetail(obj) {
   document.getElementById('detail-label').textContent = obj.props?.text || 'Untitled pin';
   document.getElementById('detail-notes').textContent = obj.props?.description || '';
   const galleryItems=scenePhotoItems(obj.props);
-  if(galleryItems.length > 1) {
+  if(galleryItems.length > 0) {
     renderScenePhotoGallery({props:obj.props,title:obj.props?.text,
       frameId:'detail-photo-wrap',imageId:'detail-photo'});
   } else {
@@ -3480,17 +3480,25 @@ async function loadSplatBackground(opts = {}) {
     if (!onProgress && msg) msg.textContent = `Loading ${ext}… 0%`;
     const GS3D = await import('@mkkellogg/gaussian-splats-3d');
 
-    // Match the static public viewer's proven sorting path. GPU sorting is
-    // faster on standard Chromium but its transform-feedback readback is
-    // unreliable on Edge and Brave, where we deliberately retain CPU sort.
-    let gpuSortOk = true;
+    // Preserve the public viewer's browser fallbacks. GPU transform-feedback
+    // readback can be fast on some Chrome drivers but is unreliable on Edge
+    // and Brave, which always use the CPU sorting worker.
+    // The scene editor is GPU-readback bound on some modern Chrome drivers.
+    // Hardware A/B on Apple Metal: CPU/shared worker ~20 FPS vs GPU sort ~10 FPS.
+    // Prefer the stable CPU worker only when shared memory is available; without
+    // isolation its full-buffer transfers can be slower, so keep the GPU path.
+    // Public and static viewers retain their existing browser-specific policy.
+    const editorSurface = !!document.getElementById('add-label-btn');
+    const sharedMemOk = typeof SharedArrayBuffer !== 'undefined' && self.crossOriginIsolated === true;
+    const sortOverride = _perfEnabled ? _perfParams.get('gpuSort') : null;
+    let gpuSortOk = !(editorSurface && sharedMemOk);
+    if (sortOverride === '1') gpuSortOk = true;
+    else if (sortOverride === '0') gpuSortOk = false;
     try {
       if (navigator.brave && await navigator.brave.isBrave()) gpuSortOk = false;
       else if (/Edg\//.test(navigator.userAgent)) gpuSortOk = false;
     } catch { gpuSortOk = false; }
-    // Worker shared memory is independent of GPU sorting. Use it only on
-    // cross-origin-isolated pages where SharedArrayBuffer is actually allowed.
-    const sharedMemOk = typeof SharedArrayBuffer !== 'undefined' && self.crossOriginIsolated === true;
+    _perf.mark('splatSortMode', { mode: gpuSortOk ? 'gpu' : 'cpu', editor: editorSurface, sharedMemory: sharedMemOk });
     const sv = new GS3D.Viewer({
       selfDrivenMode: false,
       useBuiltInControls: false,

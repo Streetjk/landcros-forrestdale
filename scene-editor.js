@@ -11,6 +11,7 @@ import * as THREE from 'three';
 import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import { CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
 import { generateQR } from './qr.js';
+import { createPhotoZoom } from './photo-zoom.js';
 import { createSceneLabelPin, createSceneGroundFrame, SCENE_PIN_FLOAT_HEIGHT, SCENE_PIN_GROUND_Y, scenePhotoItems } from './scene-label-pin.js?v=pinzoom-toggle-20261014b';
 
 const SLUG = new URLSearchParams(location.search).get('site');
@@ -23,6 +24,8 @@ let _objects           = new Map(); // id -> { obj, anchor, raycastMesh, css2dOb
 let _selectedId        = null;
 let _selectedPinPhotoPath = null;
 let _galleryBusy = false;
+let _photoZoom = null;
+let _previewKey = null;
 let _placingKind       = null; // 'label' | 'button' | null
 let _justDragged       = false;
 const _saveTimers      = new Map();
@@ -230,6 +233,12 @@ async function init() {
     document.getElementById('prop-photo-input').click();
   });
   document.getElementById('prop-photo-input').addEventListener('change', onPhotoInput);
+  // Photo interactions stay in the inspector and never reach the map canvas.
+  const photoPreview = document.getElementById('prop-photo-preview');
+  _photoZoom = createPhotoZoom(photoPreview, { label: 'Selected pin photo' });
+  photoPreview.parentElement.insertBefore(
+    _photoZoom.container, document.getElementById('prop-photo-gallery'));
+  _photoZoom.container.hidden = true;
   document.getElementById('prop-photo-remove-btn').addEventListener('click', onPhotoRemove);
   document.getElementById('prop-delete-btn').addEventListener('click', onDeleteClick);
   document.getElementById('prop-action-type').addEventListener('change', onActionTypeChange);
@@ -745,6 +754,9 @@ function renderPinPhoto(obj) {
   if (count) count.textContent=photos.length + ' / 6 photos';
   const selected=photos.find(p=>p.path===_selectedPinPhotoPath) || photos[0] || null;
   _selectedPinPhotoPath=selected?.path || null;
+  const key = (obj.id || _selectedId || '') + ':' + (_selectedPinPhotoPath || '');
+  if (_previewKey !== key) { _previewKey = key; _photoZoom?.reset(); }
+  if (_photoZoom) _photoZoom.container.hidden = !selected;
   img.crossOrigin='anonymous';img.referrerPolicy='no-referrer';
   img.loading='eager';img.decoding='async';
   img.style.display=selected?'block':'none';

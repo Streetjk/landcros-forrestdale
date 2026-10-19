@@ -1,4 +1,5 @@
 import { scenePhotoItems } from './scene-label-pin.js';
+import { createPhotoZoom } from './photo-zoom.js';
 
 // Shared responsive photo gallery for public/admin scene pin details.
 // DOM API only (no HTML interpolation); all images use anonymous CORS because
@@ -16,12 +17,20 @@ export function renderScenePhotoGallery({
     notes.insertAdjacentElement('afterend',frame);
   }
   frame.classList.add('scene-photo-gallery-view');
+  // Keep the legacy image with its stable ID: resetSceneLabelPhoto() uses it
+  // when switching away from a custom scene-pin photo.
+  const existing=frame.querySelector('img[id]');
+  frame._photoZoom?.destroy();
+  frame._photoZoom=null;
   frame.replaceChildren();
   const photos=scenePhotoItems(props);
   frame.hidden=photos.length===0;
-  if(!photos.length)return frame;
+  if(!photos.length) {
+    if(existing)frame.appendChild(existing);
+    return frame;
+  }
 
-  const main=document.createElement('img');
+  const main=existing || document.createElement('img');
   main.id=imageId;
   main.className='scene-gallery-main';
   main.alt='Photo of '+(title||'scene location');
@@ -30,7 +39,9 @@ export function renderScenePhotoGallery({
   main.loading='eager';
   main.decoding='async';
   main.fetchPriority='high';
-  frame.appendChild(main);
+  const photoZoom=createPhotoZoom(main, { label: 'Photo of '+(title||'scene location') });
+  frame._photoZoom=photoZoom;
+  frame.appendChild(photoZoom.container);
 
   if(photos.length===1) {
     main.src=photos[0].url;
@@ -56,6 +67,7 @@ export function renderScenePhotoGallery({
   const buttons=[];
   const show=index=>{
     selected=(index+photos.length)%photos.length;
+    photoZoom.reset();
     main.src=photos[selected].url;
     count.textContent=(selected+1)+' / '+photos.length;
     buttons.forEach((button,i)=>{
@@ -89,6 +101,8 @@ export function hideScenePhotoGallery(frameId='detail-scene-photo-wrap') {
   // Preserve the legacy image element. The single-photo renderer references
   // its stable ID when the visitor switches back from a multi-photo pin.
   const main=frame.querySelector('img[id]');
+  frame._photoZoom?.destroy();
+  frame._photoZoom=null;
   main?.removeAttribute('src');
   frame.replaceChildren();
   if(main)frame.appendChild(main);
