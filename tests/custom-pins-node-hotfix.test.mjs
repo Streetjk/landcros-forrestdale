@@ -69,7 +69,8 @@ test('gallery finds the stored scene from the pin before checking caller scene I
 });
 
 test('moving camera lowers splat raster resolution and skips unchanged label DOM writes', () => {
-  assert.match(viewer, /const _DRAG_PIXEL_RATIO = Math\.min\(_Q\.pixelRatio, 1\.0\)/);
+  assert.match(viewer, /const _DRAG_PIXEL_RATIO = _perfDragDpr != null/);
+  assert.match(viewer, /: Math\.min\(_Q\.pixelRatio, 1\.0\)/);
   assert.match(viewer, /const _RESTORE_AFTER_IDLE_FRAMES = 45/);
   assert.match(viewer, /const _MIN_SWITCH_INTERVAL_MS = 400/);
   assert.match(viewer, /if \(!on && now - _lastResSwitchMs < _MIN_SWITCH_INTERVAL_MS\) return/);

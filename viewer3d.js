@@ -91,6 +91,40 @@ renderer.toneMapping = _Q.toneMapping;
 renderer.toneMappingExposure = 0.6;
 renderer.setClearColor(0x0f1117, 1); // match app background so pre-sky frames aren't flash-black
 
+// Use the same opt-in local performance probe as the static shared-scene
+// viewer. ?perf=1 enables the HUD and copyable metrics; without it there is
+// no frame-sampling or network telemetry.
+const _perfParams = new URLSearchParams(window.location.search);
+const _perfEnabled = _perfParams.get('perf') === '1';
+const _perfDragDprRaw = _perfEnabled ? Number.parseFloat(_perfParams.get('dragDpr')) : NaN;
+const _perfDragDpr = Number.isFinite(_perfDragDprRaw)
+  ? Math.max(0.5, _perfDragDprRaw) : null;
+const _PERF_NOOP = Object.freeze({
+  enabled: false,
+  mark() {}, begin() { return () => 0; }, frame() {}, resolutionSwitch() {},
+  asset() {}, visibility() {}, refreshHud() {}, snapshot() { return { enabled: false }; },
+});
+let _perf = _PERF_NOOP;
+if (_perfEnabled) {
+  import('./viewer-perf.js').then(({ createPerfProbe }) => {
+    _perf = createPerfProbe({
+      enabled: true,
+      quality: {
+        tier: _Q.tier, skipSplat: _Q.skipSplat, antialias: _Q.antialias,
+        pixelRatio: _Q.pixelRatio, idleAfter: _Q.idleAfter,
+        idleInterval: _Q.idleInterval, dragDprExperiment: _perfDragDpr,
+      },
+      renderer,
+    });
+    if (_perfParams.get('perfHud') !== '0') _perf.installHud();
+    window.__sitenavPerf = Object.freeze({
+      snapshot: () => _perf.snapshot(),
+      refresh: () => _perf.refreshHud(),
+    });
+    _perf.mark('viewerInit');
+  }).catch(() => { /* optional instrumentation must not affect the viewer */ });
+}
+
 // On low-tier devices remove expensive backdrop-filter blurs (GPU compositing cost)
 if (_Q.tier === 'low') {
   const s = document.createElement('style');
@@ -584,7 +618,7 @@ const _sceneWidgets = new Map(); // id → { obj, anchor, raycastMesh } — read
 // while moving, then restore crisp stills after camera damping settles.
 // Restore cooldown avoids expensive framebuffer reallocations on wheel ticks;
 // dropping resolution on the first drag frame must never be delayed.
-const _DRAG_PIXEL_RATIO = Math.min(_Q.pixelRatio, 1.0);
+const _DRAG_PIXEL_RATIO = _perfDragDpr != null ? Math.min(_Q.pixelRatio, _perfDragDpr) : Math.min(_Q.pixelRatio, 1.0);
 const _RESTORE_AFTER_IDLE_FRAMES = 45;
 const _MIN_SWITCH_INTERVAL_MS = 400;
 let _lowResActive = false;
@@ -599,10 +633,41 @@ function _setLowRes(on) {
   _lowResActive = on;
   renderer.setPixelRatio(on ? _DRAG_PIXEL_RATIO : _Q.pixelRatio);
   resize();
+  _perf.resolutionSwitch(renderer.getPixelRatio());
 }
 
+// Match the static viewer's visibility-aware render lifecycle. A hidden editor
+// should not waste GPU cycles continually sorting splats or updating labels.
+let _pageHidden = document.hidden === true;
+let _viewerAnimationFrameId = null;
+function _queueViewerFrame() {
+  if (_pageHidden || _viewerAnimationFrameId !== null) return;
+  _viewerAnimationFrameId = requestAnimationFrame(animate);
+}
+function _setViewerPageVisibility(hidden) {
+  if (_pageHidden === hidden) return;
+  _pageHidden = hidden;
+  _perf.visibility(hidden);
+  if (hidden) {
+    if (_viewerAnimationFrameId !== null) cancelAnimationFrame(_viewerAnimationFrameId);
+    _viewerAnimationFrameId = null;
+    return;
+  }
+  _idleFrames = 0;
+  _lastRenderMs = 0;
+  _queueViewerFrame();
+}
+document.addEventListener('visibilitychange', () => _setViewerPageVisibility(document.hidden === true));
+window.addEventListener('pagehide', () => _setViewerPageVisibility(true));
+window.addEventListener('pageshow', () => _setViewerPageVisibility(document.hidden === true));
+
 function animate() {
-  requestAnimationFrame(animate);
+  _viewerAnimationFrameId = null;
+  if (_pageHidden) {
+    _perf.frame({ hidden: true });
+    return;
+  }
+  _queueViewerFrame();
   if (!_camAnimating) {
     controls.update(); // drives autoRotate when _orbitActive
   }
@@ -621,7 +686,10 @@ function animate() {
   }
 
   const now = performance.now();
-  if (_idleFrames > IDLE_AFTER && now - _lastRenderMs < IDLE_INTERVAL && !comparisonNeedsRender()) return;
+  if (_idleFrames > IDLE_AFTER && now - _lastRenderMs < IDLE_INTERVAL && !comparisonNeedsRender()) {
+    _perf.frame({ rendered: false, moving: moved || _camAnimating });
+    return;
+  }
   _lastRenderMs = now;
 
   _updateCamHud();
@@ -659,13 +727,20 @@ function animate() {
   }
 
   const compActive = updateComparison();
+  let splatUpdateMs = 0;
   if (!compActive) {
-    if (_splatViewer) _splatViewer.update();
+    if (_splatViewer) {
+      const splatStart = _perf.enabled ? performance.now() : null;
+      _splatViewer.update();
+      if (splatStart !== null) splatUpdateMs = performance.now() - splatStart;
+    }
     renderer.render(scene, camera);
   }
   css2d.render(scene, camera);
+  _perf.frame({ rendered: true, moving: moved || _camAnimating, splatUpdateMs });
+  _perf.refreshHud();
 }
-animate();
+_queueViewerFrame();
 
 // ── Camera presets ─────────────────────────────────────────────────────────
 
@@ -3352,7 +3427,12 @@ async function loadSplatBackground(opts = {}) {
   for (const path of candidates) {
     try {
       const r = await fetch(path, { method: 'HEAD' });
-      if (r.ok) { splatPath = path; break; }
+      if (r.ok) {
+        splatPath = path;
+        const size = Number.parseInt(r.headers.get('content-length') || '', 10);
+        _perf.asset({ path, bytes: Number.isFinite(size) ? size : null, phase: 'select', status: 'ok' });
+        break;
+      }
     } catch {}
   }
   if (!splatPath) return;
@@ -3371,7 +3451,10 @@ async function loadSplatBackground(opts = {}) {
     // Pass 1: fetch raw bytes and scan positions for bounding box.
     // Only valid for .splat (32-byte records) — skip pre-scan for .ply to avoid NaN bounds.
     if (!onProgress && msg) msg.textContent = `Scanning ${ext}…`;
+    const endFetch = _perf.begin('splatFetch', { asset: splatPath.split('/').pop() });
     rawBuf = ext === 'SPLAT' ? await fetch(splatPath).then(r => r.arrayBuffer()) : null;
+    endFetch({ bytes: rawBuf?.byteLength ?? null });
+    if (rawBuf) _perf.asset({ path: splatPath, bytes: rawBuf.byteLength, phase: 'fetched', status: 'ok' });
     const STRIDE = 32;
     let cx = 0, cy = 0, cz = 0, scale = 1;
     if (rawBuf) {
