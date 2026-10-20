@@ -168,6 +168,9 @@
       padding:5px 2px;cursor:pointer;
     }
     #scenes-list {max-height:min(280px,32vh)!important;overflow-y:auto!important;}
+    .scene-loading-notice,.scene-empty-notice {
+      margin:6px 4px 8px;color:#69818e;font-size:12px;line-height:1.45;
+    }
     .scene-list-item {
       gap:4px!important; padding:7px 6px!important;
       display:flex!important; flex-wrap:wrap!important; align-items:center;
@@ -511,7 +514,7 @@
           <button type="button" id="new-group-cancel-btn">Cancel</button>
         </div>
       </div>
-      <div id="scenes-list"></div>
+      <div id="scenes-list" aria-live="polite"><p class="scene-loading-notice" role="status">Connecting to saved scenes…</p></div>
       <div id="scene-share-row" style="display:none">
         <details id="scene-share-details" class="editor-share-details">
           <summary class="editor-share-summary">
@@ -786,7 +789,7 @@
   }
   </script>
 
-<script type="module" src="./viewer3d.js?v=pinzoom-toggle-20261014b"></script>
+<script type="module" src="./viewer3d.js?v=editor-recovery-20261020a"></script>
 <script>
   // Mobile scene editor drawer: expose the full 3D canvas for placement while
   // keeping the inspector reachable with a single 44px touch target.
@@ -818,7 +821,7 @@
   })();
 </script>
 
-<script type="module" src="./scene-editor.js?v=pinzoom-toggle-20261014b"></script>
+<script type="module" src="./scene-editor.js?v=editor-recovery-20261020a"></script>
 <div id="scripts-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:1000;align-items:center;justify-content:center;">
   <div style="background:#1a1d29;border-radius:12px;padding:20px;width:480px;max-height:80vh;overflow-y:auto;color:#fff;font-family:'DM Sans',sans-serif;">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">

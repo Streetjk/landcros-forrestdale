@@ -35,6 +35,7 @@ let _editingScriptId   = null;
 let _scenes            = []; // scenes this site owns (Scenes feature, Slice 4)
 let _currentSceneId    = null;
 let _sceneObjectsReady = false; // prevent edits while saved pins are unavailable
+let _scenesLoadFailed = false;   // retry after a session is restored
 
 // Personal organisation: a group is just a view of an editor's scene list.
 // Group deletion never deletes scenes; archived scenes remain in the archive.
@@ -188,13 +189,38 @@ async function onDeleteSceneGroup(group) {
 
 
 
+// The viewer and editor are independent ES modules. Their async imports and
+// cold CDN caches can resolve in either order. A one-shot ready event alone
+// loses every saved scene if the editor module arrives second.
+let _editorInitPromise = null;
+function startEditorOnce() {
+  if (!SLUG || !window._v3d || _editorInitPromise) return;
+  _editorInitPromise = Promise.resolve().then(init).catch(error => {
+    console.error('[scene-editor] Startup failed:', error);
+    // Don't retry a half-initialised editor with duplicate gizmos/handlers.
+    // Reload is safe and never mutates or clears saved scene records.
+    showSceneReloadError('Scene editor could not start.', () => location.reload(), true);
+  });
+}
+
 if (!SLUG) {
   document.getElementById('no-site-msg').style.display = 'block';
 } else {
-  window.addEventListener('viewer3d:ready', init);
+  window.addEventListener('viewer3d:ready', startEditorOnce);
+  if (window._v3d) startEditorOnce();
+  // An expired session can recover without refreshing or creating new scenes.
+  // Auth restoration never mutates the database; only retry failed reads.
+  window.addEventListener('sn-auth:signed-in', () => {
+    if (!_scenesLoadFailed || !_editorInitPromise) return;
+    void _editorInitPromise.then(async () => {
+      if (!_scenesLoadFailed) return;
+      await loadSceneGroups();
+      await loadScenes();
+    });
+  });
 }
 
-// ── Init (fires after viewer3d boot completes) ──────────────────────────
+// ── Init (viewer available; guarded against duplicate events) ───────────
 async function init() {
   _v3d = window._v3d;
   _scene = _v3d._pickGround.parent;
@@ -202,7 +228,10 @@ async function init() {
   _transformControls = new TransformControls(_v3d.camera, _v3d.renderer.domElement);
   _transformControls.setMode('translate');
   _scene.add(_transformControls);
-  _transformControls.addEventListener('dragging-changed', e => { _v3d.controls.enabled = !e.value; });
+  _transformControls.addEventListener('dragging-changed', e => {
+    _v3d.controls.enabled = !e.value;
+    _v3d.invalidateRender?.();
+  });
   _transformControls.addEventListener('objectChange', onTransformChange);
   _transformControls.addEventListener('mouseUp', () => { _justDragged = true; if (_selectedId) scheduleSave(_selectedId); });
 
@@ -237,9 +266,10 @@ async function init() {
   document.getElementById('prop-photo-input').addEventListener('change', onPhotoInput);
   // Photo interactions stay in the inspector and never reach the map canvas.
   const photoPreview = document.getElementById('prop-photo-preview');
+  const photoField = photoPreview.parentElement; // capture BEFORE zoom moves <img>
+  const photoGallery = document.getElementById('prop-photo-gallery');
   _photoZoom = createPhotoZoom(photoPreview, { label: 'Selected pin photo' });
-  photoPreview.parentElement.insertBefore(
-    _photoZoom.container, document.getElementById('prop-photo-gallery'));
+  photoField.insertBefore(_photoZoom.container, photoGallery);
   _photoZoom.container.hidden = true;
   document.getElementById('prop-photo-remove-btn').addEventListener('click', onPhotoRemove);
   document.getElementById('prop-delete-btn').addEventListener('click', onDeleteClick);
@@ -289,14 +319,22 @@ function showSceneReloadError(message, retry, replaceList = false) {
 }
 
 async function loadScenes() {
+  let status = 0;
   try {
     const response = await fetch(`/api/sites/${encodeURIComponent(SLUG)}/scenes`, { credentials: 'same-origin' });
+    status = response.status;
     if (!response.ok) throw new Error('scene list unavailable');
     const data = await response.json();
     if (!Array.isArray(data)) throw new Error('invalid scene list');
     _scenes = data;
+    _scenesLoadFailed = false;
   } catch {
-    showSceneReloadError('Saved scenes could not be loaded.', loadScenes, true);
+    _scenesLoadFailed = true;
+    if (status === 401) window._snShowLoginGate?.();
+    const message = status === 401 ? 'Sign in again to load your saved scenes.'
+      : status === 403 ? 'This account does not have access to saved scenes.'
+      : 'Saved scenes could not be loaded.';
+    showSceneReloadError(message, loadScenes, true);
     return;
   }
   renderScenesList();
@@ -306,6 +344,12 @@ async function loadScenes() {
 function renderScenesList() {
   const list = document.getElementById('scenes-list');
   list.replaceChildren();
+  if (!_scenes.length) {
+    const notice = document.createElement('p');
+    notice.className = 'scene-empty-notice';
+    notice.textContent = 'No scenes available for this account. Use New scene to get started.';
+    list.appendChild(notice);
+  }
   const renderRow = scene => {
     const row = document.createElement('div');
     row.className = 'scene-list-item' + (scene.id === _currentSceneId ? ' active' : '');
@@ -571,6 +615,7 @@ function renderObject(obj) {
   anchor.add(css2dObj);
 
   _scene.add(anchor);
+  _v3d.invalidateRender?.();
   const entry = { obj, anchor, raycastMesh, css2dObj, div, pinUi, groundFrame };
   _objects.set(obj.id, entry);
   return entry;
@@ -591,6 +636,7 @@ function disposeEntry(id) {
   clearTimeout(_saveTimers.get(id));
   _saveTimers.delete(id);
   _objects.delete(id);
+  _v3d.invalidateRender?.();
 }
 
 // ── Placement mode ───────────────────────────────────────────────────────
@@ -682,6 +728,7 @@ function select(id) {
   _selectedId = id;
   entry.groundFrame?.setSelected(true);
   _transformControls.attach(entry.anchor);
+  _v3d.invalidateRender?.();
   const shareDetails = document.getElementById('scene-share-details');
   if (shareDetails?.open) shareDetails.open = false;
   showPropertyPanel(entry.obj);
@@ -694,6 +741,7 @@ function deselect() {
   if (_selectedId) _objects.get(_selectedId)?.groundFrame?.setSelected(false);
   _selectedId = null;
   _transformControls.detach();
+  _v3d.invalidateRender?.();
   hidePropertyPanel();
 }
 
@@ -854,6 +902,7 @@ function onTransformChange() {
   if (!entry) return;
   const p = entry.anchor.position;
   entry.obj.transform.position = [p.x, p.y, p.z];
+  _v3d.invalidateRender?.();
   scheduleSave(_selectedId);
 }
 
