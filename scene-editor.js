@@ -36,6 +36,7 @@ let _scenes            = []; // scenes this site owns (Scenes feature, Slice 4)
 let _currentSceneId    = null;
 let _sceneObjectsReady = false; // prevent edits while saved pins are unavailable
 let _scenesLoadFailed = false;   // retry after a session is restored
+let _sceneActionsId = null;     // at most one scene's contextual controls open
 
 // Personal organisation: a group is just a view of an editor's scene list.
 // Group deletion never deletes scenes; archived scenes remain in the archive.
@@ -64,9 +65,11 @@ function addGroupHeading(list, group, items, renderRow) {
   const fold = document.createElement('button');
   fold.type = 'button';
   fold.className = 'scene-group-fold';
+  fold.dataset.focusKey = 'group:' + (group?.id || 'ungrouped') + ':fold';
   fold.setAttribute('aria-expanded', String(!_foldedSceneGroups.has(group?.id || 'ungrouped')));
   fold.textContent = (_foldedSceneGroups.has(group?.id || 'ungrouped') ? '▸ ' : '▾ ') +
     (group?.name || 'Ungrouped') + ' (' + items.length + ')';
+  fold.title = (group?.name || 'Ungrouped') + ' (' + items.length + ')';
   fold.addEventListener('click', () => {
     const key = group?.id || 'ungrouped';
     if (_foldedSceneGroups.has(key)) _foldedSceneGroups.delete(key);
@@ -78,11 +81,14 @@ function addGroupHeading(list, group, items, renderRow) {
     const rename = document.createElement('button');
     rename.type='button'; rename.className='scene-group-mini';
     rename.textContent='Edit'; rename.title='Rename this group';
+    rename.setAttribute('aria-label', 'Rename group ' + group.name);
+    rename.dataset.focusKey = 'group:' + group.id + ':rename';
     rename.addEventListener('click', () => onRenameSceneGroup(group));
     const remove = document.createElement('button');
     remove.type='button';remove.className='scene-group-mini';
     remove.textContent='×';remove.title='Delete group only; keep scenes';
     remove.setAttribute('aria-label','Delete group ' + group.name);
+    remove.dataset.focusKey = 'group:' + group.id + ':delete';
     remove.addEventListener('click', () => onDeleteSceneGroup(group));
     heading.append(rename, remove);
   }
@@ -109,6 +115,7 @@ function sceneGroupSelector(scene) {
   if (!_sceneGroups.length) return null;
   const sel = document.createElement('select');
   sel.className = 'scene-group-select';
+  sel.dataset.focusKey = 'scene:' + scene.id + ':group';
   sel.setAttribute('aria-label', 'Group for scene ' + scene.name);
   sel.title = 'Move to group';
   const options = [{id:'',name:'No group'},..._sceneGroups];
@@ -122,6 +129,7 @@ function sceneGroupSelector(scene) {
   sel.addEventListener('change', async event => {
     event.stopPropagation();
     const before = _sceneAssignments.get(scene.id) || '';
+    const focusKey = document.activeElement === sel ? sel.dataset.focusKey : null;
     sel.disabled = true;
     const moved = await apiWrite(
       `/api/sites/${encodeURIComponent(SLUG)}/scenes/${encodeURIComponent(scene.id)}/group`,
@@ -131,9 +139,11 @@ function sceneGroupSelector(scene) {
     if (moved) {
       if(moved.groupId) _sceneAssignments.set(scene.id,moved.groupId);
       else _sceneAssignments.delete(scene.id);
-      renderScenesList();
+      _foldedSceneGroups.delete(moved.groupId || 'ungrouped');
+      renderScenesList(document.activeElement === document.body ? focusKey : null);
     } else sel.value = before;
     sel.disabled = false;
+    if (!moved && focusKey && document.activeElement === document.body) sel.focus({ preventScroll: true });
   });
   return sel;
 }
@@ -142,6 +152,7 @@ function showNewSceneGroupForm(open) {
   const row = document.getElementById('new-group-row');
   row.hidden = !open;
   if (open) document.getElementById('new-group-name').focus();
+  else document.getElementById('add-group-btn').focus({ preventScroll: true });
 }
 
 async function onCreateSceneGroup() {
@@ -249,13 +260,19 @@ async function init() {
   document.getElementById('new-group-cancel-btn').addEventListener('click', () => showNewSceneGroupForm(false));
   document.getElementById('new-group-name').addEventListener('keydown', e => {
     if (e.key === 'Enter') onCreateSceneGroup();
-    else if (e.key === 'Escape') showNewSceneGroupForm(false);
+    else if (e.key === 'Escape') {
+      e.preventDefault();
+      showNewSceneGroupForm(false);
+    }
   });
   document.getElementById('new-scene-confirm-btn').addEventListener('click', onNewSceneConfirm);
   document.getElementById('new-scene-cancel-btn').addEventListener('click', onNewSceneCancel);
   document.getElementById('new-scene-name').addEventListener('keydown', e => {
     if (e.key === 'Enter') onNewSceneConfirm();
-    if (e.key === 'Escape') onNewSceneCancel();
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      onNewSceneCancel();
+    }
   });
   document.getElementById('scene-share-copy-btn').addEventListener('click', onCopySceneShareUrl);
   document.getElementById('prop-text').addEventListener('input', onPropTextInput);
@@ -341,9 +358,14 @@ async function loadScenes() {
   if (!_currentSceneId && _scenes.length) await selectScene(_scenes[0].id);
 }
 
-function renderScenesList() {
+function renderScenesList(preferredFocusKey = null) {
   const list = document.getElementById('scenes-list');
+  const hadFocus = !!preferredFocusKey || list.contains(document.activeElement);
+  const focusKey = preferredFocusKey || (hadFocus ? document.activeElement.dataset.focusKey : null);
+  const scrollTop = list.scrollTop;
   list.replaceChildren();
+  const count = document.getElementById('editor-scene-count');
+  if (count) count.textContent = String(_scenes.length);
   if (!_scenes.length) {
     const notice = document.createElement('p');
     notice.className = 'scene-empty-notice';
@@ -353,14 +375,61 @@ function renderScenesList() {
   const renderRow = scene => {
     const row = document.createElement('div');
     row.className = 'scene-list-item' + (scene.id === _currentSceneId ? ' active' : '');
-    const name = document.createElement('span');
+    const name = document.createElement('button');
+    name.type = 'button';
+    name.className = 'scene-select';
+    name.dataset.focusKey = 'scene:' + scene.id + ':select';
+    if (scene.id === _currentSceneId) name.setAttribute('aria-current', 'true');
     name.textContent = scene.name;
-    row.appendChild(name);
+    name.title = scene.name;
+    name.addEventListener('click', () => selectScene(scene.id));
+    name.addEventListener('keydown', event => {
+      const buttons = Array.from(list.querySelectorAll('.scene-select'));
+      const index = buttons.indexOf(name);
+      const next = ({ ArrowDown: index + 1, ArrowUp: index - 1,
+        Home: 0, End: buttons.length - 1 })[event.key];
+      if (next === undefined) return;
+      event.preventDefault();
+      buttons[Math.max(0, Math.min(next, buttons.length - 1))]?.focus();
+    });
+
+    const toggle = document.createElement('button');
+    toggle.type = 'button';
+    toggle.className = 'scene-actions-toggle';
+    toggle.textContent = '⋯';
+    toggle.title = 'Scene actions';
+    toggle.dataset.focusKey = 'scene:' + scene.id + ':actions';
+    toggle.setAttribute('aria-label', 'Actions for scene ' + scene.name);
+    toggle.setAttribute('aria-expanded', String(_sceneActionsId === scene.id));
+    toggle.setAttribute('aria-controls', 'scene-actions-' + scene.id);
+    toggle.addEventListener('click', () => {
+      _sceneActionsId = _sceneActionsId === scene.id ? null : scene.id;
+      renderScenesList();
+    });
+    const actions = document.createElement('div');
+    actions.id = 'scene-actions-' + scene.id;
+    actions.className = 'scene-row-actions';
+    actions.hidden = _sceneActionsId !== scene.id;
+    row.addEventListener('keydown', event => {
+      if (event.key !== 'Escape' || actions.hidden) return;
+      event.preventDefault();
+      event.stopPropagation();
+      _sceneActionsId = null;
+      toggle.focus({ preventScroll: true });
+      renderScenesList();
+    });
     const del = document.createElement('button');
+    del.type = 'button';
     del.className = 'scene-del-btn';
-    del.textContent = '✕';
-    del.title = 'Delete scene';
-    del.addEventListener('click', e => { e.stopPropagation(); onDeleteSceneClick(scene.id); });
+    del.textContent = 'Delete';
+    del.dataset.focusKey = 'scene:' + scene.id + ':delete';
+    del.setAttribute('aria-label', 'Delete scene ' + scene.name);
+    del.addEventListener('click', e => {
+      e.stopPropagation();
+      if (confirm('Delete scene "' + scene.name + '" and all its objects? This cannot be undone.')) {
+        onDeleteSceneClick(scene.id);
+      }
+    });
     if (typeof MODE === 'undefined' || MODE === 'admin') {
       const copy = document.createElement('button');
       copy.type = 'button';
@@ -369,19 +438,36 @@ function renderScenesList() {
       copy.title = 'Duplicate ' + scene.name + ' into an independent scene';
       copy.setAttribute('aria-label', 'Duplicate scene ' + scene.name);
       copy.dataset.action = 'duplicate';
+      copy.dataset.focusKey = 'scene:' + scene.id + ':copy';
       copy.addEventListener('click', event => {
         event.stopPropagation();
         onDuplicateSceneClick(scene, copy);
       });
-      row.appendChild(copy);
+      actions.appendChild(copy);
     }
     const groupSelector = sceneGroupSelector(scene);
-    if (groupSelector) row.appendChild(groupSelector);
-    row.appendChild(del);
-    row.addEventListener('click', () => selectScene(scene.id));
+    if (groupSelector) actions.appendChild(groupSelector);
+    actions.appendChild(del);
+    row.append(name, toggle, actions);
     return row;
   };
   renderSceneGroupSections(list, _scenes, renderRow);
+  // Rebuilding for selection, folding or grouping must not drop focus to body.
+  list.scrollTop = scrollTop;
+  if (hadFocus) {
+    const target = Array.from(list.querySelectorAll('[data-focus-key]'))
+      .find(element => element.dataset.focusKey === focusKey)
+      || list.querySelector('.scene-select[aria-current="true"]')
+      || list.querySelector('.scene-select')
+      || (_scenes.length ? list.querySelector('.scene-group-fold') : null);
+    (target || document.getElementById('add-scene-btn'))?.focus({ preventScroll: true });
+    if (target) {
+      const bounds = target.getBoundingClientRect();
+      const viewport = list.getBoundingClientRect();
+      if (bounds.top < viewport.top) list.scrollTop += bounds.top - viewport.top;
+      else if (bounds.bottom > viewport.bottom) list.scrollTop += bounds.bottom - viewport.bottom;
+    }
+  }
 }
 
 async function selectScene(id) {
@@ -395,6 +481,7 @@ async function selectScene(id) {
   Array.from(_objects.keys()).forEach(disposeEntry);
   _currentSceneId = id;
   _sceneObjectsReady = false;
+  _foldedSceneGroups.delete(_sceneAssignments.get(id) || 'ungrouped');
   renderScenesList();
   updateAddButtonsEnabled();
   const scene = _scenes.find(s => s.id === id);
@@ -450,6 +537,7 @@ function onAddSceneClick() {
 
 function onNewSceneCancel() {
   document.getElementById('new-scene-row').style.display = 'none';
+  document.getElementById('add-scene-btn').focus({ preventScroll: true });
 }
 
 async function onNewSceneConfirm() {
@@ -470,6 +558,7 @@ async function onNewSceneConfirm() {
 // a new share capability. Never edit the source scene in this handler.
 async function onDuplicateSceneClick(scene, button) {
   if (!scene?.id || button.disabled) return;
+  const hadFocus = document.activeElement === button;
   const name = scene.name.slice(0, 113).trimEnd() + ' (Copy)';
   button.disabled = true;
   button.textContent = '...';
@@ -504,6 +593,11 @@ async function onDuplicateSceneClick(scene, button) {
   } finally {
     button.disabled = false;
     button.textContent = 'Copy';
+    if (hadFocus && document.activeElement === document.body) {
+      const target = button.isConnected ? button
+        : document.querySelector('.scene-select[aria-current="true"]');
+      target?.focus({ preventScroll: true });
+    }
   }
 }
 
@@ -518,6 +612,7 @@ async function onDeleteSceneClick(id) {
   if (!ok) return;
   _scenes = _scenes.filter(s => s.id !== id);
   if (_currentSceneId === id) {
+    deselect();
     _currentSceneId = null;
     Array.from(_objects.keys()).forEach(disposeEntry);
     document.getElementById('scene-share-row').style.display = 'none';
@@ -721,6 +816,9 @@ function selectFromEvent(e) {
 function select(id) {
   const entry = _objects.get(id);
   if (!entry) return;
+  const selectionChanged = _selectedId !== id;
+  const drawerWasClosed = window.matchMedia('(max-width:760px)').matches &&
+    !document.getElementById('app').classList.contains('editor-panel-open');
   if (_selectedId && _selectedId !== id) {
     _objects.get(_selectedId)?.groundFrame?.setSelected(false);
   }
@@ -734,6 +832,21 @@ function select(id) {
   showPropertyPanel(entry.obj);
   if (window.matchMedia('(max-width:760px)').matches) {
     window._snSetEditorPanelOpen?.(true);
+  }
+  if (selectionChanged || drawerWasClosed) revealPropertyPanel();
+}
+
+function revealPropertyPanel() {
+  const toolbar = document.getElementById('editor-toolbar');
+  const panel = document.getElementById('property-panel');
+  const header = document.getElementById('toolbar-header');
+  const panelRect = panel.getBoundingClientRect();
+  const visibleTop = header.getBoundingClientRect().bottom + 12;
+  const visibleBottom = toolbar.getBoundingClientRect().bottom - 12;
+  // Reveal the heading and title field once on selection. Input, photo loads
+  // and autosaves never call this, so typing and manual scrolling stay put.
+  if (panelRect.top < visibleTop || panelRect.top + 150 > visibleBottom) {
+    toolbar.scrollTo({ top: toolbar.scrollTop + panelRect.top - visibleTop, behavior: 'auto' });
   }
 }
 
@@ -989,6 +1102,24 @@ function onWrapClick(e) {
 }
 
 function onKeydown(e) {
+  if (e.defaultPrevented) return;
+  const scriptsModal = document.getElementById('scripts-modal');
+  if (scriptsModal.style.display !== 'none') {
+    if (e.key === 'Escape') closeScriptsModal();
+    else if (e.key === 'Tab') {
+      const controls = Array.from(scriptsModal.querySelectorAll('button,input,textarea,select,[tabindex]'))
+        .filter(el => !el.disabled && el.tabIndex >= 0 && el.getClientRects().length);
+      const first = controls[0], last = controls[controls.length - 1];
+      if (e.shiftKey && (document.activeElement === first || !scriptsModal.contains(document.activeElement))) {
+        e.preventDefault();
+        last?.focus();
+      } else if (!e.shiftKey && (document.activeElement === last || !scriptsModal.contains(document.activeElement))) {
+        e.preventDefault();
+        first?.focus();
+      }
+    }
+    return;
+  }
   if (e.key !== 'Escape') return;
   if (_placingKind) setPlacing(null);
   else if (_selectedId) deselect();
@@ -1056,6 +1187,7 @@ function onPropWidgetScriptChange(e) {
 
 function openScriptsModal() {
   document.getElementById('scripts-modal').style.display = 'flex';
+  document.getElementById('scripts-modal-close').focus({ preventScroll: true });
   loadScriptsList();
 }
 
@@ -1064,6 +1196,7 @@ function closeScriptsModal() {
   _editingScriptId = null;
   document.getElementById('new-script-name').value = '';
   document.getElementById('new-script-source').value = '';
+  document.getElementById('manage-scripts-btn').focus({ preventScroll: true });
 }
 
 async function loadScriptsList() {
