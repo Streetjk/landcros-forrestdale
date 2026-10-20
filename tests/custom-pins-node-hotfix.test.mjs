@@ -43,7 +43,9 @@ test('failed scene or pin loads stay visible as failures and can be retried', ()
   assert.match(editor, /button\.addEventListener\('click', \(\) => void retry\(\)\)/);
   assert.match(editor, /if \(!response\.ok\) throw new Error\('scene list unavailable'\)/);
   assert.match(editor, /if \(!response\.ok\) throw new Error\('pin list unavailable'\)/);
-  assert.match(editor, /showSceneReloadError\('Saved scenes could not be loaded\.', loadScenes, true\)/);
+  assert.match(editor, /showSceneReloadError\(message, loadScenes, true\)/);
+  assert.match(editor, /const message = status === 401/);
+  assert.match(editor, /_scenesLoadFailed = true/);
   assert.match(editor, /showSceneReloadError\('Saved pins could not be loaded\.', loadObjects\)/);
   assert.match(editor, /const enabled = !!_currentSceneId && _sceneObjectsReady/);
   assert.match(editor, /_sceneObjectsReady = true;\s*updateAddButtonsEnabled\(\)/);

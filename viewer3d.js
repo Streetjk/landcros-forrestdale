@@ -140,7 +140,10 @@ labelsWrap.appendChild(css2d.domElement);
 
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
-controls.dampingFactor = 0.06;
+// A higher editor damping factor settles the camera sooner after a drag,
+// avoiding expensive residual 3D frames during precise pin placement.
+// Keep the public visitor camera's more cinematic inertia unchanged.
+controls.dampingFactor = document.getElementById('add-label-btn') ? 0.14 : 0.06;
 controls.rotateSpeed   = window.innerWidth > 767 ? 0.35 : 0.525;
 controls.zoomSpeed     = 0.9;
 controls.panSpeed      = 0.7;
@@ -592,6 +595,11 @@ let _introPlayed = false;
 const _prevCamPos = new THREE.Vector3();
 const _prevCamQuat = new THREE.Quaternion();
 let _idleFrames = 0;
+// OrbitControls damping approaches rest asymptotically. Exact float equality
+// keeps calling a visually stationary camera 'moving' for hundreds of frames.
+// These tolerances are well below a visible pixel at typical site-map zoom.
+const _CAMERA_POSITION_EPS_SQ = 1e-8;
+const _CAMERA_QUATERNION_EPS = 1e-9;
 const _pinAnimatables = []; // { squareLine, squareMat } — pulsed each frame
 // Shared scene-label frames participate in the same pulse as existing pins.
 // Editors register/unregister as scenes or objects change.
@@ -644,6 +652,15 @@ function _queueViewerFrame() {
   if (_pageHidden || _viewerAnimationFrameId !== null) return;
   _viewerAnimationFrameId = requestAnimationFrame(animate);
 }
+// TransformControls changes the scene without moving the camera. Rendering
+// only at the idle 100ms interval made dragged pins appear stuck at ~10 FPS.
+// Explicit invalidation keeps editing responsive while still allowing idle
+// throttling once the user stops dragging.
+function _invalidateViewerFrame() {
+  _idleFrames = 0;
+  _lastRenderMs = 0;
+  _queueViewerFrame();
+}
 function _setViewerPageVisibility(hidden) {
   if (_pageHidden === hidden) return;
   _pageHidden = hidden;
@@ -673,8 +690,8 @@ function animate() {
   }
   if (camera.position.y < 0.5) camera.position.y = 0.5;
 
-  const moved = !camera.position.equals(_prevCamPos) ||
-                !camera.quaternion.equals(_prevCamQuat);
+  const moved = camera.position.distanceToSquared(_prevCamPos) > _CAMERA_POSITION_EPS_SQ ||
+                1 - Math.abs(camera.quaternion.dot(_prevCamQuat)) > _CAMERA_QUATERNION_EPS;
   if (moved || _camAnimating) {
     _idleFrames = 0;
     _prevCamPos.copy(camera.position);
@@ -3380,8 +3397,6 @@ async function loadComparisonScene(route, opts = {}) {
 function _doIntroAnimation() {
   if (!_splatViewer || _introPlayed) return;
   _introPlayed = true;
-  controls.enabled = false;
-  _camAnimating = true;
   const lookAt   = new THREE.Vector3(0, 0, 0);
   const startSph = new THREE.Spherical().setFromVector3(camera.position);
   const _intro   = _cfg.camera?.introAnimation ?? {};
@@ -3392,6 +3407,23 @@ function _doIntroAnimation() {
     THREE.MathUtils.degToRad(_intro.phi   ?? 80.9),
     THREE.MathUtils.degToRad(_intro.theta ?? -25.9),
   );
+  if (document.getElementById('add-label-btn')) {
+    // Editors need a steady camera, not a continuous background 3D redraw.
+    // Snap to exactly the same final intro composition and leave rotation off
+    // until the user explicitly presses the Rotate button.
+    camera.position.setFromSpherical(endSph);
+    controls.target.copy(lookAt);
+    camera.lookAt(lookAt);
+    controls.autoRotate = false;
+    controls.enabled = true;
+    _camAnimating = false;
+    _camTween = null;
+    controls.update();
+    window._syncRotateBtn?.();
+    return;
+  }
+  controls.enabled = false;
+  _camAnimating = true;
   const prog = { t: 0 };
   _camTween = gsap.to(prog, {
     t: 1, duration: 3.0, delay: 0.4, ease: 'power2.inOut',
@@ -3721,7 +3753,7 @@ async function boot() {
   }, 700);
 
   // Expose API for admin3d.js and dispatch ready event
-  window._v3d = { renderer, camera, controls, _raycaster, _pickGround, renderPins, removePin, upsertPin, updatePinHighlight, latlngToScene, pins: _pins, registerSceneGroundFrame, unregisterSceneGroundFrame };
+  window._v3d = { renderer, camera, controls, _raycaster, _pickGround, renderPins, removePin, upsertPin, updatePinHighlight, latlngToScene, pins: _pins, registerSceneGroundFrame, unregisterSceneGroundFrame, invalidateRender: _invalidateViewerFrame };
   window.dispatchEvent(new CustomEvent('viewer3d:ready'));
 
   // Scene objects/pins are SCENE-SCOPED (Scenes feature): the default viewer
