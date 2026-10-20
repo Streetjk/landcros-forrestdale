@@ -330,6 +330,9 @@ async function loadScenes() {
     _scenesLoadFailed = false;
   } catch {
     _scenesLoadFailed = true;
+    updateAddButtonsEnabled();
+    const context = document.getElementById('editor-context');
+    if (context) context.textContent = 'Saved scenes unavailable';
     if (status === 401) window._snShowLoginGate?.();
     const message = status === 401 ? 'Sign in again to load your saved scenes.'
       : status === 403 ? 'This account does not have access to saved scenes.'
@@ -353,19 +356,45 @@ function renderScenesList() {
   const renderRow = scene => {
     const row = document.createElement('div');
     row.className = 'scene-list-item' + (scene.id === _currentSceneId ? ' active' : '');
-    const name = document.createElement('span');
+
+    // Native button: keyboard Enter/Space work without translating key events
+    // on a clickable div. The menu keeps secondary actions out of the title.
+    const name = document.createElement('button');
+    name.type = 'button';
+    name.className = 'scene-name-btn';
     name.textContent = scene.name;
-    row.appendChild(name);
-    const del = document.createElement('button');
-    del.className = 'scene-del-btn';
-    del.textContent = '✕';
-    del.title = 'Delete scene';
-    del.addEventListener('click', e => { e.stopPropagation(); onDeleteSceneClick(scene.id); });
+    name.title = scene.name;
+    if (scene.id === _currentSceneId) name.setAttribute('aria-current', 'true');
+    name.addEventListener('click', () => selectScene(scene.id));
+
+    const more = document.createElement('button');
+    more.type = 'button';
+    more.className = 'scene-row-more';
+    more.textContent = '⋯';
+    more.title = 'Scene actions';
+    more.setAttribute('aria-label', 'Actions for ' + scene.name);
+    more.setAttribute('aria-expanded', 'false');
+
+    const actions = document.createElement('div');
+    actions.className = 'scene-row-actions';
+    actions.hidden = true;
+    more.addEventListener('click', () => {
+      const opening = actions.hidden;
+      // Expanded menus remain in the scroll flow, avoiding clipped popovers
+      // and keeping touch/keyboard controls available within the sidebar.
+      list.querySelectorAll('.scene-row-actions:not([hidden])').forEach(other => {
+        other.hidden = true;
+        other.parentElement?.querySelector('.scene-row-more')?.setAttribute('aria-expanded', 'false');
+      });
+      actions.hidden = !opening;
+      more.setAttribute('aria-expanded', String(opening));
+    });
+
     if (typeof MODE === 'undefined' || MODE === 'admin') {
       const copy = document.createElement('button');
       copy.type = 'button';
       copy.className = 'scene-duplicate-btn';
-      copy.textContent = 'Copy';
+      copy.textContent = 'Duplicate';
       copy.title = 'Duplicate ' + scene.name + ' into an independent scene';
       copy.setAttribute('aria-label', 'Duplicate scene ' + scene.name);
       copy.dataset.action = 'duplicate';
@@ -373,15 +402,34 @@ function renderScenesList() {
         event.stopPropagation();
         onDuplicateSceneClick(scene, copy);
       });
-      row.appendChild(copy);
+      actions.appendChild(copy);
     }
     const groupSelector = sceneGroupSelector(scene);
-    if (groupSelector) row.appendChild(groupSelector);
-    row.appendChild(del);
-    row.addEventListener('click', () => selectScene(scene.id));
+    if (groupSelector) actions.appendChild(groupSelector);
+
+    const del = document.createElement('button');
+    del.type = 'button';
+    del.className = 'scene-del-btn';
+    del.textContent = 'Delete';
+    del.title = 'Delete scene';
+    del.setAttribute('aria-label', 'Delete scene ' + scene.name);
+    del.addEventListener('click', event => {
+      event.stopPropagation();
+      onDeleteSceneClick(scene.id);
+    });
+    actions.appendChild(del);
+    row.append(name, more, actions);
     return row;
   };
   renderSceneGroupSections(list, _scenes, renderRow);
+  const current = _scenes.find(scene => scene.id === _currentSceneId);
+  const context = document.getElementById('editor-context');
+  if (context) {
+    const label = current ? 'Editing · ' + current.name
+      : (_scenes.length ? 'Choose a scene to begin' : 'No scenes yet');
+    if (context.textContent !== label) context.textContent = label;
+    context.title = current?.name || label;
+  }
 }
 
 async function selectScene(id) {
@@ -438,7 +486,13 @@ function updateAddButtonsEnabled() {
   ['add-label-btn', 'add-button-btn', 'add-widget-btn'].forEach(id => {
     document.getElementById(id).disabled = !enabled;
   });
-  document.getElementById('no-scene-hint').style.display = enabled ? 'none' : 'block';
+  const hint = document.getElementById('no-scene-hint');
+  hint.style.display = enabled ? 'none' : 'block';
+  hint.textContent = _scenesLoadFailed
+    ? 'Your scenes are temporarily unavailable. Retry above; nothing was deleted.'
+    : (_currentSceneId ? 'Loading saved pins…' : 'Choose a scene above to add pins to the map.');
+  // Never show two conflicting empty-state hints at the same time.
+  if (!_selectedId) document.getElementById('empty-selection').style.display = enabled ? 'flex' : 'none';
   if (!enabled) togglePlacing(null); // cancel any in-progress placement (scene switched away mid-placement)
 }
 
@@ -762,6 +816,9 @@ function showPropertyPanel(obj) {
   }
   document.getElementById('empty-selection').style.display = 'none';
   document.getElementById('property-panel').style.display = 'flex';
+  document.getElementById('editor-toolbar')?.classList.add('is-inspecting');
+  document.getElementById('property-panel').scrollTop = 0;
+  setEditorSaveState('idle', 'Autosave on');
   document.getElementById('prop-kind-label').textContent = (obj.kind === 'button' || obj.kind === 'widget') ? (obj.kind === 'widget' ? 'Widget label' : 'Button label') : 'Pin title';
   document.getElementById('prop-text').value = objectDisplayText(obj);
   const isPin = obj.kind === 'label';
@@ -798,7 +855,9 @@ function updateActionFieldVisibility(type) {
 
 function hidePropertyPanel() {
   document.getElementById('property-panel').style.display = 'none';
-  document.getElementById('empty-selection').style.display = 'block';
+  document.getElementById('editor-toolbar')?.classList.remove('is-inspecting');
+  document.getElementById('empty-selection').style.display =
+    _currentSceneId && _sceneObjectsReady ? 'flex' : 'none';
 }
 
 function renderPinPhoto(obj) {
@@ -932,7 +991,15 @@ async function onDeleteClick() {
 }
 
 // ── Debounced save (move + text edits share one path) ───────────────────
+function setEditorSaveState(state, label) {
+  const hint = document.querySelector('.editor-save-hint');
+  if (!hint) return;
+  hint.dataset.state = state;
+  hint.textContent = label;
+}
+
 function scheduleSave(id) {
+  if (_selectedId === id) setEditorSaveState('saving', 'Saving…');
   clearTimeout(_saveTimers.get(id));
   _saveTimers.set(id, setTimeout(() => flushSave(id), 400));
 }
@@ -957,11 +1024,14 @@ async function flushSave(id) {
   _saveTimers.delete(id);
   const entry = _objects.get(id);
   if (!entry) return null;
-  return await apiWrite(`/api/sites/${encodeURIComponent(SLUG)}/objects`, {
+  if (_selectedId === id) setEditorSaveState('saving', 'Saving…');
+  const saved = await apiWrite(`/api/sites/${encodeURIComponent(SLUG)}/objects`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(entry.obj),
   });
+  if (_selectedId === id) setEditorSaveState(saved ? 'saved' : 'error', saved ? 'Saved' : 'Not saved');
+  return saved;
 }
 
 // ── Canvas pointer wiring (mirrors admin3d.js's placement pattern) ──────
