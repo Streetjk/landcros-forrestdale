@@ -46,7 +46,7 @@ function listHarness() {
       return event;
     }
   }
-  const ids = Object.fromEntries(['scenes-list', 'editor-scene-count', 'add-scene-btn']
+  const ids = Object.fromEntries(['scenes-list', 'editor-scene-count', 'add-scene-btn', 'scene-search-input']
     .map(id => [id, new Element('div')]));
   document.body = new Element('body'); document.activeElement = document.body;
   document.createElement = tag => new Element(tag);
@@ -60,11 +60,11 @@ function listHarness() {
     onDeleteSceneClick: id => calls.push(['delete', id]),
   });
   vm.runInContext(`let _scenes = [{id:'a',name:'A very long scene title'}, {id:'b',name:'Second scene'}];
-    let _currentSceneId = 'a', _sceneActionsId = null;
+    let _currentSceneId = 'a', _sceneActionsId = null, _sceneSearchQuery = '';
     let _sceneGroups = [{id:'g',name:'Facilities'}];
     let _sceneAssignments = new Map(), _foldedSceneGroups = new Set();\n` +
     functions('function addGroupHeading(', 'function showNewSceneGroupForm(') +
-    functions('function renderScenesList(', 'async function selectScene('), context);
+    functions('function setSceneSearch(', 'async function selectScene('), context);
   context.renderScenesList();
   return { context, document, calls, list: ids['scenes-list'] };
 }
@@ -275,4 +275,73 @@ test('scripts dialog keeps keyboard focus and Escape returns to its inspector co
   assert.equal(document.activeElement,elements['scripts-modal-close']);
   context.closeScriptsModal();
   assert.equal(document.activeElement,elements['manage-scripts-btn']);
+});
+
+
+test('scene search filters locally and case-insensitively without disturbing selection or focus', () => {
+  const h = listHarness();
+  const search = h.document.getElementById('scene-search-input');
+  search.focus();
+  h.list.scrollTop = 80;
+  h.context.setSceneSearch('  SECOND  ');
+  const results = h.list.querySelectorAll('.scene-select');
+  assert.equal(results.length, 1);
+  assert.equal(results[0].textContent, 'Second scene');
+  assert.equal(h.document.getElementById('editor-scene-count').textContent, '1 / 2');
+  assert.equal(h.list.querySelectorAll('.scene-group-fold').length, 0, 'search results are not hidden by groups');
+  assert.equal(h.list.scrollTop, 0);
+  assert.equal(h.document.activeElement, search, 'typing must not move keyboard focus away from search');
+  assert.deepEqual(h.calls, [], 'filtering never selects or saves a scene');
+  assert.equal(vm.runInContext('_scenes.length', h.context), 2, 'all saved scenes remain available');
+
+  h.context.setSceneSearch('missing name');
+  assert.equal(h.list.querySelectorAll('.scene-select').length, 0);
+  assert.match(h.list.querySelector('.scene-empty-notice').textContent, /No matching scenes/);
+  assert.equal(h.document.getElementById('editor-scene-count').textContent, '0 / 2');
+
+  h.context.setSceneSearch('');
+  assert.equal(h.list.querySelectorAll('.scene-select').length, 2);
+  assert.equal(h.list.querySelectorAll('.scene-group-fold').length, 2);
+  assert.equal(h.document.getElementById('editor-scene-count').textContent, '2');
+  assert.equal(h.document.activeElement, search);
+});
+
+test('search exposes matching scenes inside folded groups without changing their saved fold state', () => {
+  const h = listHarness();
+  vm.runInContext("_sceneAssignments.set('a','g'); _foldedSceneGroups.add('g'); renderScenesList();", h.context);
+  assert.deepEqual(h.list.querySelectorAll('.scene-select').map(el=>el.textContent), ['Second scene']);
+  h.context.setSceneSearch('VERY LONG');
+  assert.deepEqual(h.list.querySelectorAll('.scene-select').map(el=>el.textContent), ['A very long scene title']);
+  assert.equal(vm.runInContext("_foldedSceneGroups.has('g')",h.context),true);
+  h.context.setSceneSearch('');
+  assert.deepEqual(h.list.querySelectorAll('.scene-select').map(el=>el.textContent), ['Second scene']);
+  assert.equal(vm.runInContext("_sceneAssignments.get('a')",h.context),'g');
+});
+
+test('new scene creation clears a previous search instead of hiding the newly created scene', async () => {
+  const search={value:'old'};
+  const name={value:'Brand new scene'};
+  const calls=[];
+  const context=vm.createContext({
+    _sceneSearchQuery:'old', _scenes:[{id:'original',name:'Old'}], SLUG:'landcros',
+    document:{getElementById:id=>id==='new-scene-name'?name:search},
+    onNewSceneCancel(){calls.push('cancel');},
+    apiWrite:async()=>({id:'created',name:'Brand new scene'}),
+    selectScene:async id=>calls.push(id),
+    showToast(){},
+  });
+  vm.runInContext(functions('async function onNewSceneConfirm(', '// User-initiated atomic copy'), context);
+  await context.onNewSceneConfirm();
+  assert.equal(context._sceneSearchQuery,'');
+  assert.equal(search.value,'');
+  assert.equal(context._scenes.length,2);
+  assert.deepEqual(calls,['cancel','created']);
+});
+
+test('search is an accessible native search field wired before scene API loading',()=>{
+  assert.match(html, /type="search" id="scene-search-input" aria-label="Search scenes"/);
+  assert.match(source, /sceneSearch\.addEventListener\('input', \(\) => setSceneSearch\(sceneSearch\.value\)\)/);
+  assert.match(source, /event\.key !== 'Escape' \|\| !_sceneSearchQuery/);
+  assert.match(source, /event\.stopPropagation\(\);\s*sceneSearch\.value = '';\s*setSceneSearch\(''\)/);
+  assert.match(html, /id="editor-scene-count" aria-live="polite"/);
 });
