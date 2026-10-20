@@ -126,63 +126,80 @@
       flex-shrink:0; min-width:0; margin:10px 12px 0; padding:12px;
       background:#fff; border:1px solid var(--editor-border); border-radius:11px;
     }
+    #scenes-panel { padding:10px 11px 11px; }
     .editor-section-heading { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:8px; }
+    .scene-heading-actions { display:flex; align-items:center; justify-content:flex-end; gap:6px; flex:none; }
     .panel-label, .editor-tool-heading, .editor-overline {
       margin:0; color:#4c6373; font-size:11px; font-weight:600;
       text-transform:uppercase; letter-spacing:.06em;
     }
-    #editor-scene-count { font-variant-numeric:tabular-nums; margin-left:4px; }
+    #editor-scene-count { font-variant-numeric:tabular-nums; margin-left:4px; font-weight:500; color:#66818e; }
+    .scene-search-field {
+      display:flex; align-items:center; gap:8px; width:100%; height:36px;
+      margin-bottom:5px; padding:0 10px; border:1px solid #d5e2e7;
+      border-radius:8px; background:#f8fbfc; color:#7b909c;
+      transition:border-color .15s ease,box-shadow .15s ease;
+    }
+    .scene-search-field:focus-within { border-color:var(--editor-teal); box-shadow:0 0 0 2px rgba(15,118,110,.10); background:#fff; }
+    /* The field wrapper provides the accessible focus ring; avoid nested rings. */
+    #editor-toolbar #scene-search-input:focus-visible { outline:none; }
+    .scene-search-field svg { flex:none; width:16px; height:16px; }
+    #scene-search-input {
+      width:100%; min-width:0; height:100%; padding:0; border:0; outline:none;
+      background:transparent; color:var(--editor-ink); font:500 12.5px var(--font);
+      -webkit-appearance:none; appearance:none;
+    }
+    #scene-search-input::placeholder { color:#879aa5; opacity:1; }
+    #scene-search-input::-webkit-search-cancel-button { -webkit-appearance:searchfield-cancel-button; cursor:pointer; }
     #add-scene-btn {
-      width:auto; min-height:36px; padding:7px 10px; gap:4px;
+      width:auto; min-height:32px; padding:5px 9px; gap:4px;
       background:var(--editor-teal); border:1px solid var(--editor-teal);
-      color:#fff; border-radius:8px; font-size:12px;
+      color:#fff; border-radius:8px; font-size:11.5px; white-space:nowrap;
     }
     #add-scene-btn:hover { background:#115e59; }
-    .scene-group-toolbar { display:flex; align-items:center; gap:8px; justify-content:space-between; margin:6px 0; }
     .scene-group-add, .scene-group-actions button {
-      min-height:32px; padding:5px 9px; border:1px solid #bfdcd4; border-radius:7px;
-      background:#eef8f5; color:#115e59; font-size:12px;
+      min-height:32px; padding:5px 8px; border:1px solid #bfdcd4; border-radius:7px;
+      background:#eef8f5; color:#115e59; font-size:11.5px;
     }
-    .scene-group-hint { color:var(--editor-muted); font-size:11px; text-align:right; max-width:155px; line-height:1.4; }
     #new-scene-row { display:none; flex-direction:column; gap:6px; margin:8px 0; }
     #new-group-row { padding:10px; border:1px solid var(--editor-border); border-radius:8px; margin:8px 0; }
     #new-group-row label { display:block; margin-bottom:6px; color:var(--editor-muted); font-size:12px; }
     .scene-group-actions { display:flex; gap:7px; margin-top:7px; }
     .scene-group-actions button { flex:1; }
     #scenes-list {
-      display:flex; flex-direction:column; gap:4px; margin-top:8px;
-      max-height:clamp(140px,28vh,300px); overflow-y:auto; overscroll-behavior:contain;
-      padding:3px; scrollbar-width:thin; scrollbar-color:#b9cbd3 transparent;
+      display:flex; flex-direction:column; gap:3px; margin-top:4px;
+      max-height:clamp(132px,24vh,260px); overflow-y:auto; overscroll-behavior:contain;
+      padding:2px; scrollbar-width:thin; scrollbar-color:#b9cbd3 transparent;
     }
-    .scene-group-header { display:flex; align-items:center; gap:4px; min-width:0; margin-top:6px; }
+    .scene-group-header { display:flex; align-items:center; gap:3px; min-width:0; margin-top:3px; }
     .scene-group-fold {
-      flex:1; min-width:0; min-height:34px; padding:5px 2px;
+      flex:1; min-width:0; min-height:27px; padding:3px 2px;
       overflow:hidden; text-overflow:ellipsis; white-space:nowrap; text-align:left;
-      background:none; border:0; color:#4c6373; font-size:12px; font-weight:600;
+      background:none; border:0; color:#4c6373; font-size:11.5px; font-weight:600;
     }
-    .scene-group-mini { flex:none; min-width:32px; min-height:34px; padding:4px; background:none; border:0; border-radius:6px; color:#4c6373; font-size:11px; }
+    .scene-group-mini { flex:none; min-width:27px; min-height:27px; padding:3px; background:none; border:0; border-radius:6px; color:#4c6373; font-size:11px; }
     .scene-group-mini:hover { background:#edf4f4; }
     .scene-list-item {
-      display:grid; grid-template-columns:minmax(0,1fr) 38px; gap:0 3px;
-      flex-shrink:0; min-width:0; border:1px solid #e3eaee; border-radius:8px;
+      display:grid; grid-template-columns:minmax(0,1fr) 34px; gap:0 2px;
+      flex-shrink:0; min-width:0; border:1px solid #e3eaee; border-radius:7px;
       background:#fbfcfd; color:var(--editor-ink);
     }
     .scene-list-item:hover { border-color:#b8d7d0; background:#f1f8f6; }
     .scene-list-item.active { border-color:#98cfc2; background:#e8f6f2; box-shadow:inset 3px 0 0 var(--editor-teal); }
     .scene-select {
-      min-width:0; min-height:40px; padding:9px 8px 9px 11px;
+      min-width:0; min-height:33px; padding:6px 7px 6px 10px;
       overflow:hidden; text-overflow:ellipsis; white-space:nowrap; text-align:left;
-      background:none; border:0; border-radius:7px; color:inherit; font-size:13px; font-weight:600;
+      background:none; border:0; border-radius:6px; color:inherit; font-size:12.5px; font-weight:600;
     }
     .scene-select[aria-current="true"] { color:#115e59; }
     .scene-actions-toggle {
-      width:34px; min-height:34px; margin:3px 2px; padding:0;
-      background:none; border:0; border-radius:6px; color:#4c6373; font-size:21px;
+      width:30px; min-height:29px; margin:2px 1px; padding:0;
+      background:none; border:0; border-radius:6px; color:#4c6373; font-size:19px;
     }
     .scene-actions-toggle:hover, .scene-actions-toggle[aria-expanded="true"] { background:#dceee8; color:#115e59; }
     .scene-row-actions {
-      grid-column:1 / -1; display:flex; align-items:center; gap:6px;
-      min-width:0; padding:8px; border-top:1px solid #cce3db;
+      grid-column:1 / -1; display:flex; align-items:center; gap:5px;
+      min-width:0; padding:6px; border-top:1px solid #cce3db;
     }
     .scene-duplicate-btn, .scene-del-btn, .scene-group-select {
       min-height:34px; padding:5px 8px; border:1px solid #bfd5d1;
@@ -194,7 +211,6 @@
     .scene-group-select { flex:1; min-width:0; width:0; color:var(--editor-ink); }
     .scene-del-btn { margin-left:auto; color:#a52d3a; border-color:#e6c7cb; }
     .scene-del-btn:hover { background:#fff1f2; }
-    .scene-list-item:has(.scene-row-actions:not([hidden])) .scene-select { white-space:normal; overflow-wrap:anywhere; }
     .scene-loading-notice, .scene-empty-notice, .scene-load-error {
       margin:4px 0; padding:10px; border-radius:8px; font-size:12px; line-height:1.5;
       color:var(--editor-muted); background:#f1f6f7;
@@ -300,8 +316,9 @@
       #app.editor-panel-open #editor-toolbar { transform:translateX(0); }
       #toolbar-header { padding-right:62px; padding-top:calc(14px + env(safe-area-inset-top,0px)); }
       .editor-header-subtitle { margin-left:0; }
-      #scenes-list { max-height:min(29dvh,260px); }
-      .scene-select { min-height:44px; }
+      #scenes-list { max-height:min(25dvh,224px); }
+      #scene-search-input { font-size:16px; }
+      .scene-select { min-height:40px; }
       .scene-actions-toggle { min-height:38px; }
       .scene-duplicate-btn, .scene-del-btn, .scene-group-select, .scene-group-fold, .scene-group-mini { min-height:40px; }
       #editor-mobile-open { display:inline-flex; align-items:center; gap:7px; position:absolute; z-index:31; top:calc(14px + env(safe-area-inset-top,0px)); right:14px; min-height:44px; padding:9px 14px; background:#0f766e; color:#fff; border:1px solid #0f766e; border-radius:10px; font-size:13px; font-weight:600; cursor:pointer; }
@@ -350,8 +367,15 @@
     <div id="readonly-msg">Read-only — sign in with an editor account to save changes.</div>
     <div id="scenes-panel">
       <div class="editor-section-heading">
-        <h2 class="panel-label">Scenes <span id="editor-scene-count"></span></h2>
-        <button type="button" class="btn-primary" id="add-scene-btn"><span aria-hidden="true">＋</span> New scene</button>
+        <h2 class="panel-label">Scenes <span id="editor-scene-count" aria-live="polite"></span></h2>
+        <div class="scene-heading-actions">
+          <button type="button" id="add-group-btn" class="scene-group-add"><span aria-hidden="true">＋</span> Group</button>
+          <button type="button" class="btn-primary" id="add-scene-btn"><span aria-hidden="true">＋</span> New scene</button>
+        </div>
+      </div>
+      <div class="scene-search-field">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4"/></svg>
+        <input type="search" id="scene-search-input" aria-label="Search scenes" placeholder="Search scenes…" autocomplete="off" spellcheck="false">
       </div>
       <div id="new-scene-row">
         <input class="form-input" id="new-scene-name" aria-label="New scene name" maxlength="120" placeholder="Scene name">
@@ -359,10 +383,6 @@
           <button class="btn-primary" id="new-scene-confirm-btn" style="flex:1">Create</button>
           <button class="btn-primary" id="new-scene-cancel-btn" style="flex:1;background:#374151">Cancel</button>
         </div>
-      </div>
-      <div class="scene-group-toolbar">
-        <button type="button" id="add-group-btn" class="scene-group-add"><span aria-hidden="true">＋</span> Group</button>
-        <span class="scene-group-hint">Organise scenes without deleting them</span>
       </div>
       <div id="new-group-row" hidden>
         <label for="new-group-name">New group name</label>

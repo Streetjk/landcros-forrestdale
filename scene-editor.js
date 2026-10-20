@@ -37,6 +37,7 @@ let _currentSceneId    = null;
 let _sceneObjectsReady = false; // prevent edits while saved pins are unavailable
 let _scenesLoadFailed = false;   // retry after a session is restored
 let _sceneActionsId = null;     // at most one scene's contextual controls open
+let _sceneSearchQuery = '';   // ephemeral client-side view filter; never persisted
 
 // Personal organisation: a group is just a view of an editor's scene list.
 // Group deletion never deletes scenes; archived scenes remain in the archive.
@@ -255,6 +256,15 @@ async function init() {
   document.getElementById('add-button-btn').addEventListener('click', () => togglePlacing('button'));
   document.getElementById('add-widget-btn').addEventListener('click', () => togglePlacing('widget'));
   document.getElementById('add-scene-btn').addEventListener('click', onAddSceneClick);
+  const sceneSearch = document.getElementById('scene-search-input');
+  sceneSearch.addEventListener('input', () => setSceneSearch(sceneSearch.value));
+  sceneSearch.addEventListener('keydown', event => {
+    if (event.key !== 'Escape' || !_sceneSearchQuery) return;
+    event.preventDefault();
+    event.stopPropagation();
+    sceneSearch.value = '';
+    setSceneSearch('');
+  });
   document.getElementById('add-group-btn').addEventListener('click', () => showNewSceneGroupForm(true));
   document.getElementById('new-group-confirm-btn').addEventListener('click', onCreateSceneGroup);
   document.getElementById('new-group-cancel-btn').addEventListener('click', () => showNewSceneGroupForm(false));
@@ -358,18 +368,33 @@ async function loadScenes() {
   if (!_currentSceneId && _scenes.length) await selectScene(_scenes[0].id);
 }
 
+function setSceneSearch(value) {
+  _sceneSearchQuery = String(value || '').trim().toLocaleLowerCase();
+  _sceneActionsId = null;
+  document.getElementById('scenes-list').scrollTop = 0;
+  renderScenesList();
+}
+
 function renderScenesList(preferredFocusKey = null) {
   const list = document.getElementById('scenes-list');
   const hadFocus = !!preferredFocusKey || list.contains(document.activeElement);
   const focusKey = preferredFocusKey || (hadFocus ? document.activeElement.dataset.focusKey : null);
   const scrollTop = list.scrollTop;
+  // Search is a view-only filter on the already-authorised, loaded scene list.
+  // Keep _scenes, group membership, and folded state untouched.
+  const matching = _sceneSearchQuery
+    ? _scenes.filter(scene => (scene.name || '').toLocaleLowerCase().includes(_sceneSearchQuery))
+    : _scenes;
   list.replaceChildren();
   const count = document.getElementById('editor-scene-count');
-  if (count) count.textContent = String(_scenes.length);
-  if (!_scenes.length) {
+  if (count) count.textContent = _sceneSearchQuery
+    ? matching.length + ' / ' + _scenes.length : String(_scenes.length);
+  if (!matching.length) {
     const notice = document.createElement('p');
     notice.className = 'scene-empty-notice';
-    notice.textContent = 'No scenes available for this account. Use New scene to get started.';
+    notice.textContent = _scenes.length
+      ? 'No matching scenes. Try another name.'
+      : 'No scenes available for this account. Use New scene to get started.';
     list.appendChild(notice);
   }
   const renderRow = scene => {
@@ -451,7 +476,10 @@ function renderScenesList(preferredFocusKey = null) {
     row.append(name, toggle, actions);
     return row;
   };
-  renderSceneGroupSections(list, _scenes, renderRow);
+  // Search results are flat, so matches remain visible even inside a folded
+  // group. Clearing search restores the original group/fold view exactly.
+  if (_sceneSearchQuery) matching.forEach(scene => list.appendChild(renderRow(scene)));
+  else renderSceneGroupSections(list, _scenes, renderRow);
   // Rebuilding for selection, folding or grouping must not drop focus to body.
   list.scrollTop = scrollTop;
   if (hadFocus) {
@@ -551,6 +579,10 @@ async function onNewSceneConfirm() {
   if (!created) return;
   onNewSceneCancel();
   _scenes.push(created);
+  if (_sceneSearchQuery) {
+    _sceneSearchQuery = '';
+    document.getElementById('scene-search-input').value = '';
+  }
   await selectScene(created.id);
 }
 
