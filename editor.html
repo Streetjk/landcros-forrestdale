@@ -463,6 +463,211 @@
       #editor-toolbar { transition:none!important; }
       .editor-share-chevron { transition:none!important; }
     }
+
+    /* ─── 2026 Site workspace UI: compact, calm and keyboard-friendly ───
+       Editor-only, after previous overrides. The 3D viewer is untouched.
+       Flat backgrounds intentionally avoid GPU-heavy backdrop filters. */
+    #editor-toolbar {
+      --editor-ink:#13283a; --editor-muted:#63788a;
+      --editor-border:#dce5eb; --editor-teal:#087f73;
+      width:clamp(330px,27vw,394px)!important;
+      flex:0 0 clamp(330px,27vw,394px);
+      background:#f3f6f8!important;
+      border-right:1px solid #d7e1e7;
+      box-shadow:5px 0 22px rgba(20,49,66,.045);
+      backdrop-filter:none!important;-webkit-backdrop-filter:none!important;
+      scrollbar-color:#b9cbd3 transparent;
+      gap:0;
+    }
+    #toolbar-header {
+      padding:18px 19px 14px;
+      background:#fcfdfd;
+      border-bottom:1px solid #e1e9ee;
+      box-shadow:0 3px 12px rgba(28,57,74,.025);
+    }
+    .editor-brand-row {gap:12px;}
+    .editor-brand-mark {
+      width:42px;height:42px;border-radius:13px;
+      color:#087f73;background:#dff3ee;
+      box-shadow:inset 0 1px rgba(255,255,255,.85);
+    }
+    .editor-brand-mark svg {width:23px;height:23px;}
+    #toolbar-header .panel-site {
+      color:#708b98;font-size:10px;font-weight:800;letter-spacing:.115em;
+    }
+    #toolbar-header .panel-title {
+      color:#142d3c;font-size:20px;font-weight:750;letter-spacing:-.035em;
+      line-height:1.28;
+    }
+    .editor-header-subtitle {
+      margin:8px 0 0 54px;font-size:11.5px;line-height:1.5;color:#668293;
+    }
+    #scenes-panel,#add-buttons,#property-panel,#empty-selection {
+      margin:12px 13px 0;padding:15px;
+      border:1px solid #e0e8ed;border-radius:14px;
+      background:#fff;color:#172e3b;
+      box-shadow:0 2px 9px rgba(24,54,74,.035),0 1px 2px rgba(24,54,74,.025);
+    }
+    #scenes-panel {padding:15px 14px 12px;}
+    .editor-section-heading {margin-bottom:9px;gap:10px;}
+    #scenes-panel .panel-label,.editor-tool-heading,.editor-overline {
+      font-size:11px;letter-spacing:.08em;font-weight:800;color:#516a7b;
+    }
+    #add-scene-btn {
+      display:inline-flex;align-items:center;justify-content:center;gap:5px;
+      height:35px;min-height:35px;padding:7px 11px;border-radius:9px;
+      background:#087f73;color:white;border:1px solid #087f73;
+      font-size:12px;letter-spacing:-.01em;
+      box-shadow:0 2px 5px rgba(8,127,115,.15);
+    }
+    #add-scene-btn:hover {background:#096d66;border-color:#096d66;}
+    #add-scene-btn:active {transform:translateY(1px);}
+    .scene-group-toolbar {
+      margin:9px 0 6px;border-top:1px solid #e9eef1;padding-top:10px;gap:8px;
+    }
+    .scene-group-add {
+      min-height:32px;padding:5px 11px;background:#eef8f6;color:#117a70;
+      border:1px solid #c9e3dc;border-radius:8px;font-size:11.5px;
+    }
+    .scene-group-add:hover {background:#dff3ed;}
+    .scene-group-hint {color:#8798a4;font-size:10px;text-align:right;max-width:160px;}
+    #scenes-list {
+      max-height:clamp(112px,26vh,295px)!important;
+      min-height:20px;gap:5px;margin-top:6px;
+      scrollbar-width:thin;scrollbar-color:#cad8de transparent;
+    }
+    .scene-group-header {margin:9px 0 3px;padding:5px 4px;border-bottom:0;gap:5px;}
+    .scene-group-fold {
+      color:#4c6979;font-weight:750;font-size:12px;min-height:29px;padding:5px 2px;
+    }
+    .scene-group-fold:hover {color:#057e73;}
+    .scene-group-mini {min-width:30px;min-height:30px;border-radius:7px;}
+    .scene-group-mini:hover {background:#eff5f6;}
+    .scene-list-item {
+      display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-items:center;
+      min-height:40px;gap:6px;padding:6px 7px 6px 11px;
+      border:1px solid #edf1f4;border-radius:9px;background:#fbfcfd;
+      color:#284353;font-size:12.5px;font-weight:650;
+      transition:background .13s ease,border-color .13s ease;
+    }
+    .scene-list-item:hover {background:#f1f8f7;border-color:#c5e3db;}
+    .scene-list-item.active {
+      background:#e8f6f2;border-color:#98d6c8;
+      box-shadow:inset 3px 0 0 #0c8c7f;
+      color:#11665f;
+    }
+    .scene-list-item > span:first-child {
+      overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1;
+    }
+    .scene-duplicate-btn {
+      flex:0 0 auto;min-width:44px;min-height:28px;font-size:10px;
+      padding:3px 6px;background:#f3f9f7;color:#326e69;
+      border:1px solid #d5e8e1;
+    }
+    .scene-list-item .scene-del-btn {
+      flex:0 0 27px;min-height:27px;min-width:27px;border-radius:6px;color:#8c6470;
+    }
+    .scene-list-item .scene-del-btn:hover {background:#fff0f1;color:#bb3545;}
+    #scene-share-row {margin-top:10px;}
+    .editor-share-details {border-top:1px solid #eaf0f1;padding-top:8px;}
+    .editor-share-details summary {color:#58717c;font-size:11.5px;min-height:34px;}
+    .editor-share-details summary:hover {background:#f5faf9;}
+    #add-buttons {padding:14px 15px 15px;}
+    .editor-tool-heading {margin:0 0 10px;}
+    .editor-tool-grid {gap:8px;}
+    .editor-tool-grid .editor-tool-btn {
+      min-height:48px;flex-direction:column;gap:4px;
+      padding:7px 4px;background:#f8fafb;border:1px solid #dce8eb;
+      border-radius:10px;color:#3c5967;line-height:1.15;
+      font-size:11.5px;
+      transition:background .14s ease,border-color .14s ease;
+    }
+    .editor-tool-grid .editor-tool-btn--pin {
+      background:#edf9f5;color:#08796e;border-color:#bfe2d7;
+    }
+    .editor-tool-grid .editor-tool-btn:hover:not(:disabled) {
+      border-color:#6fbfb0;background:#e7f5f1;
+    }
+    .editor-tool-grid .editor-tool-btn.active {
+      border-color:#087f73;background:#087f73;color:#fff;
+    }
+    .editor-tool-grid .editor-tool-btn:disabled {opacity:.43;filter:grayscale(.15);}
+    .editor-tool-plus {font-size:19px;line-height:1;font-weight:400;}
+    #no-scene-hint {
+      margin:9px 16px 0;padding:2px 3px 5px;color:#8497a3;
+      font-size:11px;line-height:1.5;
+    }
+    #property-panel {padding:17px 15px 18px;gap:13px;}
+    .editor-inspector-heading {
+      padding-bottom:11px;border-bottom:1px solid #ebf0f3;margin-bottom:0;
+    }
+    .editor-inspector-heading h2 {
+      font-size:17px;line-height:1.23;letter-spacing:-.025em;color:#163548;
+    }
+    .editor-save-hint {
+      background:#e7f6ef;color:#16765c;
+      border:1px solid #ccebdc;border-radius:999px;
+      padding:5px 9px;font-weight:750;letter-spacing:.015em;
+      font-size:10px;
+    }
+    #editor-toolbar .form-label {
+      color:#4c6373;font-size:11px;font-weight:750;letter-spacing:.045em;
+    }
+    #editor-toolbar .form-input,#editor-toolbar textarea {
+      border:1px solid #d3e0e6;border-radius:9px;
+      background:#fcfdfd;min-height:40px;color:#173243;
+      box-shadow:inset 0 1px 1px rgba(13,49,65,.015);
+    }
+    #editor-toolbar .form-input:focus-visible,#editor-toolbar textarea:focus-visible {
+      border-color:#0a8e80;outline:3px solid rgba(8,127,115,.13);outline-offset:0;
+    }
+    #prop-photo-upload-btn {border-radius:11px;min-height:68px;}
+    #prop-photo-upload-btn:hover {border-color:#42ad9b;background:#eef9f5;}
+    #empty-selection {
+      background:#f7fafb;border:1px dashed #ccdbe1;padding:16px;
+      color:#67818e;font-size:11.5px;line-height:1.55;margin-bottom:14px;
+    }
+    .editor-empty-title {font-size:13px;font-weight:750;margin-bottom:5px;}
+    .scene-loading-notice,.scene-empty-notice {
+      border-radius:9px;padding:10px 11px;margin:5px 0;
+      background:#f3f8f9;color:#587585;font-size:11.5px;line-height:1.5;
+    }
+    .scene-load-error {
+      border:1px solid #f2d8bc;background:#fff8ef;border-radius:10px;
+      padding:11px;color:#84552f;font-size:12px;
+    }
+    .scene-load-error button {
+      background:#fff;border:1px solid #ddb984;color:#84552f;
+      border-radius:7px;min-height:34px;padding:6px 10px;cursor:pointer;
+    }
+    #editor-toolbar :is(button,input,textarea,select,summary):focus-visible {
+      outline:2px solid #087f73;outline-offset:2px;
+    }
+    @media (min-width:761px) and (max-width:1040px) {
+      #editor-toolbar {width:310px!important;flex-basis:310px!important;}
+      #scenes-panel,#add-buttons,#property-panel,#empty-selection {margin-left:9px;margin-right:9px;}
+    }
+    @media (max-width:760px) {
+      #editor-toolbar {
+        width:min(92vw,394px)!important;max-width:394px;
+        padding-bottom:env(safe-area-inset-bottom,0px);
+        box-shadow:8px 0 36px rgba(13,34,47,.20);
+      }
+      #toolbar-header {padding-right:54px;}
+      .editor-header-subtitle {margin-left:0;margin-top:8px;max-width:265px;}
+      #scenes-list {max-height:min(29vh,260px)!important;}
+      #editor-mobile-open {
+        border-radius:12px;background:#087f73;color:#fff;border-color:#087f73;
+        box-shadow:0 4px 17px rgba(4,50,46,.22);
+      }
+      #editor-mobile-close {top:15px;right:13px;}
+      #editor-toolbar .form-input,#editor-toolbar textarea {font-size:16px;}
+    }
+    @media (prefers-reduced-motion:reduce) {
+      .scene-list-item,.editor-tool-grid .editor-tool-btn,#add-scene-btn {
+        transition:none!important;
+      }
+    }
   </style>
 </head>
 <body>
@@ -481,11 +686,11 @@
           </svg>
         </div>
         <div>
-          <div class="panel-site">SITENAV / WORKSPACE</div>
+          <div class="panel-site">LANDCROS / SITE WORKSPACE</div>
           <div class="panel-title">Scene editor</div>
         </div>
       </div>
-      <p class="editor-header-subtitle">Place and document site locations</p>
+      <p class="editor-header-subtitle">Manage your scenes, pins and site information</p>
       <button type="button" id="editor-mobile-close" aria-label="Close scene editor">&#10005;</button>
     </div>
     <div id="no-site-msg">No site specified. Add <code>?site=&lt;slug&gt;</code> to the URL.</div>
@@ -493,7 +698,7 @@
     <div id="scenes-panel">
       <div class="editor-section-heading">
         <h2 class="panel-label">Scenes</h2>
-        <button type="button" class="btn-primary" id="add-scene-btn">＋ New scene</button>
+        <button type="button" class="btn-primary" id="add-scene-btn"><span aria-hidden="true">＋</span> New scene</button>
       </div>
       <div id="new-scene-row">
         <input class="form-input" id="new-scene-name" maxlength="120" placeholder="Scene name">
@@ -503,8 +708,8 @@
         </div>
       </div>
       <div class="scene-group-toolbar">
-        <button type="button" id="add-group-btn" class="scene-group-add">＋ Group</button>
-        <span class="scene-group-hint">Folders only · scenes stay intact</span>
+        <button type="button" id="add-group-btn" class="scene-group-add"><span aria-hidden="true">＋</span> Group</button>
+        <span class="scene-group-hint">Organise scenes without deleting them</span>
       </div>
       <div id="new-group-row" hidden>
         <label for="new-group-name">New group name</label>
@@ -538,7 +743,7 @@
       </div>
     </div>
     <div id="add-buttons" role="toolbar" aria-label="Add objects to scene">
-      <h2 class="editor-tool-heading">Add to scene</h2>
+      <h2 class="editor-tool-heading">Place on map</h2>
       <div class="editor-tool-grid">
         <button type="button" class="btn-primary editor-tool-btn editor-tool-btn--pin" id="add-label-btn" aria-pressed="false" disabled><span class="editor-tool-plus" aria-hidden="true">＋</span> Pin</button>
         <button type="button" class="btn-primary editor-tool-btn" id="add-button-btn" aria-pressed="false" disabled><span class="editor-tool-plus" aria-hidden="true">＋</span> Button</button>
@@ -552,7 +757,7 @@
           <div class="editor-overline">INSPECTOR</div>
           <h2 id="editor-inspector-kind">Pin details</h2>
         </div>
-        <span class="editor-save-hint" title="Changes are automatically saved when signed in">Auto-save</span>
+        <span class="editor-save-hint" title="Changes are automatically saved when signed in">Auto-save on</span>
       </div>
       <div class="form-group">
         <label class="form-label" id="prop-kind-label" for="prop-text">Pin title</label>
@@ -613,9 +818,8 @@
       </div>
     </div>
     <div id="empty-selection">
-      <div class="editor-empty-title">Ready to edit</div>
-      Choose a tool above, then click a location on the 3D map.
-      Select an existing pin to edit its title, description or photo.
+      <div class="editor-empty-title">Select a pin to edit</div>
+      Choose a scene, then select a pin on the map to update its details and photos. Use a tool above to place something new.
     </div>
   </aside>
 
