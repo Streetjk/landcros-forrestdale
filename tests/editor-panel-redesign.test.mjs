@@ -40,11 +40,14 @@ test('editor continues to keep scene names and group hierarchies in one compact 
 });
 
 test('redesign is opaque, scoped to editor, responsive and accessible',()=>{
- assert.match(editor,/#editor-toolbar\s*\{[\s\S]*?backdrop-filter:none!important/);
+ const toolbarCSS = /#editor-toolbar\s*\{([^}]+)\}/.exec(editor)[1];
+ assert.match(toolbarCSS,/background:#f3f6f8/);
+ assert.doesNotMatch(toolbarCSS,/backdrop-filter/);
+ assert.doesNotMatch(editor,/flex-wrap:wrap!important|flex:1 0 100%!important/);
  assert.match(editor,/@media \(min-width:761px\) and \(max-width:1040px\)/);
  assert.match(editor,/@media \(max-width:760px\)/);
  assert.match(editor,/@media \(prefers-reduced-motion:reduce\)/);
- assert.match(editor,/#editor-toolbar :is\(button,input,textarea,select,summary\):focus-visible/);
+ assert.match(editor,/#editor-toolbar :is\(button,input,textarea,select,summary,\[tabindex\]\):focus-visible/);
  assert.match(editor,/aria-live="polite"/);
  assert.match(editor,/aria-controls="editor-toolbar"/);
  assert.match(editor,/aria-label="Add objects to scene"/);
