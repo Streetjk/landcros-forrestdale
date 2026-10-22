@@ -137,8 +137,9 @@ export function preloadSceneLabelPhotos(objects, {
   maxPhotos = 2,
   saveData = false,
   createImage = () => new Image(),
+  existing = new Map(),
 } = {}) {
-  const warmed = new Map();
+  const warmed = existing;
   if (saveData || !Array.isArray(objects)) return warmed;
 
   const cap = Math.max(0, Math.min(2, Math.floor(maxPhotos) || 0));
@@ -172,8 +173,9 @@ export function preloadSceneLabelThumbnails(objects, {
   maxThumbnails = 8,
   saveData = false,
   createImage = () => new Image(),
+  existing = new Map(),
 } = {}) {
-  const warmed = new Map();
+  const warmed = existing;
   if (saveData || !Array.isArray(objects)) return warmed;
   const cap = Math.max(0, Math.min(8, Math.floor(maxThumbnails) || 0));
   for (const obj of objects) {

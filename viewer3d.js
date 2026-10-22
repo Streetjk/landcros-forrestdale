@@ -14,7 +14,7 @@ import { resolvePublicSiteMetadata, resolveSiteBranding, sanitizePublicLogoUrl }
 import { loadPublicRuntimeConfig, loadPublicTransport, backendRedirectForScopedRoute, shouldProbeStaffSession, backendApiUrl } from './public-transport.js';
 import { getBasePublicVisitPointId } from './visit-analytics.js';
 import { createPointListItem } from './point-list-item.js';
-import { createSceneLabelPin, createSceneGroundFrame, SCENE_PIN_FLOAT_HEIGHT, SCENE_PIN_GROUND_Y, preloadSceneLabelPhotos, preloadSceneLabelThumbnails, scenePhotoItems, markerScaleForZoom } from './scene-label-pin.js?v=photo-preview-20261022a';
+import { createSceneLabelPin, createSceneGroundFrame, SCENE_PIN_FLOAT_HEIGHT, SCENE_PIN_GROUND_Y, preloadSceneLabelPhotos, preloadSceneLabelThumbnails, scenePhotoItems, markerScaleForZoom } from './scene-label-pin.js?v=photo-perf-20261023a';
 import { renderScenePhotoGallery, hideScenePhotoGallery } from './scene-photo-gallery-view.js?v=photoload-20261022a';
 import { createMobileDetailSheet, trackMapTaps } from './mobile-detail-sheet.js?v=brand-dock-20261015a';
 import { loadSharedSceneBundle, loadSharedSceneBundleWithEarlyResult } from './scene-bundle-loader.js?v=earlyphoto-20261022a';
@@ -165,8 +165,8 @@ controls.maxDistance = 80;
 controls.minPolarAngle = 0;
 controls.maxPolarAngle = THREE.MathUtils.degToRad(85);
 // Any direct manual interaction with the camera (drag/pan/zoom on the
-// canvas) stops auto-rotate, however it was started (intro animation on
-// load, the rotate button, or orbit-around-a-pin). Doesn't fire during
+// canvas) stops auto-rotate, however it was started (the Rotate button or
+// orbit-around-a-pin). Doesn't fire during
 // scripted camera tweens (setCameraPreset/selectPoint/startNav all set
 // controls.enabled = false while animating, and OrbitControls skips firing
 // 'start' while disabled), so this can't fight with those.
@@ -1763,6 +1763,50 @@ function _renderSceneWidget(obj,{preview=false}={}) {
 
 let _scenePhotoWarmImages = new Map();
 let _scenePhotoWarmThumbs = new Map();
+
+function _warmSceneLabelMedia(objects) {
+  if (!Array.isArray(objects)) return;
+  const allowedFull = new Set();
+  const allowedThumbs = new Set();
+  for (const obj of objects) {
+    if (obj?.kind !== 'label') continue;
+    const first = scenePhotoItems(obj.props)[0];
+    if (first?.url) allowedFull.add(first.url);
+    if (first?.thumbUrl) allowedThumbs.add(first.thumbUrl);
+  }
+
+  // Signed URLs can change between scene responses. Retain only URLs actually
+  // authorized by this response, and reuse the Image objects created in the
+  // HTML head instead of decoding those photographs twice during 3D startup.
+  for (const url of _scenePhotoWarmImages.keys())
+    if (!allowedFull.has(url)) _scenePhotoWarmImages.delete(url);
+  for (const url of _scenePhotoWarmThumbs.keys())
+    if (!allowedThumbs.has(url)) _scenePhotoWarmThumbs.delete(url);
+  const early = window.__siteNavEarlyScene;
+  if (early?.code === _params.get('scene') && Array.isArray(early.warmed)) {
+    for (const image of early.warmed) {
+      const url = image?.src;
+      if (!url || (image.complete && !image.naturalWidth)) continue;
+      const cache = allowedThumbs.has(url) && _scenePhotoWarmThumbs.size < 4
+        ? _scenePhotoWarmThumbs
+        : allowedFull.has(url) && _scenePhotoWarmImages.size < 2
+          ? _scenePhotoWarmImages : null;
+      if (!cache || cache.has(url)) continue;
+      cache.set(url, image);
+      image.addEventListener?.('error', () => {
+        if (cache.get(url) === image) cache.delete(url);
+      }, {once: true});
+    }
+  }
+
+  const saveData = !!navigator.connection?.saveData;
+  _scenePhotoWarmThumbs = preloadSceneLabelThumbnails(objects, {
+    maxThumbnails: 4, saveData, existing: _scenePhotoWarmThumbs,
+  });
+  _scenePhotoWarmImages = preloadSceneLabelPhotos(objects, {
+    maxPhotos: 2, saveData, existing: _scenePhotoWarmImages,
+  });
+}
 
 function _removeSceneWidget(id, entry) {
   if (entry.groundFrame) {
@@ -4195,8 +4239,10 @@ function _doIntroAnimation() {
       _camAnimating = false;
       _camTween = null;
       controls.update();
-      controls.autoRotate      = true;
-      controls.autoRotateSpeed = 0.45;
+      // The intro is complete. Leave the camera still so the normal idle
+      // throttle can stop continuous splat sorting and GPU rasterisation.
+      // Visitors can still enable rotation with the existing Rotate button.
+      controls.autoRotate = false;
       window._syncRotateBtn?.();
     },
   });
@@ -4538,8 +4584,7 @@ async function boot() {
     }
     if (_fullSceneWidgetsRendered) return;
     try {
-      _scenePhotoWarmThumbs = preloadSceneLabelThumbnails(data.objects,{saveData:!!navigator.connection?.saveData});
-      _scenePhotoWarmImages = preloadSceneLabelPhotos(data.objects,{saveData:!!navigator.connection?.saveData});
+      _warmSceneLabelMedia(data.objects);
       renderSceneWidgets(data.objects);
       _fullSceneWidgetsRendered = true;
     } catch (error) {
@@ -4794,12 +4839,7 @@ async function boot() {
     // Warm only the photos in this authorized scene. The short-lived signed
     // image URLs and decoded data remain in memory only; no service worker
     // storage, browser database, or server tracking is introduced.
-    if (!_scenePhotoWarmThumbs.size) _scenePhotoWarmThumbs = preloadSceneLabelThumbnails(_sceneBundle.objects, {
-      saveData: !!navigator.connection?.saveData,
-    });
-    _scenePhotoWarmImages = preloadSceneLabelPhotos(_sceneBundle.objects, {
-      saveData: !!navigator.connection?.saveData,
-    });
+    _warmSceneLabelMedia(_sceneBundle.objects);
     if (!_fullSceneWidgetsRendered) {
       renderSceneWidgets(_sceneBundle.objects);
       _fullSceneWidgetsRendered = true;
