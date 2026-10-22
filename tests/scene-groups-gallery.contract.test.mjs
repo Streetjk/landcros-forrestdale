@@ -29,7 +29,9 @@ test('new gallery signed fields cannot be written through generic object API',()
   const db=read('scene-db.js');
   assert.match(db,/delete props\.photoItems/);
   assert.match(db,/delete props\.photoPaths/);
+  assert.match(db,/delete props\.photoThumbPaths/);
   assert.match(db,/scene_objects\.props->'photoPaths'/);
+  assert.match(db,/scene_objects\.props->'photoThumbPaths'/);
   assert.match(db,/and scene_objects\.scene_id = excluded\.scene_id/);
 });
 

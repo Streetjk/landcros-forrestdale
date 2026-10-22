@@ -60,6 +60,7 @@ class Element {
       preventDefault(){},stopPropagation(){},
     };
     for (const fn of this.listeners.get(name) || []) fn(e);
+    this['on'+name]?.(e);
   }
 }
 globalThis.document = { createElement: tag => new Element(tag) };
@@ -131,11 +132,67 @@ test('photo switching cancels stale timers; failures show a helpful error', asyn
   assert.equal(z.viewport.listeners.get('wheel')?.size,0);
 });
 
+test('small photo appears before detailed image and stale downloads cannot replace a newer pin', async()=>{
+  const loaders=[];
+  globalThis.Image=class extends Element {
+    constructor(){super('img');loaders.push(this);}
+  };
+  const image=new Element('img');
+  const z=createPhotoZoom(image);
+  const full='https://photo.example.test/full.webp';
+  const preview='https://photo.example.test/thumb.webp';
+  z.setSource(full,preview);
+  assert.equal(image.src,preview);
+  assert.equal(loaders[0].src,full);
+  image.dispatch('load');
+  assert.equal(z.photoState,'ready','photo is visible without waiting for full resolution');
+  loaders[0].dispatch('load');
+  assert.equal(image.src,full);
+  image.dispatch('load');
+  assert.equal(z.photoState,'ready');
+
+  z.setSource('https://photo.example.test/next.webp',preview);
+  const previous=loaders[1];
+  z.setSource('https://photo.example.test/latest.webp',preview);
+  previous.dispatch('load');
+  assert.equal(image.src,preview,'old full photo must never replace new selection');
+  z.destroy();
+});
+
+test('missing thumbnail falls back to original photo',()=>{
+  globalThis.Image=class extends Element {constructor(){super('img');}};
+  const image=new Element('img');
+  const z=createPhotoZoom(image);
+  z.setSource('https://photo.example.test/original.webp','https://photo.example.test/missing.webp');
+  image.dispatch('error');
+  assert.equal(image.src,'https://photo.example.test/original.webp');
+  image.dispatch('load');
+  assert.equal(z.photoState,'ready');
+  z.destroy();
+});
+
+test('slow thumbnail and fallback display a loading state, then recover',async()=>{
+  globalThis.Image=class extends Element {constructor(){super('img');}};
+  const image=new Element('img');
+  const z=createPhotoZoom(image);
+  z.setSource('https://photo.example.test/full.webp','https://photo.example.test/preview.webp');
+  await sleep(215);
+  assert.equal(z.photoState,'loading');
+  image.dispatch('error');
+  assert.equal(image.src,'https://photo.example.test/full.webp');
+  assert.equal(z.photoState,'pending');
+  await sleep(215);
+  assert.equal(z.photoState,'loading');
+  image.dispatch('load');
+  assert.equal(z.photoState,'ready');
+  z.destroy();
+});
+
 test('both viewers call tracked image loading and have reduced-motion styling', () => {
   const gallery=readFileSync(new URL('../scene-photo-gallery-view.js',import.meta.url),'utf8');
   const css=readFileSync(new URL('../style.css',import.meta.url),'utf8');
-  assert.match(gallery,/photoZoom\.setSource\(photos\[0\]\.url\)/);
-  assert.match(gallery,/photoZoom\.setSource\(photos\[selected\]\.url\)/);
+  assert.match(gallery,/photoZoom\.setSource\(photos\[0\]\.url, photos\[0\]\.thumbUrl\)/);
+  assert.match(gallery,/photoZoom\.setSource\(photos\[selected\]\.url, photos\[selected\]\.thumbUrl\)/);
   assert.match(css,/\.sn-photo-zoom\.sn-photo-loading/);
   assert.match(css,/\.sn-photo-zoom\.sn-photo-error/);
   assert.match(css,/prefers-reduced-motion:reduce/);

@@ -1,6 +1,12 @@
 // Early, bounded shared-scene lookup for public viewers.
 // Only retry temporary transport/server errors; NEVER retry 401/403/404,
 // infer a different scene, or fall back to another user's pins.
+export function sceneBundleApiUrl(code, hostname = globalThis.location?.hostname) {
+  const base = hostname === 'landcros-forrestdale-static.onrender.com'
+    ? 'https://landcros-forrestdale.onrender.com' : '';
+  return base + '/api/scenes/by-code/' + encodeURIComponent(code);
+}
+
 export async function loadSharedSceneBundle(url,{
   fetchFn=globalThis.fetch,
   wait=ms=>new Promise(resolve=>setTimeout(resolve,ms)),

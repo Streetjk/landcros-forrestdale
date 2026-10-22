@@ -7,10 +7,10 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
 import { Sky } from 'three/addons/objects/Sky.js';
 import { initComparison, updateComparison, comparisonNeedsRender } from './splat-compare.js';
-import { createSceneLabelPin, createSceneGroundFrame, SCENE_PIN_FLOAT_HEIGHT, SCENE_PIN_GROUND_Y, preloadSceneLabelPhotos, scenePhotoItems, markerScaleForZoom } from './scene-label-pin.js?v=pinzoom-toggle-20261014b';
+import { createSceneLabelPin, createSceneGroundFrame, SCENE_PIN_FLOAT_HEIGHT, SCENE_PIN_GROUND_Y, preloadSceneLabelPhotos, preloadSceneLabelThumbnails, scenePhotoItems, markerScaleForZoom } from './scene-label-pin.js?v=pinzoom-toggle-20261014b';
 import { renderScenePhotoGallery, hideScenePhotoGallery } from './scene-photo-gallery-view.js';
 import { createMobileDetailSheet, trackMapTaps } from './mobile-detail-sheet.js';
-import { loadSharedSceneBundle } from './scene-bundle-loader.js';
+import { loadSharedSceneBundle, sceneBundleApiUrl } from './scene-bundle-loader.js';
 import { findLabelAtTap, isTouchMapDevice } from './map-touch-input.js';
 import { gpsToScene, loadSiteGpsCalibration } from './site-gps-calibration.js';
 import { PIN_VIEW_ANGLE_DEG, PIN_ORBIT_SPEED, planPinCameraFlight, samplePinCameraFlight } from './pin-camera-flight.js';
@@ -1467,6 +1467,7 @@ function _renderSceneWidget(obj) {
 }
 
 let _scenePhotoWarmImages = new Map();
+let _scenePhotoWarmThumbs = new Map();
 
 function renderSceneWidgets(list) {
   list.filter(o => o.kind === 'label' || o.kind === 'button' || o.kind === 'widget').forEach(_renderSceneWidget);
@@ -3625,13 +3626,21 @@ async function loadSplatBackground(opts = {}) {
 async function boot() {
   document.getElementById('load-msg').textContent = 'Loading config…';
   const _earlySharedCode = _params.get('scene');
+  const _earlySceneUrl = _earlySharedCode ? sceneBundleApiUrl(_earlySharedCode) : null;
+  const _sceneBootstrap = window.__siteNavEarlyScene;
   const _earlySharedScene = _earlySharedCode && !document.getElementById('add-label-btn')
-    ? loadSharedSceneBundle('/api/scenes/by-code/'+encodeURIComponent(_earlySharedCode))
+    ? (_sceneBootstrap?.code===_earlySharedCode && _sceneBootstrap.url===_earlySceneUrl
+      ? _sceneBootstrap.promise.then(result =>
+          result?.ok || [401,403,404].includes(result?.status)
+            ? result : loadSharedSceneBundle(_earlySceneUrl))
+      : loadSharedSceneBundle(_earlySceneUrl))
     : null;
   let _earlySceneWidgetsRendered = false;
   _earlySharedScene?.then(({data}) => {
     if (!Array.isArray(data?.objects) || _earlySceneWidgetsRendered) return;
     try {
+      _scenePhotoWarmThumbs = preloadSceneLabelThumbnails(data.objects,
+        {saveData:!!navigator.connection?.saveData});
       _scenePhotoWarmImages = preloadSceneLabelPhotos(data.objects,{saveData:!!navigator.connection?.saveData});
       renderSceneWidgets(data.objects);
       _earlySceneWidgetsRendered = true;
@@ -3766,12 +3775,17 @@ async function boot() {
   if (_sceneCode && !document.getElementById('add-label-btn')) {
     document.getElementById('app')?.classList.add('scene-share-view');
     const result = await (_earlySharedScene ??
-      loadSharedSceneBundle('/api/scenes/by-code/'+encodeURIComponent(_sceneCode)));
+      loadSharedSceneBundle(sceneBundleApiUrl(_sceneCode)));
     _sceneBundle = result.data;
     if (_sceneBundle?.objects) {
     // Warm only the photos in this authorized scene. The short-lived signed
     // image URLs and decoded data remain in memory only; no service worker
     // storage, browser database, or server tracking is introduced.
+    if (!_scenePhotoWarmThumbs.size) {
+      _scenePhotoWarmThumbs = preloadSceneLabelThumbnails(_sceneBundle.objects, {
+        saveData: !!navigator.connection?.saveData,
+      });
+    }
     _scenePhotoWarmImages = preloadSceneLabelPhotos(_sceneBundle.objects, {
       saveData: !!navigator.connection?.saveData,
     });

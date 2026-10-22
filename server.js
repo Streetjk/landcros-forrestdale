@@ -217,11 +217,16 @@ function _handleSubmissionPost(req, res, slug) {
 }
 
 // Reads + JSON-parses the request body (shared by the auth POST routes).
-function _readJsonBody(req, cb) {
+function _readJsonBody(req, cb, limit = POST_BODY_LIMIT) {
   let body = '';
   let bodySize = 0;
-  req.on('data', c => { bodySize += c.length; if (bodySize > POST_BODY_LIMIT) { req.destroy(); return; } body += c; });
+  req.on('data', c => {
+    bodySize += c.length;
+    if (bodySize > limit) { body = ''; return; }
+    body += c;
+  });
   req.on('end', () => {
+    if (bodySize > limit) return cb(Object.assign(new Error('Request too large'),{status:413}));
     try { cb(null, JSON.parse(body || '{}')); }
     catch (e) { cb(e); }
   });
@@ -339,6 +344,7 @@ const MIME = {
 // Binary/image assets are content-addressed (their content rarely changes after deploy)
 const IMMUTABLE_EXTS = new Set(['.splat', '.ply', '.stl', '.png', '.jpg', '.jpeg', '.webp', '.gif']);
 const POST_BODY_LIMIT = 1_000_000; // 1 MB max for JSON POST bodies (auth, points, contacts, visit)
+const PHOTO_POST_BODY_LIMIT = 2_200_000; // 900 KB image + 120 KB thumbnail as base64 JSON
 
 function addHeaders(res, extra = {}) {
   // COOP/COEP only on viewer3d so SharedArrayBuffer works; skip for admin
@@ -561,6 +567,10 @@ const server = http.createServer((req, res) => {
   // any miss (no existence/timing leak); rate-limited to blunt guessing.
   const _sceneCodeMatch = /^\/api\/scenes\/by-code\/([a-z0-9]{10})$/.exec(pathname);
   if (_sceneCodeMatch && req.method === 'GET') {
+    // Scene-share reads are public capabilities. The static CDN map uses this
+    // backend origin; send CORS on errors too so 404/429 aren't retried as
+    // apparent transport failures by the viewer.
+    res.setHeader('Access-Control-Allow-Origin','*');
     if (_rateLimited(req, res, 'scene-by-code', 120, 3600000)) return;
     scenesDb.getSceneBundleByCode(_sceneCodeMatch[1]).then(async bundle => {
       if (!bundle) { res.writeHead(404, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ error: 'not found' })); }
@@ -586,12 +596,13 @@ const server = http.createServer((req, res) => {
     _requireSiteEditor(req,res,slug,session => {
       _readJsonBody(req,(err,body)=>{
         if (err || !body || typeof body!=='object' || Array.isArray(body))
-          return _json(res,400,{error:'Invalid photo data'});
+          return _json(res,err?.status===413?413:400,{error:err?.status===413?'Photo upload too large':'Invalid photo data'});
         (async()=>{
           const sceneId = await _managedGallerySceneOrRespond(res,slug,body.objectId,body.sceneId,session);
           if (!sceneId) return;
           const result = req.method==='POST'
-            ? await scenePhotoGallery.createGalleryPhoto(slug,sceneId,body.objectId,body.dataUrl)
+            ? await scenePhotoGallery.createGalleryPhoto(slug,sceneId,body.objectId,body.dataUrl,
+                {thumbnailDataUrl:body.thumbnailDataUrl})
             : await scenePhotoGallery.deleteGalleryPhoto(slug,sceneId,body.objectId,body.photoPath);
           _json(res,200,result);
         })().catch(e=>{
@@ -600,7 +611,7 @@ const server = http.createServer((req, res) => {
           if(status===500)console.error('[scene-photo-gallery]',e.message);
           _json(res,status,{error:status===500?'Photo operation failed':e.message});
         });
-      });
+      }, req.method==='POST' ? PHOTO_POST_BODY_LIMIT : POST_BODY_LIMIT);
     });
     return;
   }

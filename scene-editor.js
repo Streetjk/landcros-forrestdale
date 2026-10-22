@@ -12,7 +12,8 @@ import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import { CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
 import { generateQR } from './qr.js';
 import { createPhotoZoom } from './photo-zoom.js';
-import { createSceneLabelPin, createSceneGroundFrame, SCENE_PIN_FLOAT_HEIGHT, SCENE_PIN_GROUND_Y, scenePhotoItems, preloadSceneLabelPhotos } from './scene-label-pin.js?v=pinzoom-toggle-20261014b';
+import { optimiseScenePhoto } from './scene-photo-optimizer.js';
+import { createSceneLabelPin, createSceneGroundFrame, SCENE_PIN_FLOAT_HEIGHT, SCENE_PIN_GROUND_Y, scenePhotoItems, preloadSceneLabelPhotos, preloadSceneLabelThumbnails } from './scene-label-pin.js?v=pinzoom-toggle-20261014b';
 
 const SLUG = new URLSearchParams(location.search).get('site');
 
@@ -27,6 +28,7 @@ let _galleryBusy = false;
 let _photoZoom = null;
 let _previewKey = null;
 let _editorPhotoWarmImages = new Map(); // current-scene only; signed links stay in memory
+let _editorPhotoWarmThumbs = new Map();
 let _editorThumbnailAbort = null;
 let _placingKind       = null; // 'label' | 'button' | null
 let _justDragged       = false;
@@ -45,12 +47,32 @@ let _sceneGroups = [];
 let _sceneAssignments = new Map();
 let _foldedSceneGroups = new Set();
 
+function takeEarlySceneRead(name) {
+  const early=window.__siteNavEarlyEditor;
+  if (!early || early.slug!==SLUG || !early[name]) return null;
+  const promise=early[name];
+  early[name]=null; // first load only; auth recovery and later edits refetch
+  return promise;
+}
+
+async function sceneRead(url, prefetched=null) {
+  if (prefetched) {
+    const early=await prefetched;
+    // A cold Render start may make the head-start request fail. Retry once
+    // after the map starts, but never treat an auth denial as transient.
+    if (early?.ok || [401,403,404].includes(early?.status)) return early;
+  }
+  const response=await fetch(url,{credentials:'same-origin'});
+  return {ok:response.ok,status:response.status,data:await response.json()};
+}
+
 async function loadSceneGroups() {
   const kind = typeof MODE === 'undefined' ? 'admin' : MODE;
   try {
-    const r = await fetch(`/api/sites/${encodeURIComponent(SLUG)}/scene-groups?kind=${kind}`, { credentials:'same-origin' });
+    const r = await sceneRead(`/api/sites/${encodeURIComponent(SLUG)}/scene-groups?kind=${kind}`,
+      takeEarlySceneRead('groups'));
     if (!r.ok) throw new Error('group-read');
-    const state = await r.json();
+    const state = r.data;
     _sceneGroups = Array.isArray(state.groups) ? state.groups : [];
     _sceneAssignments = new Map((state.assignments || []).map(a => [a.sceneId, a.groupId]));
   } catch {
@@ -348,10 +370,11 @@ function showSceneReloadError(message, retry, replaceList = false) {
 async function loadScenes() {
   let status = 0;
   try {
-    const response = await fetch(`/api/sites/${encodeURIComponent(SLUG)}/scenes`, { credentials: 'same-origin' });
+    const response = await sceneRead(`/api/sites/${encodeURIComponent(SLUG)}/scenes`,
+      takeEarlySceneRead('scenes'));
     status = response.status;
     if (!response.ok) throw new Error('scene list unavailable');
-    const data = await response.json();
+    const data = response.data;
     if (!Array.isArray(data)) throw new Error('invalid scene list');
     _scenes = data;
     _scenesLoadFailed = false;
@@ -506,6 +529,7 @@ async function selectScene(id) {
   // dropped: disposeEntry() clearTimeouts the pending save without sending it.
   await flushAllPending();
   _editorPhotoWarmImages.clear();
+  _editorPhotoWarmThumbs.clear();
   Array.from(_objects.keys()).forEach(disposeEntry);
   _currentSceneId = id;
   _sceneObjectsReady = false;
@@ -664,9 +688,11 @@ async function loadObjects() {
   updateAddButtonsEnabled();
   let list = [];
   try {
-    const response = await fetch(`/api/sites/${encodeURIComponent(SLUG)}/objects?scene=${encodeURIComponent(requestedSceneId)}`, { credentials: 'same-origin' });
+    const earlyObjects=await takeEarlySceneRead('objects');
+    const response=await sceneRead(`/api/sites/${encodeURIComponent(SLUG)}/objects?scene=${encodeURIComponent(requestedSceneId)}`,
+      earlyObjects?.sceneId===requestedSceneId ? earlyObjects.reply : null);
     if (!response.ok) throw new Error('pin list unavailable');
-    list = await response.json();
+    list = response.data;
     if (!Array.isArray(list)) throw new Error('invalid pin list');
   } catch {
     if (_currentSceneId === requestedSceneId) {
@@ -682,6 +708,9 @@ async function loadObjects() {
   // Prime at most two signed photos as soon as the authorised scene arrives.
   // Browser CORS mode matches the inspector; no disk cache or URL persistence.
   _editorPhotoWarmImages.clear();
+  _editorPhotoWarmThumbs = preloadSceneLabelThumbnails(list, {
+    saveData: !!navigator.connection?.saveData,
+  });
   _editorPhotoWarmImages = preloadSceneLabelPhotos(list, {
     maxPhotos: 2, saveData: !!navigator.connection?.saveData,
   });
@@ -967,7 +996,7 @@ function renderPinPhoto(obj) {
   img.style.display=selected?'block':'none';
   // This shared loader owns the image request and shows a delayed spinner
   // only when the selected signed photo really takes time to arrive.
-  if(selected)_photoZoom.setSource(selected.url);
+  if(selected)_photoZoom.setSource(selected.url,selected.thumbUrl);
   else _photoZoom.clearSource();
   thumbs.replaceChildren();
   const pendingThumbnails=[];
@@ -981,9 +1010,9 @@ function renderPinPhoto(obj) {
     picture.alt='Photo '+(index+1);picture.crossOrigin='anonymous';
     picture.referrerPolicy='no-referrer';picture.loading='lazy';
     picture.decoding='async';picture.fetchPriority='low';
-    // The inspector shares each signed URL with the full-size preview.
-    // Start thumbnails only once the primary photo is ready.
-    pendingThumbnails.push({picture,url:item.url});
+    // Separate 400px variants keep the inspector responsive on mobile.
+    // Legacy JPEG photos simply reuse their original signed URL.
+    pendingThumbnails.push({picture,url:item.thumbUrl || item.url});
     const indexBadge=document.createElement('span');
     indexBadge.textContent=String(index+1);
     tile.append(picture,indexBadge);
@@ -1333,39 +1362,6 @@ function onDescriptionInput(event) {
   scheduleSave(entry.obj.id);
 }
 
-async function photoAsSmallJpeg(file) {
-  if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size > 15_000_000) {
-    throw new Error('Choose a JPEG, PNG or WebP image up to 15 MB.');
-  }
-  const bitmap = await createImageBitmap(file);
-  try {
-    if (bitmap.width * bitmap.height > 45_000_000) throw new Error('Image dimensions are too large.');
-    for (const maxSide of [1440, 1200, 960, 768]) {
-      const factor = Math.min(1, maxSide / Math.max(bitmap.width, bitmap.height));
-      const canvas = document.createElement('canvas');
-      canvas.width = Math.max(1, Math.round(bitmap.width * factor));
-      canvas.height = Math.max(1, Math.round(bitmap.height * factor));
-      const ctx = canvas.getContext('2d');
-      if (!ctx) throw new Error('Could not prepare photo.');
-      ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-      for (const quality of [0.82, 0.72, 0.60]) {
-        const jpeg = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', quality));
-        if (jpeg && jpeg.size <= 600_000) {
-          return await new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = () => resolve(reader.result);
-            reader.onerror = () => reject(new Error('Could not read photo.'));
-            reader.readAsDataURL(jpeg);
-          });
-        }
-      }
-    }
-    throw new Error('Photo is still too large after resizing.');
-  } finally {
-    bitmap.close?.();
-  }
-}
-
 async function onPhotoInput(event) {
   const files=Array.from(event.target.files || []);
   event.target.value='';
@@ -1396,12 +1392,12 @@ async function onPhotoInput(event) {
       if (_objects.get(id)!==entry || _currentSceneId!==sceneId ||
           (entry.obj.sceneId && entry.obj.sceneId!==sceneId)) break;
       status.textContent='Preparing photo '+(added+1)+' of '+selectedFiles.length+'…';
-      const dataUrl=await photoAsSmallJpeg(file);
+      const {dataUrl,thumbnailDataUrl}=await optimiseScenePhoto(file);
       status.textContent='Uploading photo '+(added+1)+' of '+selectedFiles.length+'…';
       const response=await fetch(
         '/api/sites/'+encodeURIComponent(SLUG)+'/scene-photos/gallery', {
           method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},
-          body:JSON.stringify({sceneId,objectId:id,dataUrl})
+          body:JSON.stringify({sceneId,objectId:id,dataUrl,thumbnailDataUrl})
         });
       const result=await response.json().catch(()=>({}));
       if(!response.ok){

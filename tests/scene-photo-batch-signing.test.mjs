@@ -86,3 +86,19 @@ test('unsigned or missing photos remain absent rather than leaking untrusted lin
   assert.deepEqual(result[0].props.photoUrls,[]);
   assert.equal(result[0].props.photoUrl,null);
 });
+
+test('only thumbnail paths belonging to a valid private gallery photo are signed',async()=>{
+  const full=scene+'/'+object+'/gallery/00000000-0000-0000-0000-000000000003.webp';
+  const thumb=full.replace('.webp','.thumb.webp');
+  const foreign=scene+'/'+other+'/gallery/00000000-0000-0000-0000-000000000003.thumb.webp';
+  const input={id:object,sceneId:scene,kind:'label',props:{
+    photoPaths:[full],photoThumbPaths:[thumb,foreign],
+  }};
+  let paths=[];
+  const result=await withSignedPhotos([input],{signPaths:async values=>{
+    paths=values;return new Map(values.map(path=>[path,signed(path)]));
+  }});
+  assert.deepEqual(paths,[full,thumb]);
+  assert.deepEqual(result[0].props.photoItems,[{path:full,url:signed(full),thumbUrl:signed(thumb)}]);
+  assert.equal(paths.includes(foreign),false);
+});

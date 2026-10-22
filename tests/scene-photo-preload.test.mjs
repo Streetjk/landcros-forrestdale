@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { preloadSceneLabelPhotos } from '../scene-label-pin.js';
+import { preloadSceneLabelPhotos, preloadSceneLabelThumbnails } from '../scene-label-pin.js';
 
 const urls = [
   'https://example.test/signed/one.jpg?token=private-one',
@@ -56,6 +56,31 @@ test('opt-out honours data-saving mode and skips invalid/non-HTTPS images', () =
   assert.equal(preloadSceneLabelPhotos(null, { createImage: factory }).size, 0);
   assert.equal(preloadSceneLabelPhotos(scene, { maxPhotos: 0, createImage: factory }).size, 0);
   assert.equal(created.length, 0);
+});
+
+test('early thumbnail warming stays bounded, scoped and separate from original photos',()=>{
+  const thumbs=Array.from({length:12},(_,i)=>'https://example.test/private/'+i+'.thumb.webp');
+  const objects=thumbs.map((url,i)=>({kind:'label',props:{photoItems:[{
+    path:'gallery/'+i+'.webp',url:urls[0],thumbUrl:url,
+  }]}}));
+  const {factory,created}=fakeImages();
+  const warmed=preloadSceneLabelThumbnails(objects,{createImage:factory});
+  assert.equal(warmed.size,8);
+  assert.deepEqual([...warmed.keys()],thumbs.slice(0,8));
+  assert.equal(created[0].fetchPriority,'high','first small preview gets network priority');
+  assert.ok(created.slice(1).every(img=>img.fetchPriority==='low'));
+  assert.ok(created.every(img=>img.crossOrigin==='anonymous'));
+  assert.equal(preloadSceneLabelThumbnails(objects,{saveData:true,createImage:factory}).size,0);
+  assert.equal(preloadSceneLabelThumbnails([{kind:'label',props:{photoUrl:urls[0]}}],
+    {createImage:factory}).size,0,'legacy JPEGs use the existing bounded full preloader');
+});
+
+test('full-sized images stay lower priority when a small preview exists',()=>{
+  const {factory,created}=fakeImages();
+  preloadSceneLabelPhotos([{kind:'label',props:{photoItems:[{
+    path:'gallery/photo.webp',url:urls[0],thumbUrl:urls[1],
+  }]}}],{createImage:factory});
+  assert.equal(created[0].fetchPriority,'low');
 });
 
 test('viewer initiates preload during scene resolution and makes selected photo eager', () => {
