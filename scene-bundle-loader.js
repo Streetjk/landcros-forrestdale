@@ -38,3 +38,21 @@ export async function loadSharedSceneBundle(url,{
   }
   return {data:null,status:503};
 }
+
+// The head script may have already completed the first public request while
+// Three.js was loading. Reuse only an exact-code, exact-URL response; a denied
+// scene cannot be bypassed with fallback requests or another cached code.
+export async function loadSharedSceneBundleWithEarlyResult(url,code,early,options={}) {
+  if (early?.code !== code || early?.url !== url || typeof early?.promise?.then !== 'function') {
+    return loadSharedSceneBundle(url,options);
+  }
+  let result;
+  try { result = await early.promise; } catch { return loadSharedSceneBundle(url,options); }
+  if (result?.ok && result.data && typeof result.data === 'object' && !Array.isArray(result.data)) {
+    return {data:result.data,status:result.status || 200};
+  }
+  if (result?.status && ![408,429,500,502,503,504].includes(result.status)) {
+    return {data:null,status:result.status,details:result.status===401 ? result.data : undefined};
+  }
+  return loadSharedSceneBundle(url,options);
+}

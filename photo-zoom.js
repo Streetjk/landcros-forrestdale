@@ -42,6 +42,8 @@ export function createPhotoZoom(image, { label = 'Photo' } = {}) {
   let x = 0;
   let y = 0;
   let requestedUrl = null;
+  let previewUrl = null;
+  let fullLoader = null;
   let loadingTimer = null;
   let destroyed = false;
   const LOADING_DELAY_MS = 180;
@@ -49,6 +51,27 @@ export function createPhotoZoom(image, { label = 'Photo' } = {}) {
   function cancelLoadingTimer() {
     if (loadingTimer !== null) clearTimeout(loadingTimer);
     loadingTimer = null;
+  }
+
+  function scheduleLoadingState(url) {
+    cancelLoadingTimer();
+    loadingTimer = setTimeout(() => {
+      loadingTimer = null;
+      if (!destroyed && requestedUrl === url
+          && [url, previewUrl].includes(image.getAttribute('src'))
+          && (!image.complete || image.naturalWidth === 0)
+          && viewport.dataset.photoState === 'pending') {
+        setPhotoState('loading');
+      }
+    }, LOADING_DELAY_MS);
+  }
+
+  function cancelFullLoader() {
+    if (!fullLoader) return;
+    fullLoader.onload = null;
+    fullLoader.onerror = null;
+    fullLoader.src = '';
+    fullLoader = null;
   }
 
   function setPhotoState(state) {
@@ -69,47 +92,72 @@ export function createPhotoZoom(image, { label = 'Photo' } = {}) {
   function onImageLoad() {
     if (destroyed) return;
     paint();
-    if (!requestedUrl || image.getAttribute('src') !== requestedUrl) return;
+    if (!requestedUrl || ![requestedUrl,previewUrl].includes(image.getAttribute('src'))) return;
     cancelLoadingTimer();
     setPhotoState('ready');
   }
 
   function onImageError() {
-    if (destroyed || !requestedUrl || image.getAttribute('src') !== requestedUrl) return;
+    if (destroyed || !requestedUrl) return;
+    if (previewUrl && image.getAttribute('src') === previewUrl) {
+      // A missing thumbnail must not prevent the full photo loading.
+      previewUrl = null;
+      image.src = requestedUrl;
+      setPhotoState('pending');
+      scheduleLoadingState(requestedUrl);
+      return;
+    }
+    if (image.getAttribute('src') !== requestedUrl) return;
     cancelLoadingTimer();
     setPhotoState('error');
   }
 
-  function setSource(url) {
+  function setSource(url, thumbnailUrl = null) {
     if (destroyed) return;
     if (typeof url !== 'string' || !url) { clearSource(); return; }
+    const nextPreview = typeof thumbnailUrl === 'string' &&
+      thumbnailUrl.startsWith('https://') && thumbnailUrl !== url ? thumbnailUrl : null;
     // Re-rendering the same selected pin must not restart an in-flight image
     // request or flash a loader for a decoded, cache-warmed photo.
-    if (requestedUrl === url && image.getAttribute('src') === url) {
+    if (requestedUrl === url && [url,previewUrl].includes(image.getAttribute('src'))) {
       if (image.complete && image.naturalWidth > 0) onImageLoad();
       return;
     }
+    cancelFullLoader();
     requestedUrl = url;
+    previewUrl = nextPreview;
     cancelLoadingTimer();
     setPhotoState('pending');
-    image.src = url;
+    image.src = previewUrl || url;
+    if (previewUrl) {
+      // Display the small preview while decoding the inspection-sized image.
+      const loader = new Image();
+      loader.crossOrigin = 'anonymous';
+      loader.referrerPolicy = 'no-referrer';
+      loader.decoding = 'async';
+      loader.onload = () => {
+        if (destroyed || requestedUrl !== url || fullLoader !== loader) return;
+        fullLoader = null;
+        previewUrl = null;
+        image.src = url;
+        if (image.complete && image.naturalWidth > 0) onImageLoad();
+      };
+      loader.onerror = () => { if (fullLoader === loader) fullLoader = null; };
+      fullLoader = loader;
+      loader.src = url;
+    }
     if (image.complete && image.naturalWidth > 0) {
       onImageLoad();
       return;
     }
-    loadingTimer = setTimeout(() => {
-      loadingTimer = null;
-      if (!destroyed && requestedUrl === url && image.getAttribute('src') === url
-          && (!image.complete || image.naturalWidth === 0)
-          && viewport.dataset.photoState === 'pending') {
-        setPhotoState('loading');
-      }
-    }, LOADING_DELAY_MS);
+    scheduleLoadingState(url);
   }
 
   function clearSource() {
     if (destroyed) return;
+    cancelFullLoader();
     requestedUrl = null;
+    previewUrl = null;
     cancelLoadingTimer();
     image.removeAttribute('src');
     setPhotoState('empty');
@@ -253,7 +301,9 @@ export function createPhotoZoom(image, { label = 'Photo' } = {}) {
 
   function destroy() {
     destroyed = true;
+    cancelFullLoader();
     requestedUrl = null;
+    previewUrl = null;
     cancelLoadingTimer();
     observer?.disconnect();
     viewport.removeEventListener('pointerdown', pointerDown);

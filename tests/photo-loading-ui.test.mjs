@@ -131,11 +131,58 @@ test('photo switching cancels stale timers; failures show a helpful error', asyn
   assert.equal(z.viewport.listeners.get('wheel')?.size,0);
 });
 
+test('new uploads show a thumbnail before the full resolution photo finishes', () => {
+  const images=[];
+  const previousImage=globalThis.Image;
+  globalThis.Image=class {
+    set src(value) { this.url=value; }
+    get src() { return this.url; }
+    constructor() { images.push(this); }
+  };
+  try {
+    const image=new Element('img');
+    const z=createPhotoZoom(image);
+    const full='https://photo.example.test/signed/full.webp';
+    const small='https://photo.example.test/signed/thumbnail.webp';
+    z.setSource(full,small);
+    assert.equal(image.src,small);
+    assert.equal(images[0].src,full);
+    image.dispatch('load');
+    assert.equal(z.photoState,'ready');
+    images[0].onload();
+    assert.equal(image.src,full);
+    image.dispatch('load');
+    assert.equal(z.photoState,'ready');
+    z.destroy();
+  } finally {
+    globalThis.Image=previousImage;
+  }
+});
+
+test('broken thumbnails fall back to their full image', () => {
+  const images=[];
+  const previousImage=globalThis.Image;
+  globalThis.Image=class { constructor() { images.push(this); } set src(v) { this.url=v; } };
+  try {
+    const image=new Element('img');
+    const z=createPhotoZoom(image);
+    const full='https://photo.example.test/signed/full.webp';
+    z.setSource(full,'https://photo.example.test/signed/missing.webp');
+    image.dispatch('error');
+    assert.equal(image.src,full);
+    image.dispatch('load');
+    assert.equal(z.photoState,'ready');
+    z.destroy();
+  } finally {
+    globalThis.Image=previousImage;
+  }
+});
+
 test('both viewers call tracked image loading and have reduced-motion styling', () => {
   const gallery=readFileSync(new URL('../scene-photo-gallery-view.js',import.meta.url),'utf8');
   const css=readFileSync(new URL('../style.css',import.meta.url),'utf8');
-  assert.match(gallery,/photoZoom\.setSource\(photos\[0\]\.url\)/);
-  assert.match(gallery,/photoZoom\.setSource\(photos\[selected\]\.url\)/);
+  assert.match(gallery,/photoZoom\.setSource\(photos\[0\]\.url, photos\[0\]\.thumbUrl\)/);
+  assert.match(gallery,/photoZoom\.setSource\(photos\[selected\]\.url, photos\[selected\]\.thumbUrl\)/);
   assert.match(css,/\.sn-photo-zoom\.sn-photo-loading/);
   assert.match(css,/\.sn-photo-zoom\.sn-photo-error/);
   assert.match(css,/prefers-reduced-motion:reduce/);
