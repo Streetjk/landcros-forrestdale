@@ -1,5 +1,5 @@
 import { scenePhotoItems } from './scene-label-pin.js';
-import { createPhotoZoom } from './photo-zoom.js?v=photoload-20261019b';
+import { createPhotoZoom } from './photo-zoom.js?v=photoload-20261022a';
 
 // Shared responsive photo gallery for public/admin scene pin details.
 // DOM API only (no HTML interpolation); all images use anonymous CORS because
@@ -49,7 +49,7 @@ export function renderScenePhotoGallery({
   frame.appendChild(photoZoom.container);
 
   if(photos.length===1) {
-    photoZoom.setSource(photos[0].url);
+    photoZoom.setSource(photos[0].url, photos[0].thumbUrl);
     return frame;
   }
   const bar=document.createElement('div');
@@ -73,8 +73,8 @@ export function renderScenePhotoGallery({
   const thumbnailQueue=[];
   const thumbnailAbort=new AbortController();
   frame._thumbAbort=thumbnailAbort;
-  // Never start six full-sized JPEG thumbnail downloads ahead of the main
-  // image. Release low-priority thumbnails once the selected photo loads
+  // Never start thumbnail downloads ahead of the selected image. Release
+  // low-priority 400px variants once the selected photo loads
   // (or fails), preserving a fast first visible image on slow connections.
   let thumbnailsStarted=false;
   const startThumbnails=()=>{
@@ -87,7 +87,7 @@ export function renderScenePhotoGallery({
   const show=index=>{
     selected=(index+photos.length)%photos.length;
     photoZoom.reset();
-    photoZoom.setSource(photos[selected].url);
+    photoZoom.setSource(photos[selected].url, photos[selected].thumbUrl);
     count.textContent=(selected+1)+' / '+photos.length;
     buttons.forEach((button,i)=>{
       button.setAttribute('aria-pressed',String(selected===i));
@@ -102,7 +102,7 @@ export function renderScenePhotoGallery({
     const img=document.createElement('img');
     img.alt='';img.crossOrigin='anonymous';img.referrerPolicy='no-referrer';
     img.loading='lazy';img.decoding='async';img.fetchPriority='low';
-    thumbnailQueue.push({img,url:item.url});
+    thumbnailQueue.push({img,url:item.thumbUrl || item.url});
     button.appendChild(img);
     button.addEventListener('click',()=>show(i));
     thumbs.appendChild(button);

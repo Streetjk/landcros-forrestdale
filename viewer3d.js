@@ -14,10 +14,10 @@ import { resolvePublicSiteMetadata, resolveSiteBranding, sanitizePublicLogoUrl }
 import { loadPublicRuntimeConfig, loadPublicTransport, backendRedirectForScopedRoute, shouldProbeStaffSession, backendApiUrl } from './public-transport.js';
 import { getBasePublicVisitPointId } from './visit-analytics.js';
 import { createPointListItem } from './point-list-item.js';
-import { createSceneLabelPin, createSceneGroundFrame, SCENE_PIN_FLOAT_HEIGHT, SCENE_PIN_GROUND_Y, preloadSceneLabelPhotos, scenePhotoItems, markerScaleForZoom } from './scene-label-pin.js?v=pinzoom-toggle-20261014b';
-import { renderScenePhotoGallery, hideScenePhotoGallery } from './scene-photo-gallery-view.js?v=photoload-20261019b';
+import { createSceneLabelPin, createSceneGroundFrame, SCENE_PIN_FLOAT_HEIGHT, SCENE_PIN_GROUND_Y, preloadSceneLabelPhotos, preloadSceneLabelThumbnails, scenePhotoItems, markerScaleForZoom } from './scene-label-pin.js?v=photo-preview-20261022a';
+import { renderScenePhotoGallery, hideScenePhotoGallery } from './scene-photo-gallery-view.js?v=photoload-20261022a';
 import { createMobileDetailSheet, trackMapTaps } from './mobile-detail-sheet.js?v=brand-dock-20261015a';
-import { loadSharedSceneBundle } from './scene-bundle-loader.js?v=scene-firstload-retry-20261015c';
+import { loadSharedSceneBundle, loadSharedSceneBundleWithEarlyResult } from './scene-bundle-loader.js?v=earlyphoto-20261022a';
 import { loadSharedScenePinPreview } from './shared-scene-pin-preview.js?v=scene-detail-hydrate-20261015a';
 import { singleSharedSceneLabelPosition } from './shared-scene-startup-focus.js';
 import { findLabelAtTap, isTouchMapDevice } from './map-touch-input.js';
@@ -1762,6 +1762,7 @@ function _renderSceneWidget(obj,{preview=false}={}) {
 }
 
 let _scenePhotoWarmImages = new Map();
+let _scenePhotoWarmThumbs = new Map();
 
 function _removeSceneWidget(id, entry) {
   if (entry.groundFrame) {
@@ -4503,7 +4504,9 @@ async function boot() {
   const _earlySharedPreview = _sharedLinkAllowed
     ? loadSharedScenePinPreview(_runtime,_earlySharedCode) : null;
   const _earlySharedScene = _earlySharedCode && !_publicMyPinMode && !document.getElementById('add-label-btn')
-    ? loadSharedSceneBundle(_apiUrl('/api/scenes/by-code/'+encodeURIComponent(_earlySharedCode)))
+    ? loadSharedSceneBundleWithEarlyResult(
+        _apiUrl('/api/scenes/by-code/'+encodeURIComponent(_earlySharedCode)),
+        _earlySharedCode,window.__siteNavEarlyScene)
     : null;
   let _fullSceneWidgetsRendered = false;
   let _previewSceneObjects = null;
@@ -4535,6 +4538,7 @@ async function boot() {
     }
     if (_fullSceneWidgetsRendered) return;
     try {
+      _scenePhotoWarmThumbs = preloadSceneLabelThumbnails(data.objects,{saveData:!!navigator.connection?.saveData});
       _scenePhotoWarmImages = preloadSceneLabelPhotos(data.objects,{saveData:!!navigator.connection?.saveData});
       renderSceneWidgets(data.objects);
       _fullSceneWidgetsRendered = true;
@@ -4790,6 +4794,9 @@ async function boot() {
     // Warm only the photos in this authorized scene. The short-lived signed
     // image URLs and decoded data remain in memory only; no service worker
     // storage, browser database, or server tracking is introduced.
+    if (!_scenePhotoWarmThumbs.size) _scenePhotoWarmThumbs = preloadSceneLabelThumbnails(_sceneBundle.objects, {
+      saveData: !!navigator.connection?.saveData,
+    });
     _scenePhotoWarmImages = preloadSceneLabelPhotos(_sceneBundle.objects, {
       saveData: !!navigator.connection?.saveData,
     });

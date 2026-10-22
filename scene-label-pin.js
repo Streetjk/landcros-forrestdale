@@ -114,7 +114,11 @@ export function scenePhotoItems(props) {
   if (Array.isArray(props.photoItems)) {
     return props.photoItems.filter(item =>
       item && typeof item.path === 'string' && typeof item.url === 'string'
-      && item.url.startsWith('https://')).slice(0,6);
+      && item.url.startsWith('https://')).slice(0,6).map(item => ({
+        path:item.path,url:item.url,
+        ...(typeof item.thumbUrl === 'string' && item.thumbUrl.startsWith('https://')
+          ? {thumbUrl:item.thumbUrl} : {}),
+      }));
   }
   if (typeof props.photoUrl === 'string' && props.photoUrl.startsWith('https://')) {
     return [{path:props.photoPath || 'legacy',url:props.photoUrl}];
@@ -141,7 +145,8 @@ export function preloadSceneLabelPhotos(objects, {
   for (const obj of objects) {
     if (warmed.size >= cap) break;
     if (obj?.kind !== 'label') continue;
-    const url = scenePhotoItems(obj.props)[0]?.url || obj.props?.photoUrl;
+    const first = scenePhotoItems(obj.props)[0];
+    const url = first?.url || obj.props?.photoUrl;
     if (typeof url !== 'string' || !url.startsWith('https://') || warmed.has(url)) continue;
 
     const image = createImage();
@@ -149,7 +154,7 @@ export function preloadSceneLabelPhotos(objects, {
     image.referrerPolicy = 'no-referrer';
     image.loading = 'eager';
     image.decoding = 'async';
-    image.fetchPriority = warmed.size === 0 ? 'high' : 'low';
+    image.fetchPriority = warmed.size === 0 && !first?.thumbUrl ? 'high' : 'low';
     warmed.set(url, image);
     image.addEventListener?.('error', () => warmed.delete(url), { once: true });
     image.src = url;
@@ -157,6 +162,34 @@ export function preloadSceneLabelPhotos(objects, {
     if (typeof image.decode === 'function') {
       void image.decode().catch(() => {});
     }
+  }
+  return warmed;
+}
+
+// Prefer a bounded set of small 400px variants when available, without
+// changing the existing full-photo preload for legacy JPEG galleries.
+export function preloadSceneLabelThumbnails(objects, {
+  maxThumbnails = 8,
+  saveData = false,
+  createImage = () => new Image(),
+} = {}) {
+  const warmed = new Map();
+  if (saveData || !Array.isArray(objects)) return warmed;
+  const cap = Math.max(0, Math.min(8, Math.floor(maxThumbnails) || 0));
+  for (const obj of objects) {
+    if (warmed.size >= cap) break;
+    if (obj?.kind !== 'label') continue;
+    const url = scenePhotoItems(obj.props)[0]?.thumbUrl;
+    if (!url || warmed.has(url)) continue;
+    const image = createImage();
+    image.crossOrigin = 'anonymous';
+    image.referrerPolicy = 'no-referrer';
+    image.loading = 'eager';
+    image.decoding = 'async';
+    image.fetchPriority = warmed.size === 0 ? 'high' : 'low';
+    warmed.set(url, image);
+    image.addEventListener?.('error', () => warmed.delete(url), {once:true});
+    image.src = url;
   }
   return warmed;
 }

@@ -88,5 +88,5 @@ test('new Supabase RPC keeps the original scene capability rules and returns onl
   assert.match(js,/props: \{ text, description \}/);
   assert.match(source,/shared-scene-pin-preview\.js\?v=scene-detail-hydrate-20261015a/);
   for(const html of ['index.html','viewer3d.html'])
-    assert.match(read(html),/viewer3d\.js\?v=photoload-20261019b/);
+    assert.match(read(html),/viewer3d\.js\?v=photoload-20261022a/);
 });

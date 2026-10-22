@@ -1,15 +1,51 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {loadSharedSceneBundle,SHARED_SCENE_RETRY_DELAYS_MS} from '../scene-bundle-loader.js';
+import {loadSharedSceneBundle,loadSharedSceneBundleWithEarlyResult,SHARED_SCENE_RETRY_DELAYS_MS} from '../scene-bundle-loader.js';
 
 test('both public viewer routes cache-bust the shared scene retry loader',()=>{
   const viewer=readFileSync(new URL('../viewer3d.js',import.meta.url),'utf8');
-  assert.match(viewer,/scene-bundle-loader\.js\?v=scene-firstload-retry-20261015c/);
+  assert.match(viewer,/scene-bundle-loader\.js\?v=earlyphoto-20261022a/);
   for(const html of ['index.html','viewer3d.html']){
     const src=readFileSync(new URL('../'+html,import.meta.url),'utf8');
-    assert.match(src,/viewer3d\.js\?v=photoload-20261019b/);
+    assert.match(src,/viewer3d\.js\?v=photoload-20261022a/);
+    assert.match(src,/scene-early-photos\.js\?v=earlyphoto-20261022a/);
   }
+});
+
+test('early success is reused with no second backend scene request',async()=>{
+  const expected={objects:[{kind:'label',props:{text:'Bay'}}]};
+  const link='https://landcros-forrestdale.onrender.com/api/scenes/by-code/abc123def4';
+  const early={code:'abc123def4',url:link,promise:Promise.resolve({ok:true,status:200,data:expected})};
+  const got=await loadSharedSceneBundleWithEarlyResult(link,'abc123def4',early,{
+    fetchFn:async()=>{throw Error('unexpected second request')},
+  });
+  assert.deepEqual(got,{status:200,data:expected});
+});
+
+test('early access denial is terminal; it never retries or exposes another scene',async()=>{
+  const link='https://landcros-forrestdale.onrender.com/api/scenes/by-code/abc123def4';
+  const early={code:'abc123def4',url:link,promise:Promise.resolve({ok:false,status:403,data:null})};
+  const got=await loadSharedSceneBundleWithEarlyResult(link,'abc123def4',early,{
+    fetchFn:async()=>{throw Error('must not retry denied scene')},
+  });
+  assert.equal(got.data,null);
+  assert.equal(got.status,403);
+});
+
+test('early temporary errors use bounded cold-start retry, and mismatched codes are ignored',async()=>{
+  const link='https://landcros-forrestdale.onrender.com/api/scenes/by-code/abc123def4';
+  const early={code:'abc123def4',url:link,promise:Promise.resolve({ok:false,status:503,data:null})};
+  const received=[];
+  const opts={fetchFn:async url=>{
+    received.push(url);
+    return {ok:true,status:200,json:async()=>({scene:{name:'Recovered'}})};
+  }};
+  const got=await loadSharedSceneBundleWithEarlyResult(link,'abc123def4',early,opts);
+  assert.equal(got.status,200);
+  assert.deepEqual(received,[link]);
+  await loadSharedSceneBundleWithEarlyResult(link,'another999',early,opts);
+  assert.equal(received.length,2);
 });
 
 const url='/api/scenes/by-code/scope-code';
