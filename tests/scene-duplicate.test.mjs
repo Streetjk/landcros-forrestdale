@@ -26,7 +26,8 @@ function fixture(options = {}) {
       }
       if (sql.startsWith('select id, kind, transform')) {
         return {rows: [
-          {id:objectId,kind:'label',props:{text:'Fire Hose',description:'Missing nozzle',photoPath:sourcePhoto,photoPaths:options.galleryPaths||[]},transform:{position:[1,2,3]},style:{},z_index:1},
+          {id:objectId,kind:'label',props:{text:'Fire Hose',description:'Missing nozzle',photoPath:sourcePhoto,
+            photoPaths:options.galleryPaths||[],photoThumbPaths:options.thumbPaths||[]},transform:{position:[1,2,3]},style:{},z_index:1},
           {id:'aaaaaaaa-0000-0000-0000-000000000001',kind:'button',props:{label:'Call office',action:{type:'none'}},transform:{position:[4,5,6]},style:{},z_index:2},
         ]};
       }
@@ -51,6 +52,12 @@ function fixture(options = {}) {
       copyGalleryImage:async(sourceScene,sourceObj,src,destScene,destObj)=>{
         const path=destScene+'/'+destObj+'/gallery/'+src.split('/').pop();
         copied.push({args:[sourceScene,sourceObj,src,destScene,destObj],target:path});
+        return path;
+      },
+      copyGalleryThumbnail:async(sourceScene,sourceObj,src,destScene,destObj)=>{
+        const path=destScene+'/'+destObj+'/gallery/'+src.split('/').pop();
+        copied.push({args:[sourceScene,sourceObj,src,destScene,destObj],target:path});
+        if(options.failThumbnail)throw Error('Thumbnail clone interrupted');
         return path;
       },
       removeImages: async arr => {cleaned.push(...arr)},
@@ -111,4 +118,21 @@ test('scene copy duplicates every gallery photo to independent private paths',as
   assert.notEqual(copiedProps.photoPaths[0],sourcePath);
   assert.equal(copiedProps.photoPaths[0],f.copied[1].target);
   assert.equal(f.committed,true);
+});
+
+test('scene copy preserves associated private thumbnails and cleans them on rollback',async()=>{
+  const sourcePath=original+'/'+objectId+'/gallery/cccccccc-cccc-cccc-cccc-cccccccccccc.webp';
+  const thumbPath=sourcePath.replace('.webp','.thumb.webp');
+  const f=fixture({galleryPaths:[sourcePath],thumbPaths:[thumbPath]});
+  const result=await duplicateScene('landcros',original,undefined,actor,f.deps);
+  assert.equal(result.copiedPhotos,2,'thumbnail is not counted as another photo');
+  assert.equal(f.copied.length,3);
+  const inserted=f.statements.find(s=>s.sql.startsWith('insert into scene_objects'));
+  const props=JSON.parse(inserted.args[6]);
+  assert.deepEqual(props.photoThumbPaths,[f.copied[2].target]);
+  assert.notEqual(props.photoThumbPaths[0],thumbPath);
+
+  const failed=fixture({galleryPaths:[sourcePath],thumbPaths:[thumbPath],failAfterPhoto:true});
+  await assert.rejects(()=>duplicateScene('landcros',original,undefined,actor,failed.deps),/synthetic DB error/);
+  assert.deepEqual(failed.cleaned,failed.copied.map(item=>item.target));
 });

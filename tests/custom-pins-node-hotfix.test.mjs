@@ -65,7 +65,7 @@ test('gallery finds the stored scene from the pin before checking caller scene I
   assert.match(helper, /requestedSceneId != null && requestedSceneId !== object\.sceneId/);
   // Authorization before mismatch means wrong-owner pins cannot be probed.
   assert.ok(helper.indexOf('_managedSceneOrRespond(') < helper.indexOf('requestedSceneId != null'));
-  assert.match(server, /createGalleryPhoto\(slug,sceneId,body\.objectId,body\.dataUrl\)/);
+  assert.match(server, /createGalleryPhoto\(slug,sceneId,body\.objectId,body\.dataUrl,/);
   assert.match(editor, /const sceneId = _currentSceneId;/);
   assert.match(editor, /Pin scene changed\. Reload this scene and retry\./);
 });

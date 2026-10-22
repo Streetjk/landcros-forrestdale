@@ -46,6 +46,7 @@ function storedProps(obj) {
     delete props.photoUrl; delete props.photoUrls; delete props.photoItems;
     // Gallery metadata is owned by the transactional gallery endpoint.
     delete props.photoPaths;
+    delete props.photoThumbPaths;
   }
   return props;
 }
@@ -103,9 +104,12 @@ async function saveSceneObject(slug, obj, changedBy = null) {
      values ($1::uuid, $2::uuid, $3::uuid, $4, $5::jsonb, $6::jsonb, $7::jsonb, $8::uuid, $9)
      on conflict (id) do update set
        kind = excluded.kind, transform = excluded.transform, style = excluded.style,
-       props = (excluded.props - 'photoPaths')
+       props = (excluded.props - 'photoPaths' - 'photoThumbPaths')
          || (case when scene_objects.props ? 'photoPaths'
               then jsonb_build_object('photoPaths',scene_objects.props->'photoPaths')
+              else '{}'::jsonb end)
+         || (case when scene_objects.props ? 'photoThumbPaths'
+              then jsonb_build_object('photoThumbPaths',scene_objects.props->'photoThumbPaths')
               else '{}'::jsonb end),
        script_id = excluded.script_id, z_index = excluded.z_index,
        updated_at = now()

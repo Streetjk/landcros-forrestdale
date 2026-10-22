@@ -1,6 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {loadSharedSceneBundle} from '../scene-bundle-loader.js';
+import {loadSharedSceneBundle,sceneBundleApiUrl} from '../scene-bundle-loader.js';
+
+test('static public viewer uses backend API rather than the static host 404',()=>{
+  assert.equal(sceneBundleApiUrl('abcde12345','landcros-forrestdale-static.onrender.com'),
+    'https://landcros-forrestdale.onrender.com/api/scenes/by-code/abcde12345');
+  assert.equal(sceneBundleApiUrl('abcde12345','landcros-forrestdale.onrender.com'),
+    '/api/scenes/by-code/abcde12345');
+});
 
 const url='/api/scenes/by-code/scope-code';
 test('first success returns exact scene data with one private-code request',async()=>{

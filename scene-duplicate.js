@@ -34,12 +34,14 @@ async function duplicateScene(slug, sourceId, requestedName, actorId, {
   connect = () => pool().connect(),
   copyImage = photos.copySceneLabelPhoto,
   copyGalleryImage = photos.copyGalleryPhotoPath,
+  copyGalleryThumbnail = photos.copyGalleryThumbnailPath,
   removeImages = photos.removeClonedSceneLabelPhotos,
 } = {}) {
   if (!UUID_RE.test(sourceId || '')) throw clientError('Invalid scene identifier');
   const siteId = await getSite(slug);
   const client = await connect();
   const copiedPaths = [];
+  let copiedPhotoCount = 0;
   let committed = false;
   try {
     await client.query('BEGIN');
@@ -92,16 +94,27 @@ async function duplicateScene(slug, sourceId, requestedName, actorId, {
         if (props.photoPath !== expected) throw clientError('Source photo reference is invalid', 422);
         const target = await copyImage(sourceId, obj.id, id, targetId);
         copiedPaths.push(target);
+        copiedPhotoCount++;
         props.photoPath = target;
       }
       if (obj.kind === 'label' && Array.isArray(props.photoPaths)) {
         const paths=[];
+        const thumbs=[];
+        const sourceThumbs=Array.isArray(props.photoThumbPaths)?props.photoThumbPaths:[];
         for (const src of props.photoPaths) {
           const path = await copyGalleryImage(sourceId,obj.id,src,id,targetId);
           copiedPaths.push(path);
+          copiedPhotoCount++;
           paths.push(path);
+          const originalThumb=photos.thumbnailPathForGallery(src);
+          if(sourceThumbs.includes(originalThumb)){
+            const thumb=await copyGalleryThumbnail(sourceId,obj.id,originalThumb,id,targetId);
+            copiedPaths.push(thumb);
+            thumbs.push(thumb);
+          }
         }
         props.photoPaths=paths;
+        if(sourceThumbs.length)props.photoThumbPaths=thumbs;
       }
       await client.query(
         'insert into scene_objects (id,site_id,scene_id,kind,transform,style,props,script_id,z_index) values ($1::uuid,$2::uuid,$3::uuid,$4,$5::jsonb,$6::jsonb,$7::jsonb,$8::uuid,$9)',
@@ -131,7 +144,7 @@ async function duplicateScene(slug, sourceId, requestedName, actorId, {
       id, name, shareCode: code, camera: source.camera,
       kind: 'admin', status: 'open', isMine: true,
       copiedObjects: sourceObjects.length, copiedPoints: sourcePoints.length,
-      copiedPhotos: copiedPaths.length,
+      copiedPhotos: copiedPhotoCount,
     };
   } catch (e) {
     if (!committed) {
