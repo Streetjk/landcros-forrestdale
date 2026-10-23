@@ -11,19 +11,19 @@ function runMotion(policy, intervalMs, frames, startAt = 1000) {
   return decision;
 }
 
-test('high-tier sustained slow movement learns 0.75, without reducing the still-image DPR', () => {
+test('high-tier sustained slow movement learns 0.65, without reducing the still-image DPR', () => {
   const policy = createMovingResolutionPolicy({ tier: 'high', pixelRatio: 1.28125 });
   assert.equal(policy.adaptive, true);
   assert.equal(policy.movingDpr, 1);
   assert.equal(runMotion(policy, 38, 18), null);
   const result = policy.observeFrame(1000 + 38 * 18, true, true);
   assert.equal(result.previousDpr, 1);
-  assert.equal(result.movingDpr, 0.75);
+  assert.equal(result.movingDpr, 0.65);
   assert.equal(result.samples, 18);
-  assert.equal(policy.movingDpr, 0.75);
+  assert.equal(policy.movingDpr, 0.65);
   // The viewer restores 1.28125 on idle; the policy only sets moving DPR.
   assert.equal(runMotion(policy, 45, 30), null);
-  assert.equal(policy.movingDpr, 0.75);
+  assert.equal(policy.movingDpr, 0.65);
 });
 
 test('fast 60 Hz motion stays sharp, a later slow gesture triggers once', () => {
@@ -31,7 +31,7 @@ test('fast 60 Hz motion stays sharp, a later slow gesture triggers once', () => 
   assert.equal(runMotion(policy, 16.67, 100), null);
   assert.equal(policy.movingDpr, 1);
   policy.observeFrame(2700, false);
-  assert.equal(runMotion(policy, 33.34, 19, 2800).movingDpr, 0.75);
+  assert.equal(runMotion(policy, 33.34, 19, 2800).movingDpr, 0.65);
 });
 
 test('no degradation during initial model load, short bursts or hidden/resumed frames', () => {
@@ -55,7 +55,7 @@ test('one unrelated long-task pause does not trigger motion downgrading', () => 
 });
 
 test('perf-only overrides remain fixed and prevent automatic selection', () => {
-  for (const overrideDpr of [1, 0.75, 0.5]) {
+  for (const overrideDpr of [1, 0.75, 0.65, 0.5]) {
     const policy = createMovingResolutionPolicy({ tier: 'high', pixelRatio: 1.28125, overrideDpr });
     assert.equal(policy.adaptive, false);
     assert.equal(runMotion(policy, 45, 50), null);

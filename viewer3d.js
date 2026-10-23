@@ -27,7 +27,7 @@ import { renderDetailContacts } from './detail-card.js';
 import { mapControlLabel, syncPressedButton, syncPressedButtons } from './map-controls.js';
 import { labelScaleForZoom, layoutLabels, forwardWheelToTarget } from './label-layout.js';
 import { PIN_VIEW_ANGLE_DEG, PIN_ORBIT_SPEED, planPinCameraFlight, samplePinCameraFlight } from './pin-camera-flight.js';
-import { createMovingResolutionPolicy } from './moving-resolution.js?v=adaptive-dpr-20261023a';
+import { createMovingResolutionPolicy } from './moving-resolution.js?v=adaptive-dpr-20261023b';
 
 // ── Site config (loaded from data/config.json in boot()) ──────────────────
 let _cfg = {};
@@ -675,7 +675,7 @@ function resize() {
 // framebuffer on nearly every tick. That showed up as zoom-specific lag
 // while dragging stayed smooth.
 //
-// High-tier devices now learn a lower 0.75 moving DPR only after sustained
+// High-tier devices now learn a lower 0.65 moving DPR only after sustained
 // slow real motion, leaving fast devices at 1.0. The learned value lives in
 // memory for this tab only. Explicit ?perf=1&dragDpr=... overrides adaptation.
 // Still frames always restore the original quality. A cooldown prevents

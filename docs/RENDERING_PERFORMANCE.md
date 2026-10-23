@@ -34,13 +34,13 @@ For a fixed moving-resolution A/B test (disables automatic adaptation):
 old moving DPR 1.0 and `?perf=1&dragDpr=0.75` forces the tested candidate;
 both disable automatic adaptation. Without an override, the high tier starts
 with DPR 1.0 while moving. After at least 18 consecutive valid moving-frame
-intervals with a median of 30 ms or worse, it learns DPR 0.75 for subsequent
+intervals with a median of 30 ms or worse, it learns DPR 0.65 for subsequent
 camera motion within the tab. It excludes model-loading intervals, hidden-tab
 resumptions, and isolated >110 ms scheduling stalls. The scene always restores
 full DPR after 45 still frames, preserving still-photo and static-map clarity.
 There is no persistence across visits or server collection.
 
-This conservative fallback is supported by operator-supplied GPU-timer A/B
+The original 0.75 fallback was supported by operator-supplied GPU-timer A/B
 snapshots captured on 23 October 2026 in the same browser/hardware context:
 
 | Metric | Old moving DPR 1.0 | Fixed moving DPR 0.75 |
@@ -57,7 +57,24 @@ rendering buffer. Test capture durations and early background-tab activity
 differed, so startup times are not directly comparable. The diagnostic traces
 support a strong GPU/pixel bottleneck but **do not establish moving-image
 clarity on every device**. Verify motion legibility on supported devices before
-considering an unconditional 0.75 default.
+considering an unconditional DPR reduction.
+
+An additional same-device opt-in comparison on 23 October 2026 favoured 0.65
+over 0.75 for this high-tier device. The figures are from separate user-driven
+camera motions, not identical playback traces:
+
+| Metric | Fixed moving DPR 0.75 | Fixed moving DPR 0.65 |
+| --- | ---: | ---: |
+| Moving rendered FPS | 46.4 | 58.3 |
+| Moving frame p50 | 18.34 ms | 16.68 ms |
+| Moving frame p95 | 43.84 ms | 25.45 ms |
+| GPU render p50 | 16.67 ms | 14.12 ms |
+| GPU render p95 | 23.15 ms | 17.27 ms |
+
+Only **slow high-tier motion** adopts 0.65 after the existing evidence gate;
+the full stationary DPR, fixed diagnostics, lower tiers and fast-motion
+behaviour are unchanged. No general 60 FPS guarantee or cross-device image
+quality equivalence follows from this one-device result.
 
 For an opt-in **GPU-vs-CPU bottleneck diagnosis**, use:
 
