@@ -27,6 +27,7 @@ import { renderDetailContacts } from './detail-card.js';
 import { mapControlLabel, syncPressedButton, syncPressedButtons } from './map-controls.js';
 import { labelScaleForZoom, layoutLabels, forwardWheelToTarget } from './label-layout.js';
 import { PIN_VIEW_ANGLE_DEG, PIN_ORBIT_SPEED, planPinCameraFlight, samplePinCameraFlight } from './pin-camera-flight.js';
+import { createMovingResolutionPolicy } from './moving-resolution.js?v=adaptive-dpr-20261023a';
 
 // ── Site config (loaded from data/config.json in boot()) ──────────────────
 let _cfg = {};
@@ -71,8 +72,9 @@ const canvas = document.getElementById('three-canvas');
 const labelsWrap = document.getElementById('labels-wrap');
 
 // ── Device quality tier ────────────────────────────────────────────────────
-// Detected synchronously before renderer creation so antialias/pixelRatio
-// are set once and never changed. LOW = save battery/network; HIGH = best quality.
+// Detected synchronously before renderer creation. Antialiasing and the maximum
+// DPR are set here; moving-camera DPR can be reduced and restored below.
+// LOW = save battery/network; HIGH = best quality.
 const _Q = (() => {
   const mem   = navigator.deviceMemory ?? 4;
   const cores = navigator.hardwareConcurrency ?? 4;
@@ -115,6 +117,9 @@ const _perfEnabled = _perfParams.get('perf') === '1';
 const _perfGpuTiming = _perfEnabled && _perfParams.get('gpuPerf') === '1';
 const _perfDragDprRaw = _perfEnabled ? Number.parseFloat(_perfParams.get('dragDpr')) : NaN;
 const _perfDragDpr = Number.isFinite(_perfDragDprRaw) ? Math.max(0.5, _perfDragDprRaw) : null;
+const _movingResolution = createMovingResolutionPolicy({
+  tier: _Q.tier, pixelRatio: _Q.pixelRatio, overrideDpr: _perfDragDpr,
+});
 const _PERF_NOOP = Object.freeze({
   enabled: false,
   mark() {}, begin() { return () => 0; }, frame() {}, resolutionSwitch() {},
@@ -133,6 +138,7 @@ const _perfReady = _perfEnabled
           pixelRatio: _Q.pixelRatio, idleAfter: _Q.idleAfter, idleInterval: _Q.idleInterval,
           dragDprExperiment: _perfDragDpr,
           gpuTimingExperiment: _perfGpuTiming,
+          adaptiveMovingDpr: _movingResolution.adaptive,
         },
         renderer,
       });
@@ -669,23 +675,24 @@ function resize() {
 // framebuffer on nearly every tick. That showed up as zoom-specific lag
 // while dragging stayed smooth.
 //
-// Two guards now: restore only after a much longer idle, and never switch
-// twice inside a cooldown window. The cooldown can only ever delay a switch
-// — the restore is re-attempted every idle frame, so it cannot get stuck at
-// low resolution.
-const _DRAG_PIXEL_RATIO = _perfDragDpr != null ? Math.min(_Q.pixelRatio, _perfDragDpr) : Math.min(_Q.pixelRatio, 1.0);
+// High-tier devices now learn a lower 0.75 moving DPR only after sustained
+// slow real motion, leaving fast devices at 1.0. The learned value lives in
+// memory for this tab only. Explicit ?perf=1&dragDpr=... overrides adaptation.
+// Still frames always restore the original quality. A cooldown prevents
+// framebuffer reallocations on every wheel tick.
 const _RESTORE_AFTER_IDLE_FRAMES = 45;  // ~750ms, well past a wheel-tick gap
 const _MIN_SWITCH_INTERVAL_MS = 400;
 let _lowResActive = false;
 let _lastResSwitchMs = 0;
 function _setLowRes(on) {
-  if (on === _lowResActive) return;
-  if (on && _DRAG_PIXEL_RATIO >= _Q.pixelRatio) return; // nothing to gain
+  const targetDpr = on ? _movingResolution.movingDpr : _Q.pixelRatio;
+  if (on && targetDpr >= _Q.pixelRatio) return; // nothing to gain
+  if (on === _lowResActive && Math.abs(renderer.getPixelRatio() - targetDpr) < 0.001) return;
   const now = performance.now();
   if (now - _lastResSwitchMs < _MIN_SWITCH_INTERVAL_MS) return;
   _lastResSwitchMs = now;
   _lowResActive = on;
-  renderer.setPixelRatio(on ? _DRAG_PIXEL_RATIO : _Q.pixelRatio);
+  renderer.setPixelRatio(targetDpr);
   resize();
   _perf.resolutionSwitch(renderer.getPixelRatio());
 }
@@ -833,6 +840,7 @@ function _setViewerPageVisibility(hidden) {
   _pageHidden = hidden;
   _perf.visibility(hidden);
   if (hidden) {
+    _movingResolution.resetSamples();
     if (_viewerAnimationFrameId !== null) cancelAnimationFrame(_viewerAnimationFrameId);
     _viewerAnimationFrameId = null;
     return;
@@ -863,6 +871,8 @@ function animate() {
 
   const moved = !camera.position.equals(_prevCamPos) ||
                 !camera.quaternion.equals(_prevCamQuat);
+  const motionChange = _movingResolution.observeFrame(performance.now(), moved || _camAnimating, Boolean(_splatViewer));
+  if (motionChange) _perf.mark('adaptiveMotionDpr', motionChange);
   if (moved || _camAnimating) {
     _idleFrames = 0;
     _prevCamPos.copy(camera.position);

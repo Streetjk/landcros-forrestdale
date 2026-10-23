@@ -34,6 +34,7 @@ test('hidden-page renderer cancels frames instead of rescheduling background ani
   let nextId=1;
   const queued=new Map();
   const cancelled=[];
+  let motionResets=0;
   const listeners={};
   const doc={hidden:false,addEventListener(name,fn){listeners['document:'+name]=fn;}};
   const win={addEventListener(name,fn){listeners['window:'+name]=fn;}};
@@ -42,6 +43,7 @@ test('hidden-page renderer cancels frames instead of rescheduling background ani
     document:doc,window:win,requestAnimationFrame(callback){const id=nextId++;queued.set(id,callback);return id;},
     cancelAnimationFrame(id){cancelled.push(id);queued.delete(id);},
     _perf:{visibility(hidden){visibility.push(hidden);}},
+    _movingResolution:{resetSamples(){motionResets++;}},
   });
   vm.runInContext('let _idleFrames=25,_lastRenderMs=500; function animate(){};'+scheduler+'\n_queueViewerFrame();',context);
   assert.equal(queued.size,1,'one frame scheduled while visible');
@@ -61,6 +63,7 @@ test('hidden-page renderer cancels frames instead of rescheduling background ani
   listeners['window:pageshow']();
   assert.equal(queued.size,1,'bfcache pageshow restores rendering');
   assert.deepEqual(visibility,[true,false,true,false]);
+  assert.equal(motionResets,2,'hidden-tab transitions clear stale motion pacing samples');
 });
 
 test('browser GPS watch stops when tab is hidden or unloaded', () => {

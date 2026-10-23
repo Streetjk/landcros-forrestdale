@@ -8,7 +8,7 @@ test('both public viewer routes cache-bust the shared scene retry loader',()=>{
   assert.match(viewer,/scene-bundle-loader\.js\?v=earlyphoto-20261022a/);
   for(const html of ['index.html','viewer3d.html']){
     const src=readFileSync(new URL('../'+html,import.meta.url),'utf8');
-    assert.match(src,/viewer3d\.js\?v=gputiming-20261023a/);
+    assert.match(src,/viewer3d\.js\?v=adaptive-dpr-20261023a/);
     assert.match(src,/scene-early-photos\.js\?v=earlyphoto-20261022a/);
   }
 });
