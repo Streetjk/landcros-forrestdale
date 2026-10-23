@@ -1,6 +1,8 @@
 // Session-only adaptive moving resolution. The full-resolution still image is
 // managed by the viewer; this policy only learns a lower DPR for camera motion.
 // Keep it independent of Three.js/DOM so pacing and override rules are testable.
+const SLOW_MOVING_DPR = 0.65;
+
 export function createMovingResolutionPolicy({
   tier = 'medium', pixelRatio = 1, overrideDpr = null,
   slowFrameMs = 30, minSamples = 18, maxSamples = 32,
@@ -18,7 +20,7 @@ export function createMovingResolutionPolicy({
   }
 
   function observeFrame(now, moving, ready = true) {
-    if (!adaptive || movingDpr <= 0.75 || !ready || !moving || !Number.isFinite(now)) {
+    if (!adaptive || movingDpr <= SLOW_MOVING_DPR || !ready || !moving || !Number.isFinite(now)) {
       resetSamples();
       return null;
     }
@@ -43,7 +45,7 @@ export function createMovingResolutionPolicy({
     if (medianMs < slowFrameMs) return null;
 
     const previousDpr = movingDpr;
-    movingDpr = Math.min(fullDpr, 0.75);
+    movingDpr = Math.min(fullDpr, SLOW_MOVING_DPR);
     const evidence = { previousDpr, movingDpr, medianMs, samples: intervals.length };
     resetSamples();
     return evidence;
