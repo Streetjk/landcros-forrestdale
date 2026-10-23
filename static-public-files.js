@@ -11,7 +11,7 @@ const PUBLIC_ROOT_FILES = Object.freeze([
   'location-details.js', 'label-layout.js', 'map-touch-input.js', 'pin-camera-flight.js', 'map-controls.js', 'my-pins-client.js',
   'public-transport.js',
   'my-pins-session.js', 'point-list-item.js', 'public-data.js', 'public-site.js',
-  'qr.js', 'splat-compare.js', 'splat-normalization.js', 'viewer-perf.js',
+  'qr.js', 'splat-compare.js', 'splat-normalization.js', 'viewer-perf.js', 'moving-resolution.js',
   'visit-analytics.js',
 ]);
 const PUBLIC_ROOT_SET = new Set(PUBLIC_ROOT_FILES);

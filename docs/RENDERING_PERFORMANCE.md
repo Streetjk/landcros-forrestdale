@@ -24,13 +24,40 @@ For measurement without HUD compositing overhead:
 ?perf=1&perfHud=0
 ```
 
-For an experimental moving-resolution A/B test only:
+For a fixed moving-resolution A/B test (disables automatic adaptation):
 
 ```text
 ?perf=1&dragDpr=0.75
 ```
 
-`dragDpr` is ignored during normal sessions and must not become a new default until physical-phone testing confirms both the performance gain and acceptable moving-image clarity.
+`dragDpr` is ignored during normal sessions. `?perf=1&dragDpr=1` forces the
+old moving DPR 1.0 and `?perf=1&dragDpr=0.75` forces the tested candidate;
+both disable automatic adaptation. Without an override, the high tier starts
+with DPR 1.0 while moving. After at least 18 consecutive valid moving-frame
+intervals with a median of 30 ms or worse, it learns DPR 0.75 for subsequent
+camera motion within the tab. It excludes model-loading intervals, hidden-tab
+resumptions, and isolated >110 ms scheduling stalls. The scene always restores
+full DPR after 45 still frames, preserving still-photo and static-map clarity.
+There is no persistence across visits or server collection.
+
+This conservative fallback is supported by operator-supplied GPU-timer A/B
+snapshots captured on 23 October 2026 in the same browser/hardware context:
+
+| Metric | Old moving DPR 1.0 | Fixed moving DPR 0.75 |
+| --- | ---: | ---: |
+| Moving rendered FPS | 27.4 | 48.0 |
+| Moving frame p50 | 33.58 ms | 18.23 ms |
+| Moving frame p95 | 83.14 ms | 43.72 ms |
+| GPU render p50 | 28.42 ms | 18.06 ms |
+| GPU render p95 | 42.68 ms | 22.80 ms |
+| CPU render p50 | 0.44 ms | 0.53 ms |
+
+Both used the 8.74 MB `site-lite.splat` and a 1499×689 versus 1124×516
+rendering buffer. Test capture durations and early background-tab activity
+differed, so startup times are not directly comparable. The diagnostic traces
+support a strong GPU/pixel bottleneck but **do not establish moving-image
+clarity on every device**. Verify motion legibility on supported devices before
+considering an unconditional 0.75 default.
 
 For an opt-in **GPU-vs-CPU bottleneck diagnosis**, use:
 
