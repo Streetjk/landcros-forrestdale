@@ -129,6 +129,94 @@ test('renderer best-effort extraction with fallbacks', () => {
   assert.equal(snap.resolutionSwitches, 1);
 });
 
+test('GPU timer queries are explicitly opt-in and report separate update/draw costs', () => {
+  const ext = { TIME_ELAPSED_EXT: 0x88BF, GPU_DISJOINT_EXT: 0x8FBB };
+  const gl = {
+    QUERY_RESULT_AVAILABLE: 0x8867,
+    QUERY_RESULT: 0x8866,
+    calls: 0,
+    active: null,
+    getExtension: name => name === 'EXT_disjoint_timer_query_webgl2' ? ext : null,
+    getParameter: () => false,
+    createQuery() { this.calls++; return { id: this.calls }; },
+    beginQuery(target, query) { assert.equal(target, ext.TIME_ELAPSED_EXT); this.active = query; },
+    endQuery(target) {
+      assert.equal(target, ext.TIME_ELAPSED_EXT);
+      this.active.nanoseconds = this.active.id % 2 ? 3e6 : 23e6;
+      this.active = null;
+    },
+    getQueryParameter(query, field) {
+      if (field === this.QUERY_RESULT_AVAILABLE) return true;
+      if (field === this.QUERY_RESULT) return query.nanoseconds;
+      throw new Error('unexpected query field');
+    },
+    deleteQuery() {}
+  };
+  const noGpu = createPerfProbe({ enabled: true, gpuContext: gl });
+  noGpu.gpuFrameStart(true);
+  noGpu.gpuBegin('render');
+  noGpu.gpuEnd('render');
+  assert.equal(gl.calls, 0);
+  assert.equal(noGpu.snapshot().gpu.reason, 'not-requested');
+  noGpu.dispose();
+
+  const probe = createPerfProbe({ enabled: true, gpuTiming: true, gpuContext: gl });
+  for (let i = 0; i < 8; i++) {
+    probe.gpuFrameStart(true);
+    probe.gpuBegin('splatUpdate');
+    probe.gpuEnd('splatUpdate');
+    probe.gpuBegin('render');
+    probe.gpuEnd('render');
+    probe.gpuPoll();
+    probe.frame({ rendered: true, moving: true, renderCpuMs: 1.5, labelCpuMs: 0.8 });
+  }
+  const snap = probe.snapshot();
+  assert.equal(snap.gpu.supported, true);
+  assert.equal(snap.gpu.requested, true);
+  assert.equal(snap.gpu.splatUpdate.samples, 1);
+  assert.equal(snap.gpu.splatUpdate.p50Ms, 3);
+  assert.equal(snap.gpu.render.samples, 1);
+  assert.equal(snap.gpu.render.p50Ms, 23);
+  assert.equal(snap.cpu.render.p50Ms, 1.5);
+  assert.equal(snap.cpu.labels.p95Ms, 0.8);
+  assert.equal(gl.calls, 2);
+  probe.dispose();
+});
+
+test('GPU timing tolerates unsupported extensions and disjoint samples', () => {
+  const unsupported = createPerfProbe({ enabled: true, gpuTiming: true, gpuContext: {
+    getExtension: () => null
+  } });
+  assert.equal(unsupported.snapshot().gpu.supported, false);
+  assert.equal(unsupported.snapshot().gpu.reason, 'extension-unavailable');
+  unsupported.gpuFrameStart(true);
+  unsupported.gpuBegin('render');
+  unsupported.gpuEnd('render');
+  unsupported.gpuPoll();
+  unsupported.dispose();
+
+  const ext = { TIME_ELAPSED_EXT: 0x88BF, GPU_DISJOINT_EXT: 0x8FBB };
+  let deleted = 0;
+  const gl = {
+    getExtension: () => ext,
+    getParameter: () => true,
+    createQuery: () => ({}),
+    beginQuery() {}, endQuery() {},
+    deleteQuery() { deleted++; }
+  };
+  const probe = createPerfProbe({ enabled: true, gpuTiming: true, gpuContext: gl });
+  for (let i = 0; i < 8; i++) probe.gpuFrameStart(true);
+  probe.gpuBegin('render');
+  probe.gpuEnd('render');
+  probe.gpuPoll();
+  const snap = probe.snapshot();
+  assert.equal(snap.gpu.disjointEvents, 1);
+  assert.equal(snap.gpu.pending, 0);
+  assert.equal(snap.gpu.render.samples, 0);
+  assert.equal(deleted, 1);
+  probe.dispose();
+});
+
 test('longtask PerformanceObserver captures durations and disconnects on dispose', () => {
   let observedTypes = null;
   let callback = null;
