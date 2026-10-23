@@ -35,8 +35,22 @@ function calcPercentile(sorted, p) {
   return Number(sorted[idx].toFixed(2));
 }
 
+function summarizeDurations(values) {
+  if (!values.length) return { samples: 0, avgMs: 0, p50Ms: 0, p95Ms: 0, maxMs: 0 };
+  const sorted = values.slice().sort((a, b) => a - b);
+  return {
+    samples: values.length,
+    avgMs: Number((values.reduce((sum, n) => sum + n, 0) / values.length).toFixed(2)),
+    p50Ms: calcPercentile(sorted, 50),
+    p95Ms: calcPercentile(sorted, 95),
+    maxMs: Number(sorted[sorted.length - 1].toFixed(2))
+  };
+}
+
 export function createPerfProbe({
   enabled = false,
+  gpuTiming = false,
+  gpuContext = null,
   quality = {},
   renderer = null,
   now = () => (typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now()),
@@ -54,6 +68,8 @@ export function createPerfProbe({
   const movingRenderTimes = [];
   const MAX_INTERVALS = 240;
   const MAX_EVENTS = 200;
+  const MAX_GPU_PENDING = 6;
+  const GPU_SAMPLE_STRIDE = 8; // Opt-in: approximately three GPU queries per second at 25 FPS.
 
   let lastFrameTime = null;
   let renderedFrames = 0;
@@ -67,6 +83,18 @@ export function createPerfProbe({
   let splatCount = 0;
   let splatTotalMs = 0;
   let splatMaxMs = 0;
+  const renderCpuTimes = [];
+  const labelCpuTimes = [];
+  const gpuTimes = { splatUpdate: [], render: [] };
+  const gpuRequested = enabled && gpuTiming === true;
+  let gpuGl = null;
+  let gpuExt = null;
+  let gpuReason = gpuRequested ? 'extension-unavailable' : 'not-requested';
+  let gpuMovingFrames = 0;
+  let gpuSampleThisFrame = false;
+  let gpuActive = null;
+  const gpuPending = [];
+  let gpuDisjointEvents = 0;
 
   let longTaskCount = 0;
   let longTaskTotalMs = 0;
@@ -79,6 +107,98 @@ export function createPerfProbe({
   let observer = null;
   let hudElement = null;
   let lastHudUpdate = 0;
+
+  // WebGL timer queries measure work on the GPU rather than the JS time spent
+  // submitting draw commands. The WebGL2 extension is optional; collecting
+  // results is asynchronous and never waits for the GPU to finish a frame.
+  // Queries are enabled only with ?perf=1&gpuPerf=1, never on normal visits.
+  if (gpuRequested) {
+    try {
+      gpuGl = gpuContext || renderer?.getContext?.() || null;
+      gpuExt = gpuGl?.getExtension?.('EXT_disjoint_timer_query_webgl2') || null;
+      if (gpuExt && typeof gpuGl.createQuery === 'function' &&
+          typeof gpuGl.beginQuery === 'function' && typeof gpuGl.endQuery === 'function') {
+        gpuReason = 'collecting';
+      } else {
+        gpuGl = null;
+        gpuExt = null;
+      }
+    } catch {
+      gpuGl = null;
+      gpuExt = null;
+      gpuReason = 'query-initialization-error';
+    }
+  }
+
+  function rememberDuration(values, milliseconds) {
+    if (!Number.isFinite(milliseconds) || milliseconds < 0) return;
+    if (values.length >= MAX_INTERVALS) values.shift();
+    values.push(milliseconds);
+  }
+
+  function gpuFrameStart(moving) {
+    gpuSampleThisFrame = false;
+    if (!gpuExt || !moving) return;
+    gpuMovingFrames++;
+    gpuSampleThisFrame = gpuMovingFrames % GPU_SAMPLE_STRIDE === 0;
+  }
+
+  function gpuBegin(stage) {
+    if (!gpuSampleThisFrame || !gpuExt || gpuActive || gpuPending.length >= MAX_GPU_PENDING ||
+        !Object.hasOwn(gpuTimes, stage)) return;
+    let query = null;
+    try {
+      query = gpuGl.createQuery();
+      if (!query) return;
+      gpuGl.beginQuery(gpuExt.TIME_ELAPSED_EXT, query);
+      gpuActive = { stage, query };
+    } catch {
+      if (query) { try { gpuGl.deleteQuery(query); } catch {} }
+      gpuReason = 'query-error';
+      gpuSampleThisFrame = false;
+    }
+  }
+
+  function gpuEnd(stage) {
+    if (!gpuActive || gpuActive.stage !== stage) return;
+    const active = gpuActive;
+    gpuActive = null;
+    try {
+      gpuGl.endQuery(gpuExt.TIME_ELAPSED_EXT);
+      gpuPending.push(active);
+    } catch {
+      try { gpuGl.deleteQuery(active.query); } catch {}
+      gpuReason = 'query-error';
+      gpuSampleThisFrame = false;
+    }
+  }
+
+  function gpuPoll() {
+    if (!gpuExt || !gpuPending.length) return;
+    try {
+      if (gpuGl.getParameter(gpuExt.GPU_DISJOINT_EXT)) {
+        gpuDisjointEvents++;
+        for (const pending of gpuPending.splice(0)) gpuGl.deleteQuery(pending.query);
+        return;
+      }
+      for (let i = 0; i < gpuPending.length;) {
+        const pending = gpuPending[i];
+        if (!gpuGl.getQueryParameter(pending.query, gpuGl.QUERY_RESULT_AVAILABLE)) { i++; continue; }
+        const nanoseconds = gpuGl.getQueryParameter(pending.query, gpuGl.QUERY_RESULT);
+        gpuGl.deleteQuery(pending.query);
+        gpuPending.splice(i, 1);
+        if (Number.isFinite(nanoseconds) && nanoseconds >= 0) {
+          rememberDuration(gpuTimes[pending.stage], nanoseconds / 1e6);
+        }
+      }
+    } catch {
+      gpuReason = 'result-error';
+      for (const pending of gpuPending.splice(0)) {
+        try { gpuGl.deleteQuery(pending.query); } catch {}
+      }
+      gpuExt = null;
+    }
+  }
 
   function getRelTime() {
     return Number(Math.max(0, now() - t0).toFixed(2));
@@ -129,7 +249,8 @@ export function createPerfProbe({
     };
   }
 
-  function frame({ rendered = false, moving = false, hidden = false, splatUpdateMs = 0 } = {}) {
+  function frame({ rendered = false, moving = false, hidden = false, splatUpdateMs = 0,
+    renderCpuMs = 0, labelCpuMs = 0 } = {}) {
     if (!enabled) return;
     const t = now();
     if (hidden) {
@@ -157,6 +278,10 @@ export function createPerfProbe({
       }
     }
     if (moving) movingFrames++;
+    if (rendered && moving) {
+      rememberDuration(renderCpuTimes, renderCpuMs);
+      rememberDuration(labelCpuTimes, labelCpuMs);
+    }
     if (splatUpdateMs > 0) {
       splatCount++;
       splatTotalMs += splatUpdateMs;
@@ -307,6 +432,20 @@ export function createPerfProbe({
         maxMs: Number(splatMaxMs.toFixed(2)),
         avgMs: splatCount ? Number((splatTotalMs / splatCount).toFixed(2)) : 0
       },
+      cpu: {
+        render: summarizeDurations(renderCpuTimes),
+        labels: summarizeDurations(labelCpuTimes),
+      },
+      gpu: {
+        requested: gpuRequested,
+        supported: gpuExt !== null,
+        reason: gpuReason,
+        sampleStride: GPU_SAMPLE_STRIDE,
+        pending: gpuPending.length,
+        disjointEvents: gpuDisjointEvents,
+        splatUpdate: summarizeDurations(gpuTimes.splatUpdate),
+        render: summarizeDurations(gpuTimes.render),
+      },
       resolutionSwitches,
       longTasks: {
         count: longTaskCount,
@@ -346,9 +485,10 @@ export function createPerfProbe({
     const lt = s.longTasks.totalMs;
     const assetName = s.asset.selected || 'none';
     const splatAvg = s.splatUpdate.avgMs;
+    const gpuRender = s.gpu.render.samples ? `${s.gpu.render.p50Ms}ms` : (s.gpu.requested ? s.gpu.reason : 'off');
     const memoryMb = s.memory.lastBytes == null ? 'n/a' : (s.memory.lastBytes / 1048576).toFixed(1) + 'MB';
 
-    const text = `[Perf Probe]\nTier: ${tier} | DPR: ${dpr}\nMoveFPS: ${fps} | p50: ${s.frames.movingP50Ms || p50}ms | p95: ${s.frames.movingP95Ms || p95}ms\nLongTask: ${lt}ms | SplatAvg: ${splatAvg}ms\nMemory: ${memoryMb} | Asset: ${assetName}`;
+    const text = `[Perf Probe]\nTier: ${tier} | DPR: ${dpr}\nMoveFPS: ${fps} | p50: ${s.frames.movingP50Ms || p50}ms | p95: ${s.frames.movingP95Ms || p95}ms\nLongTask: ${lt}ms | SplatAvg: ${splatAvg}ms\nGPU render p50: ${gpuRender} | CPU render p50: ${s.cpu.render.p50Ms}ms\nMemory: ${memoryMb} | Asset: ${assetName}`;
     const pre = hudElement.querySelector('pre');
     if (pre) pre.textContent = text;
   }
@@ -388,6 +528,14 @@ export function createPerfProbe({
   }
 
   function dispose() {
+    if (gpuActive) {
+      try { gpuGl.endQuery(gpuExt.TIME_ELAPSED_EXT); } catch {}
+      try { gpuGl.deleteQuery(gpuActive.query); } catch {}
+      gpuActive = null;
+    }
+    for (const pending of gpuPending.splice(0)) {
+      try { gpuGl.deleteQuery(pending.query); } catch {}
+    }
     if (observer && typeof observer.disconnect === 'function') {
       observer.disconnect();
       observer = null;
@@ -403,6 +551,10 @@ export function createPerfProbe({
     mark,
     begin,
     frame,
+    gpuFrameStart,
+    gpuBegin,
+    gpuEnd,
+    gpuPoll,
     resolutionSwitch,
     sampleMemory,
     asset,

@@ -112,23 +112,27 @@ renderer.setClearColor(0x0f1117, 1); // match app background so pre-sky frames a
 // external sends. Open the page with ?perf=1 to display/copy the measurements.
 const _perfParams = new URLSearchParams(location.search);
 const _perfEnabled = _perfParams.get('perf') === '1';
+const _perfGpuTiming = _perfEnabled && _perfParams.get('gpuPerf') === '1';
 const _perfDragDprRaw = _perfEnabled ? Number.parseFloat(_perfParams.get('dragDpr')) : NaN;
 const _perfDragDpr = Number.isFinite(_perfDragDprRaw) ? Math.max(0.5, _perfDragDprRaw) : null;
 const _PERF_NOOP = Object.freeze({
   enabled: false,
   mark() {}, begin() { return () => 0; }, frame() {}, resolutionSwitch() {},
   asset() {}, visibility() {}, refreshHud() {}, snapshot() { return { enabled: false }; },
+  gpuFrameStart() {}, gpuBegin() {}, gpuEnd() {}, gpuPoll() {},
   async sampleMemory() { return null; },
 });
 let _perf = _PERF_NOOP;
 const _perfReady = _perfEnabled
-  ? import('./viewer-perf.js').then(({ createPerfProbe }) => {
+  ? import('./viewer-perf.js?v=gputiming-20261023a').then(({ createPerfProbe }) => {
       _perf = createPerfProbe({
         enabled: true,
+        gpuTiming: _perfGpuTiming,
         quality: {
           tier: _Q.tier, skipSplat: _Q.skipSplat, antialias: _Q.antialias,
           pixelRatio: _Q.pixelRatio, idleAfter: _Q.idleAfter, idleInterval: _Q.idleInterval,
           dragDprExperiment: _perfDragDpr,
+          gpuTimingExperiment: _perfGpuTiming,
         },
         renderer,
       });
@@ -269,10 +273,13 @@ function _isVanillaProgressiveRoute() {
     return hash === `#myPin=${_publicMyPinToken}`;
   }
 
-  const allowedParams = new Set(['perf', 'perfHud', 'dragDpr']);
+  // GPU timing is diagnostic-only, and must not turn an ordinary scoped URL
+  // into a different loading path. Keep recipient capability rules unchanged.
+  const allowedParams = new Set(['perf', 'perfHud', 'dragDpr', 'gpuPerf']);
   for (const key of _params.keys()) {
     if (!allowedParams.has(key)) return false;
   }
+  if (_params.has('gpuPerf') && !_perfEnabled) return false;
   return hash === '' || hash === '#map';
 }
 function _resolveModels(route) {
@@ -915,20 +922,34 @@ function animate() {
 
   const compActive = updateComparison();
   let _splatUpdateMs = 0;
+  let _renderCpuMs = 0;
   if (!compActive) {
+    _perf.gpuFrameStart(moved || _camAnimating);
     if (_splatViewer) {
       const _splatUpdateStart = performance.now();
-      _splatViewer.update();
+      _perf.gpuBegin('splatUpdate');
+      try { _splatViewer.update(); }
+      finally { _perf.gpuEnd('splatUpdate'); }
       _splatUpdateMs = performance.now() - _splatUpdateStart;
     }
-    renderer.render(scene, camera);
+    const _renderCpuStart = _perfEnabled ? performance.now() : 0;
+    _perf.gpuBegin('render');
+    try { renderer.render(scene, camera); }
+    finally { _perf.gpuEnd('render'); }
+    if (_perfEnabled) _renderCpuMs = performance.now() - _renderCpuStart;
   }
   if (_publicLabelLayout && (moved || _camAnimating)) _labelLayoutDirty = true;
+  const _labelCpuStart = _perfEnabled ? performance.now() : 0;
   css2d.render(scene, camera);
   if (_publicLabelLayout && _labelLayoutDirty) {
     _updatePublicBuildingLabels(now);
   }
-  _perf.frame({ rendered: true, moving: moved || _camAnimating, splatUpdateMs: _splatUpdateMs });
+  _perf.gpuPoll();
+  _perf.frame({
+    rendered: true, moving: moved || _camAnimating, splatUpdateMs: _splatUpdateMs,
+    renderCpuMs: _renderCpuMs,
+    labelCpuMs: _perfEnabled ? performance.now() - _labelCpuStart : 0,
+  });
   _perf.refreshHud();
 }
 animate();

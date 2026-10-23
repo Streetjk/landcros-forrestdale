@@ -32,7 +32,34 @@ For an experimental moving-resolution A/B test only:
 
 `dragDpr` is ignored during normal sessions and must not become a new default until physical-phone testing confirms both the performance gain and acceptable moving-image clarity.
 
-The probe records: device-tier inputs, effective connection/Save-Data state, asset path/bytes, splat fetch/bounds-scan/module/add-scene timings, viewer/visual-ready marks, rAF/render counts, moving rendered FPS and p50/p95, resolution switches, splat-update duration, Long Tasks, renderer counters/drawing-buffer size, visibility changes, and best-effort browser memory samples. Hidden pages skip viewer updates and force an active frame on return.
+For an opt-in **GPU-vs-CPU bottleneck diagnosis**, use:
+
+```text
+?perf=1&gpuPerf=1
+```
+
+This retains the normal map, camera, splat and image quality. On browsers that
+support WebGL2 `EXT_disjoint_timer_query_webgl2`, the local snapshot includes
+asynchronously sampled GPU time spent updating/sorting splats and drawing the
+3D scene. Samples are taken on approximately every eighth moving frame. The
+CPU render/label timings are also included with `?perf=1` alone. No GPU query
+is run during ordinary visits. Unsupported devices report
+`gpu.supported: false` and an explicit reason; never interpret zero samples
+as zero GPU cost. Queries that become disjoint are discarded, not timed.
+
+For a matching low-resolution test on the **same device and movement**:
+
+```text
+?perf=1&gpuPerf=1&dragDpr=0.75
+```
+
+Keep the camera route, cache state, gesture, test duration and browser the
+same. Compare moving FPS and p50/p95 plus the *GPU render* p50/p95; if GPU
+timings are unsupported, compare only the other metrics and do not claim a
+direct GPU measurement. Any quality/default change still requires visual
+inspection while rotating and after the camera settles.
+
+The probe records: device-tier inputs, effective connection/Save-Data state, asset path/bytes, splat fetch/bounds-scan/module/add-scene timings, viewer/visual-ready marks, rAF/render counts, moving rendered FPS and p50/p95, resolution switches, splat-update duration, CPU draw/label timing, optional GPU-query timing, Long Tasks, renderer counters/drawing-buffer size, visibility changes, and best-effort browser memory samples. Hidden pages skip viewer updates and force an active frame on return.
 
 ## Constrained Chromium harness
 
