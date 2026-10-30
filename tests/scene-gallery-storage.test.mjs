@@ -4,7 +4,8 @@ import {createRequire} from 'node:module';
 const require=createRequire(import.meta.url);
 const {createGalleryPhoto,deleteGalleryPhoto,validGalleryPaths,galleryPath,MAX_PHOTOS}=
   require('../scene-photo-gallery.js');
-const {photoPath}=require('../scene-photo-storage.js');
+const {photoPath,decodePhotoDataUrl,bucketUpgradeOptions,BUCKET_FILE_SIZE_LIMIT,
+  MAX_PHOTO_BYTES,MAX_THUMB_BYTES}=require('../scene-photo-storage.js');
 const scene='11111111-2222-3333-4444-555555555555';
 const obj='66666666-7777-8888-9999-000000000000';
 const site='88888888-7777-6666-5555-444444444444';
@@ -14,6 +15,38 @@ const dataUrl='data:image/jpeg;base64,'+jpeg.toString('base64');
 const webp=Buffer.alloc(20);
 webp.write('RIFF',0);webp.writeUInt32LE(12,4);webp.write('WEBP',8);webp.write('VP8 ',12);
 const webpDataUrl='data:image/webp;base64,'+webp.toString('base64');
+
+test('private legacy Storage bucket upgrades image cap and keeps MIME restrictions',()=>{
+  const options=bucketUpgradeOptions({
+    public:false,file_size_limit:1_000_000,allowed_mime_types:['image/jpeg'],
+  });
+  assert.deepEqual(options,{
+    public:false,fileSizeLimit:5_000_000,
+    allowedMimeTypes:['image/jpeg','image/webp'],
+  });
+  assert.equal(BUCKET_FILE_SIZE_LIMIT,5_000_000);
+  assert.ok(MAX_PHOTO_BYTES>=4_500_000);
+  assert.ok(MAX_THUMB_BYTES>=220_000);
+  assert.equal(bucketUpgradeOptions({public:false,file_size_limit:10_000_000,
+    allowed_mime_types:['image/jpeg','image/webp']}),null);
+  assert.throws(()=>bucketUpgradeOptions({public:true}),/must be private/);
+});
+
+test('server accepts a 4.5 MB high-detail WebP but rejects an oversized upload',()=>{
+  const bytes=Buffer.alloc(4_500_000);
+  bytes.write('RIFF',0);bytes.writeUInt32LE(bytes.length-8,4);
+  bytes.write('WEBP',8);bytes.write('VP8 ',12);
+  const dataUrl='data:image/webp;base64,'+bytes.toString('base64');
+  const decoded=decodePhotoDataUrl(dataUrl);
+  assert.equal(decoded.bytes.length,4_500_000);
+  assert.equal(decoded.contentType,'image/webp');
+
+  const oversized=Buffer.alloc(MAX_PHOTO_BYTES+1);
+  oversized.write('RIFF',0);oversized.writeUInt32LE(oversized.length-8,4);
+  oversized.write('WEBP',8);oversized.write('VP8 ',12);
+  assert.throws(()=>decodePhotoDataUrl('data:image/webp;base64,'+oversized.toString('base64')),
+    {status:413});
+});
 
 function db(initialProps={},opts={}) {
   const rows=[],imagesUploaded=[],removed=[];

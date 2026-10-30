@@ -344,7 +344,7 @@ const MIME = {
 // Binary/image assets are content-addressed (their content rarely changes after deploy)
 const IMMUTABLE_EXTS = new Set(['.splat', '.ply', '.stl', '.png', '.jpg', '.jpeg', '.webp', '.gif']);
 const POST_BODY_LIMIT = 1_000_000; // 1 MB max for JSON POST bodies (auth, points, contacts, visit)
-const PHOTO_POST_BODY_LIMIT = 2_200_000; // 900 KB image + 120 KB thumbnail as base64 JSON
+const PHOTO_POST_BODY_LIMIT = 6_500_000; // 4.5 MB full + 220 KB preview as base64 JSON
 
 function addHeaders(res, extra = {}) {
   // COOP/COEP only on viewer3d so SharedArrayBuffer works; skip for admin

@@ -1,10 +1,10 @@
 // Client-side optimisation keeps original device photos off the network.
-// Full images remain detailed enough for pin inspections; the thumbnail is
-// a separate, much smaller private Storage object.
+// The high-detail photo retains >4x the previous 1920px image's pixels for a
+// sufficiently detailed source. Its preview is stored separately in Storage.
 export const PHOTO_MAX_SOURCE_BYTES = 15_000_000;
 export const PHOTO_MAX_PIXELS = 45_000_000;
-export const PHOTO_FULL_TARGET_BYTES = 900_000;
-export const PHOTO_THUMB_TARGET_BYTES = 120_000;
+export const PHOTO_FULL_TARGET_BYTES = 4_500_000;
+export const PHOTO_THUMB_TARGET_BYTES = 220_000;
 
 function canvasFor(bitmap, maxSide) {
   const scale = Math.min(1, maxSide / Math.max(bitmap.width, bitmap.height));
@@ -13,6 +13,8 @@ function canvasFor(bitmap, maxSide) {
   canvas.height = Math.max(1, Math.round(bitmap.height * scale));
   const context = canvas.getContext('2d');
   if (!context) throw new Error('Could not prepare photo.');
+  context.imageSmoothingEnabled = true;
+  context.imageSmoothingQuality = 'high';
   context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
   return canvas;
 }
@@ -63,12 +65,15 @@ export async function optimiseScenePhoto(file) {
         bitmap.width * bitmap.height > PHOTO_MAX_PIXELS) {
       throw new Error('Image dimensions are too large.');
     }
-    const full = await encodeWithinLimit(bitmap, [1920, 1600, 1440, 1200, 960, 768],
-      [0.85, 0.80, 0.75], PHOTO_FULL_TARGET_BYTES, 'image/webp');
+    // Do not enlarge small originals. A typical 4000x3000 camera photo now
+    // retains 12 MP instead of the previous 2.76 MP (4.34x as many pixels).
+    const full = await encodeWithinLimit(bitmap,
+      [4096, 3840, 3456, 3072, 2560, 2048, 1920],
+      [0.94, 0.92, 0.90, 0.87], PHOTO_FULL_TARGET_BYTES, 'image/webp');
     // Use the same MIME type/extension for both variants. Unsupported WebP
     // browsers fall back to JPEG while keeping the same private gallery API.
-    const thumb = await encodeWithinLimit(bitmap, [400, 320, 240],
-      [0.80, 0.72], PHOTO_THUMB_TARGET_BYTES, full.type);
+    const thumb = await encodeWithinLimit(bitmap, [800, 640, 480],
+      [0.86, 0.80, 0.75], PHOTO_THUMB_TARGET_BYTES, full.type);
     return {
       dataUrl: await blobAsDataUrl(full),
       thumbnailDataUrl: await blobAsDataUrl(thumb),

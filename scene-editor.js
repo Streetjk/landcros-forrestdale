@@ -1010,7 +1010,7 @@ function renderPinPhoto(obj) {
     picture.alt='Photo '+(index+1);picture.crossOrigin='anonymous';
     picture.referrerPolicy='no-referrer';picture.loading='lazy';
     picture.decoding='async';picture.fetchPriority='low';
-    // Separate 400px variants keep the inspector responsive on mobile.
+    // Separate up-to-800px variants keep the inspector responsive on mobile.
     // Legacy JPEG photos simply reuse their original signed URL.
     pendingThumbnails.push({picture,url:item.thumbUrl || item.url});
     const indexBadge=document.createElement('span');

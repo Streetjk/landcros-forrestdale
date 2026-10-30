@@ -74,7 +74,7 @@ export function renderScenePhotoGallery({
   const thumbnailAbort=new AbortController();
   frame._thumbAbort=thumbnailAbort;
   // Never start thumbnail downloads ahead of the main image. Release the
-  // low-priority 400px variants only once the selected full image loads
+  // low-priority up-to-800px variants only once the selected full image loads
   // (or fails), preserving a fast first visible image on slow connections.
   let thumbnailsStarted=false;
   const startThumbnails=()=>{

@@ -168,7 +168,7 @@ export function preloadSceneLabelPhotos(objects, {
   return warmed;
 }
 
-// New gallery images have dedicated 400px thumbnails. Warm a bounded set
+// New gallery images have dedicated up-to-800px thumbnails. Warm a bounded set
 // before the viewer finishes loading so a pin can show a useful image while
 // its inspection-size photo is still downloading. Older JPEG pins continue
 // to use the separate two-full-photo preload above.

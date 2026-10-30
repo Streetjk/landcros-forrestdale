@@ -2,8 +2,9 @@
 const { createClient } = require('@supabase/supabase-js');
 const { pool, getSiteId } = require('./supabase-db');
 const BUCKET = 'sitenav-scene-photos';
-const MAX_PHOTO_BYTES = 950_000;
-const MAX_THUMB_BYTES = 120_000;
+const MAX_PHOTO_BYTES = 4_600_000;
+const MAX_THUMB_BYTES = 230_000;
+const BUCKET_FILE_SIZE_LIMIT = 5_000_000;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 let client = null;
 let bucketReady = false;
@@ -45,7 +46,10 @@ function decodePhotoDataUrl(dataUrl, {maxBytes=MAX_PHOTO_BYTES, jpegOnly=false}=
     && bytes.toString('ascii',8,12) === 'WEBP'
     && ['VP8 ','VP8L','VP8X'].includes(bytes.toString('ascii',12,16))
     && bytes.readUInt32LE(4) + 8 === bytes.length;
-  if (bytes.length > maxBytes || !(match[1] === 'image/jpeg' ? jpeg : webp)) {
+  if (bytes.length > maxBytes) {
+    throw Object.assign(new Error('Photo exceeds size limit'), { status: 413 });
+  }
+  if (!(match[1] === 'image/jpeg' ? jpeg : webp)) {
     throw Object.assign(new Error('Invalid or oversized photo'), { status: 400 });
   }
   return {bytes,contentType:match[1],extension:jpeg ? 'jpg' : 'webp'};
@@ -75,25 +79,45 @@ async function assertOwnsLabel(slug, sceneId, objectId) {
   if (!rows.length) throw Object.assign(new Error('Scene label not found'), { status: 404 });
 }
 
+function bucketUpgradeOptions(data) {
+  if (data.public) throw new Error('Scene photo bucket must be private');
+  const allowed = data.allowed_mime_types ?? data.allowedMimeTypes;
+  const currentLimitRaw = data.file_size_limit ?? data.fileSizeLimit;
+  const currentLimit = currentLimitRaw == null ? null : Number(currentLimitRaw);
+  const needsSizeUpgrade = currentLimit !== null && Number.isFinite(currentLimit)
+    && currentLimit > 0 && currentLimit < BUCKET_FILE_SIZE_LIMIT;
+  const needsMimeUpgrade = Array.isArray(allowed) && allowed.length > 0
+    && !allowed.includes('image/webp');
+  if (!needsSizeUpgrade && !needsMimeUpgrade) return null;
+  const options = { public: false };
+  if (Array.isArray(allowed) && allowed.length) {
+    options.allowedMimeTypes = needsMimeUpgrade
+      ? [...new Set([...allowed, 'image/webp'])] : allowed;
+  }
+  if (currentLimit !== null && Number.isFinite(currentLimit) && currentLimit > 0) {
+    options.fileSizeLimit = Math.max(currentLimit, BUCKET_FILE_SIZE_LIMIT);
+  }
+  return options;
+}
+
 async function ensureBucket() {
   if (bucketReady) return;
   const storage = storageClient().storage;
   const { data, error } = await storage.getBucket(BUCKET);
   if (data) {
-    if (data.public) throw new Error('Scene photo bucket must be private');
-    const allowed = data.allowed_mime_types ?? data.allowedMimeTypes;
-    // Existing buckets were initially JPEG-only. Extend that allowlist in
-    // place while preserving their privacy, size cap and other MIME entries.
-    if (Array.isArray(allowed) && allowed.length && !allowed.includes('image/webp')) {
-      const options = {public:false,allowedMimeTypes:[...new Set([...allowed,'image/webp'])]};
-      if (data.file_size_limit != null) options.fileSizeLimit=data.file_size_limit;
-      const {error:updateError}=await storage.updateBucket(BUCKET,options);
+    // Existing buckets were initially capped at 1 MB. Upgrade the cap for
+    // 4K photos and extend legacy JPEG-only MIME lists without making the
+    // bucket public or reducing a larger administrator-configured limit.
+    const options = bucketUpgradeOptions(data);
+    if (options) {
+      const { error: updateError } = await storage.updateBucket(BUCKET, options);
       if (updateError) throw updateError;
     }
   } else {
     if (error && !/not found|404|does not exist/i.test(String(error.message || ''))) throw error;
     const { error: createError } = await storage.createBucket(BUCKET, {
-      public: false, fileSizeLimit: '1MB', allowedMimeTypes: ['image/jpeg','image/webp'],
+      public: false, fileSizeLimit: BUCKET_FILE_SIZE_LIMIT,
+      allowedMimeTypes: ['image/jpeg','image/webp'],
     });
     if (createError && !/already exists|duplicate/i.test(String(createError.message || ''))) throw createError;
   }
@@ -241,7 +265,8 @@ async function copyGalleryThumbnailPath(sourceSceneId,sourceObjectId,sourcePath,
   return dest;
 }
 
-module.exports = { BUCKET, MAX_PHOTO_BYTES, MAX_THUMB_BYTES, photoPath,
+module.exports = { BUCKET, MAX_PHOTO_BYTES, MAX_THUMB_BYTES, BUCKET_FILE_SIZE_LIMIT,
+  bucketUpgradeOptions, photoPath,
   decodeJpegDataUrl, decodePhotoDataUrl, thumbnailPathForGallery,
   assertOwnsLabel, uploadPhoto, deletePhoto, signPhoto, signPhotoPaths, withSignedPhotos };
 
