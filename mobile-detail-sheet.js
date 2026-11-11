@@ -252,12 +252,14 @@ export function createMobileDetailSheet({ onDismiss = () => {}, enabled = () => 
     window._updateCamPresetsBottom?.();
     return true;
   }
-  function reset() {
+  function reset({preserveFraming = false} = {}) {
     state = {stage:'idle',key:null};
     focusWorld = null;
     if (!ui) return;
-    lastLayoutSignature = 'closed';
-    onLayout({stage:'closed',height:0,width:0,bottomInset:0,focusWorld:null});
+    // A department replacement occurs within one input event. Do not send a
+    // temporary 'closed' camera target between the old and new selections.
+    lastLayoutSignature = preserveFraming ? 'replacing' : 'closed';
+    if (!preserveFraming) onLayout({stage:'closed',height:0,width:0,bottomInset:0,focusWorld:null});
     delete ui.panel.dataset.detailStage;
     ui.app.classList.remove('sn-details-active','sn-details-full','sn-details-dismissed');
     ui.image.removeAttribute('src');

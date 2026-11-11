@@ -94,3 +94,31 @@ test('public pages load the responsive detail stylesheet after old inline CSS',(
     assert.match(html,/src="\.\/viewer3d\.js\?v=[^"]+/);
   }
 });
+
+test('replacing a building retargets the map directly instead of closing it first',()=>{
+  const viewer=read('viewer3d.js'), sheet=read('mobile-detail-sheet.js');
+  const start=viewer.indexOf('const onOpenBuilding = (e) => {');
+  const end=viewer.indexOf("label._scaleEl.addEventListener('click', onOpenBuilding)",start);
+  assert.ok(start>=0 && end>start);
+  const handler=viewer.slice(start,end);
+  assert.match(handler,/_leavePinDetail\(\{preserveMobileFraming:retainFraming\}\)/);
+  assert.match(handler,/_openDetailPanel\(\{deferMobileSummary:true\}\)/);
+  assert.match(handler,/_mobileDetails\.open\('building:' \+ p\.id, \{focusWorld:/);
+  assert.doesNotMatch(handler,/showBuildingDetail\(f,\s*_openDetailPanel/);
+  assert.match(sheet,/function reset\(\{preserveFraming = false\} = \{\}\)/);
+  assert.match(sheet,/if \(!preserveFraming\) onLayout\(\{stage:'closed'/);
+});
+
+test('mobile transitions are slower without projection-only resolution switching',()=>{
+  const viewer=read('viewer3d.js');
+  assert.match(viewer,/duration:0\.98,ease:'power2\.inOut'/);
+  assert.match(viewer,/observeFrame\(performance\.now\(\), poseMoved \|\| _camAnimating/);
+  assert.match(viewer,/else if \(projectionChanged\)\s*\{\s*_idleFrames = 0;/);
+});
+
+test('compact summary caps height and removes redundant full-details footer',()=>{
+  const css=read('mobile-detail-sheet.css');
+  assert.match(css,/max-height:min\(40dvh,235px\)!important/);
+  assert.match(css,/\.sn-summary-footer \{display:none!important;\}/);
+  assert.match(css,/\.sn-summary-ppe-icon \{display:block;width:clamp\(40px,12vw,48px\)/);
+});

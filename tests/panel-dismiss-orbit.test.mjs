@@ -15,7 +15,7 @@ test('close and blank-map tap preserve a running pin-focused camera, with no sce
   assert.match(list,/const preserveCamera = options\?\.preserveCamera === true/);
   assert.match(list,/if \(!preserveCamera\) \{[\s\S]*?_cancelPinFocusFlight\(\)/);
   assert.match(list,/if \(!preserveCamera\) \{[\s\S]*?stopAutoOrbit\(\)/);
-  assert.match(viewer,/function _leavePinDetail\(\{preserveCamera = false\} = \{\}\)/);
+  assert.match(viewer,/function _leavePinDetail\(\{preserveCamera = false, preserveMobileFraming = false\} = \{\}\)/);
   assert.doesNotMatch(list,/\bfetch\s*\(/);
 });
 

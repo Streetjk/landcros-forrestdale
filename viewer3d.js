@@ -16,8 +16,8 @@ import { getBasePublicVisitPointId } from './visit-analytics.js';
 import { createPointListItem } from './point-list-item.js';
 import { createSceneLabelPin, createSceneGroundFrame, SCENE_PIN_FLOAT_HEIGHT, SCENE_PIN_GROUND_Y, preloadSceneLabelPhotos, preloadSceneLabelThumbnails, scenePhotoItems, markerScaleForZoom } from './scene-label-pin.js?v=photo-perf-20261023a';
 import { renderScenePhotoGallery, hideScenePhotoGallery } from './scene-photo-gallery-view.js?v=photoload-20261022a';
-import { createMobileDetailSheet, trackMapTaps } from './mobile-detail-sheet.js?v=mobile-ppe-frame-20261111e';
-import { mobileCameraFraming } from './mobile-camera-framing.js?v=mobile-ppe-frame-20261111e';
+import { createMobileDetailSheet, trackMapTaps } from './mobile-detail-sheet.js?v=mobile-ppe-frame-20261111f';
+import { mobileCameraFraming } from './mobile-camera-framing.js?v=mobile-ppe-frame-20261111f';
 import { loadSharedSceneBundle, loadSharedSceneBundleWithEarlyResult } from './scene-bundle-loader.js?v=earlyphoto-20261022a';
 import { loadSharedScenePinPreview } from './shared-scene-pin-preview.js?v=scene-detail-hydrate-20261015a';
 import { singleSharedSceneLabelPosition } from './shared-scene-startup-focus.js';
@@ -696,7 +696,7 @@ function _reframeMobileMap({stage = 'closed',height = 0,width = 0,bottomInset = 
   }
   const motion = {x:_mobileMapOffset.x,y:_mobileMapOffset.y};
   _mobileMapShiftTween = gsap.to(motion, {
-    x:next.x,y:next.y,duration:0.48,ease:'power2.out',
+    x:next.x,y:next.y,duration:0.98,ease:'power2.inOut',
     onUpdate() {
       _mobileMapOffset.x = motion.x;
       _mobileMapOffset.y = motion.y;
@@ -941,15 +941,21 @@ function animate() {
 
   const projectionChanged = _mobileMapProjectionDirty;
   _mobileMapProjectionDirty = false;
-  const moved = !camera.position.equals(_prevCamPos) ||
-                !camera.quaternion.equals(_prevCamQuat) || projectionChanged;
-  const motionChange = _movingResolution.observeFrame(performance.now(), moved || _camAnimating, Boolean(_splatViewer));
+  const poseMoved = !camera.position.equals(_prevCamPos) ||
+                    !camera.quaternion.equals(_prevCamQuat);
+  const moved = poseMoved || projectionChanged;
+  // A sheet-only projection animation still needs full-rate rendering, but
+  // it is not physical camera motion: keep full-quality splats and avoid a
+  // disruptive DPR/framebuffer resize while the UI moves.
+  const motionChange = _movingResolution.observeFrame(performance.now(), poseMoved || _camAnimating, Boolean(_splatViewer));
   if (motionChange) _perf.mark('adaptiveMotionDpr', motionChange);
-  if (moved || _camAnimating) {
+  if (poseMoved || _camAnimating) {
     _idleFrames = 0;
     _prevCamPos.copy(camera.position);
     _prevCamQuat.copy(camera.quaternion);
     _setLowRes(true);
+  } else if (projectionChanged) {
+    _idleFrames = 0;
   } else {
     _idleFrames++;
     // Restore full resolution once the camera has actually settled, so the
@@ -2412,24 +2418,26 @@ function _collapseCompactPanelList() {
   window._updateCamPresetsBottom?.();
 }
 
-function _openDetailPanel() {
+function _openDetailPanel({deferMobileSummary = false} = {}) {
   _suppressLateSplatIntro = true;
   document.getElementById('point-list').style.display = 'none';
   document.getElementById('point-detail').classList.add('visible');
   document.getElementById('side-panel')?.classList.add('detail-open');
   if (window.innerWidth <= 1024) _openCompactPanelDetail();
   if (window.innerWidth > 1024) document.getElementById('app')?.classList.add('panel-open');
-  _mobileDetails.open('detail:' + (document.getElementById('detail-label')?.textContent || 'location'));
+  if (!deferMobileSummary) {
+    _mobileDetails.open('detail:' + (document.getElementById('detail-label')?.textContent || 'location'));
+  }
 }
 
 // Invalidate in-flight pin photos before another panel takes ownership.
 // Also clears the selected pin used by the optional tour button.
-function _leavePinDetail({preserveCamera = false} = {}) {
+function _leavePinDetail({preserveCamera = false, preserveMobileFraming = false} = {}) {
   if (!preserveCamera) {
     _cancelPinFocusFlight();
     stopAutoOrbit();
   }
-  _mobileDetails.reset();
+  _mobileDetails.reset({preserveFraming:preserveMobileFraming});
   highlightSceneLabelFrame(null);
   document.getElementById('app')?.classList.remove('scene-pin-selected');
   const openDetail = document.getElementById('point-detail');
@@ -3234,7 +3242,12 @@ async function renderBuildings(geoData) {
         _cancelPinFocusFlight();
         e?.stopPropagation?.();
         if (_mobileDetails.repeat('building:' + p.id)) return;
-        _leavePinDetail();
+        // Replace one department with another in the same frame: do not
+        // animate to the unoccluded baseline before moving to the new anchor.
+        const previousStage = _mobileDetails.snapshot().stage;
+        const retainFraming = _mobileDetails.isCompact() &&
+          ['summary','full'].includes(previousStage);
+        _leavePinDetail({preserveMobileFraming:retainFraming});
         if (_camTween) { _camTween.kill(); _camTween = null; }
         if (window._interruptFlyTo) {
           controls.removeEventListener('start', window._interruptFlyTo);
@@ -3245,9 +3258,11 @@ async function renderBuildings(geoData) {
         _camAnimating = false;
         updatePinHighlight(null);
         history.pushState(null, '', clearPinUrl(window.location.href));
-        showBuildingDetail(f, _openDetailPanel, { siteSlug: _publicRuntime?.siteSlug });
-        // First tap is a useful summary; keep its selected label above the sheet.
-        _mobileDetails.open('building:' + p.id, {focusWorld:{x:lx,y:ly,z:lz}});
+        showBuildingDetail(f, () => _openDetailPanel({deferMobileSummary:true}),
+          { siteSlug: _publicRuntime?.siteSlug });
+        // Only one measured, anchored summary is sent to the framing animator.
+        const opened = _mobileDetails.open('building:' + p.id, {focusWorld:{x:lx,y:ly,z:lz}});
+        if (!opened && retainFraming) _mobileDetails.reset();
       };
       label._scaleEl.addEventListener('click', onOpenBuilding);
       // OrbitControls listens on the WebGL canvas, so bridge wheel input from
