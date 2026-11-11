@@ -148,6 +148,13 @@ test('mobile initial load shows a location-information capsule, and a later resi
     };
   };
   const app=node('div'),panel=node('aside'),detail=node('section');
+  let ppeCount=3;
+  detail.querySelector=selector=>selector==='#detail-ppe'?{
+    hidden:false,
+    querySelectorAll:()=>Array.from({length:ppeCount},(_,index)=>({querySelector:child=>
+      child==='img'?{getAttribute:()=>`./assets/ppe/icon-${index}-generated.webp`}
+        :child==='.ppe-icon-label'?{textContent:'Safety boots'}:null})),
+  }:null;
   const ids={'app':app,'side-panel':panel,'point-detail':detail};
   globalThis.document={createElement:node,getElementById:id=>ids[id]||null,addEventListener(){}};
   globalThis.window={innerWidth:390,innerHeight:800,addEventListener:(name,fn)=>listeners.set(name,fn)};
@@ -155,7 +162,8 @@ test('mobile initial load shows a location-information capsule, and a later resi
   globalThis.ResizeObserver=undefined;
   globalThis.requestAnimationFrame=()=>{};
   try {
-    const sheet=createMobileDetailSheet();
+    const transitions=[];
+    const sheet=createMobileDetailSheet({onLayout:state=>transitions.push(state.stage)});
     assert.equal(sheet.initialize(),true);
     assert.equal(sheet.snapshot().stage,'closed');
     assert.ok(app.classList.contains('sn-details-dismissed'));
@@ -170,19 +178,36 @@ test('mobile initial load shows a location-information capsule, and a later resi
     assert.equal(sheet.open('building:parts'),true);
     assert.equal(sheet.snapshot().stage,'summary');
     assert.ok(app.classList.contains('sn-details-active'));
+    assert.equal(panel.dataset.summaryLayout,'ppe');
+    const beforeReplacement=transitions.length;
+    sheet.reset({preserveFraming:true});
+    assert.ok(app.classList.contains('sn-details-active'));
+    assert.equal(panel.dataset.detailStage,'summary');
+    assert.equal(transitions.length,beforeReplacement);
+    ppeCount=5;
+    assert.equal(sheet.open('building:reman'),true);
+    assert.equal(panel.dataset.summaryLayout,'ppe');
+    assert.equal(panel.dataset.detailStage,'summary');
+    assert.ok(app.classList.contains('sn-details-active'));
+    assert.equal(transitions.length,beforeReplacement);
   } finally {
     for(const [key,value] of Object.entries(prior)) {
       if(value===undefined) delete globalThis[key]; else globalThis[key]=value;
     }
   }
 });
-test('generated PPE silhouettes have an inset while the no-smoking badge is unaffected',()=>{
+test('generated PPE images are optically inset, with a centred transparent no-smoking sign',()=>{
   for(const cssFile of ['mobile-detail-sheet.css','ppe-matrix.css']){
     const css=read(cssFile);
     assert.match(css,/\[src\*="-generated.webp"\]:not\(\[src\*="no-smoking"\]\)/);
     assert.match(css,/padding:\s*3px/);
     assert.match(css,/box-sizing:\s*border-box/);
+    assert.match(css,/\[src\*="no-smoking-generated.webp"\]/);
+    assert.match(css,/object-position:\s*center/);
   }
+  const summaryCss=read('mobile-detail-sheet.css');
+  assert.match(summaryCss,/data-detail-stage="summary"\]\[data-summary-layout="ppe"\]/);
+  assert.match(summaryCss,/height:min\(40dvh,220px\)!important/);
   for(const name of ['index.html','viewer3d.html']){
     const html=read(name);
     assert.match(html,/Location information/);

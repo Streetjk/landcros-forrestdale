@@ -16,7 +16,7 @@ import { getBasePublicVisitPointId } from './visit-analytics.js';
 import { createPointListItem } from './point-list-item.js';
 import { createSceneLabelPin, createSceneGroundFrame, SCENE_PIN_FLOAT_HEIGHT, SCENE_PIN_GROUND_Y, preloadSceneLabelPhotos, preloadSceneLabelThumbnails, scenePhotoItems, markerScaleForZoom } from './scene-label-pin.js?v=photo-perf-20261023a';
 import { renderScenePhotoGallery, hideScenePhotoGallery } from './scene-photo-gallery-view.js?v=photoload-20261022a';
-import { createMobileDetailSheet, trackMapTaps } from './mobile-detail-sheet.js?v=mobile-ppe-frame-20261111g';
+import { createMobileDetailSheet, trackMapTaps } from './mobile-detail-sheet.js?v=mobile-ppe-frame-20261111h';
 import { mobileCameraFraming } from './mobile-camera-framing.js?v=mobile-ppe-frame-20261111f';
 import { loadSharedSceneBundle, loadSharedSceneBundleWithEarlyResult } from './scene-bundle-loader.js?v=earlyphoto-20261022a';
 import { loadSharedScenePinPreview } from './shared-scene-pin-preview.js?v=scene-detail-hydrate-20261015a';

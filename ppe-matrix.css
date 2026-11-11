@@ -61,6 +61,14 @@
   background: #ed5e13;
 }
 
+/* Match the sign's visual footprint to the inset PPE pictograms. */
+#detail-ppe .ppe-icon-cell img[src*="no-smoking-generated.webp"] {
+  box-sizing: border-box;
+  padding: 3px;
+  object-fit: contain;
+  object-position: center;
+}
+
 #detail-ppe .ppe-icon-label {
   display: block;
   width: 100%;

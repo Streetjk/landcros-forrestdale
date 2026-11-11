@@ -151,6 +151,8 @@ export function createMobileDetailSheet({ onDismiss = () => {}, enabled = () => 
     title.textContent = titleText;
     kind.textContent = el('detail-chip')?.textContent?.trim() || 'Location';
     const entries = compactPpeEntries(detail);
+    // All PPE department summaries share one sheet height, independent of icon count.
+    ui.panel.dataset.summaryLayout = entries.length ? 'ppe' : 'default';
     const signature = entries.map(entry => entry.src+'|'+entry.label).join('||');
     if (ppeGrid.dataset.signature !== signature) {
       ppeGrid.replaceChildren();
@@ -213,6 +215,7 @@ export function createMobileDetailSheet({ onDismiss = () => {}, enabled = () => 
       window._updateCamPresetsBottom?.();
     } else {
       delete panel.dataset.detailStage;
+      delete panel.dataset.summaryLayout;
       if (!compact() && state.key) app.classList.add('panel-open');
       if (lastLayoutSignature !== 'closed') {
         lastLayoutSignature = 'closed';
@@ -270,8 +273,13 @@ export function createMobileDetailSheet({ onDismiss = () => {}, enabled = () => 
     // temporary 'closed' camera target between the old and new selections.
     lastLayoutSignature = preserveFraming ? 'replacing' : 'closed';
     if (!preserveFraming) onLayout({stage:'closed',height:0,width:0,bottomInset:0,focusWorld:null});
-    delete ui.panel.dataset.detailStage;
-    ui.app.classList.remove('sn-details-active','sn-details-full','sn-details-dismissed');
+    // Keep the existing sheet on screen until the replacement opens; removing
+    // its classes here makes the panel collapse and pop back within one tap.
+    if (!preserveFraming) {
+      delete ui.panel.dataset.detailStage;
+      delete ui.panel.dataset.summaryLayout;
+      ui.app.classList.remove('sn-details-active','sn-details-full','sn-details-dismissed');
+    }
     ui.image.removeAttribute('src');
     ui.detail.scrollTop = 0;
   }
