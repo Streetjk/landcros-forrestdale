@@ -47,7 +47,7 @@ function createPpeSection(documentRef, detailPanel) {
   const heading = documentRef.createElement('h3');
   heading.id = 'detail-ppe-heading';
   heading.className = 'ppe-section-title';
-  heading.textContent = 'Required PPE';
+  heading.textContent = 'PPE REQUIREMENTS';
 
   const list = documentRef.createElement('ul');
   list.className = 'ppe-icon-grid';
