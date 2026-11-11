@@ -21,6 +21,7 @@
     .card .tag { margin-top: auto; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em; color: #64748B; }
     .admin .icon { background: rgba(15,118,110,0.25); color: #2DD4BF; }
     .hazard .icon { background: rgba(180,83,9,0.3); color: #FBBF24; }
+    .fire .icon { background: rgba(226,81,28,0.25); color: #FB8E48; }
     .public .icon { background: rgba(59,130,246,0.22); color: #60A5FA; }
     .hazard { border-color: rgba(245,158,11,0.25) !important; }
     footer { color: #64748B; font-size: 0.75rem; }
@@ -43,6 +44,12 @@
       <h2>Hazard report map</h2>
       <p>Drop hazard pins with descriptions and photos, then email the report with the original photos attached. Links open for @hcma.com.au staff only.</p>
       <span class="tag">Sign-in required</span>
+    </a>
+    <a class="card fire" id="link-fire" href="fire-ops.html?site=landcros">
+      <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22c4.5 0 7-3 7-7 0-3-2-6-4-8 0 3-1 4-2 4 0-3-1-6-4-9 0 5-4 8-4 13 0 4 2.5 7 7 7z"/></svg></div>
+      <h2>Fire Operations</h2>
+      <p>Check official fire-warning feeds, consolidate hot-work plans by department, and find trained personnel and audited extinguisher locations on SiteNav.</p>
+      <span class="tag">Internal staff · sign-in required</span>
     </a>
     <a class="card public" id="link-public" href="/">
       <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></div>
@@ -99,6 +106,7 @@
       const staffOrigin = runtime?.apiOrigin || location.origin;
       document.getElementById('link-admin').href = _staffHref(staffOrigin, '/editor.html', slug);
       document.getElementById('link-hazard').href = _staffHref(staffOrigin, '/editor.html', slug, { mode: 'hazard' });
+      document.getElementById('link-fire').href = _staffHref(staffOrigin, '/fire-ops.html', slug);
       document.getElementById('link-pin-admin').href = _staffHref(staffOrigin, '/admin3d.html', slug);
       document.getElementById('link-platform').href = _staffHref(staffOrigin, '/portal.html', slug);
     })();

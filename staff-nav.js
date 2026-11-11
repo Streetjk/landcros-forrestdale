@@ -23,6 +23,11 @@
         label: "Reports",
         href: `/editor.html?site=${encodeURIComponent(slug)}&mode=hazard`,
       });
+      items.push({
+        id: "fire",
+        label: "Fire",
+        href: `/fire-ops.html?site=${encodeURIComponent(slug)}`,
+      });
     }
     items.push({ ...MORE_ITEM });
     return items;

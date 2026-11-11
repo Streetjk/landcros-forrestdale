@@ -236,6 +236,10 @@ controls.update();
 
 const _params = new URLSearchParams(location.search);
 const _debugMode = _params.get('debug') === '1';
+// Optional authenticated SiteNav fire-equipment overlay. Nothing about staff
+// or asset registers is fetched on ordinary public map visits.
+const _fireLayerRequested = _params.get('fire') === '1' && !_debugMode;
+const _fireAssetDeepLink = _params.get('fireasset');
 // Per-pin account guide capability. The bearer stays in the URL fragment so
 // document/API request URLs and normal Referer headers do not carry it.
 const _publicMyPinToken = new URLSearchParams((window.location.hash || '').replace(/^#/, '')).get('myPin');
@@ -1677,6 +1681,89 @@ function _addPinToScene(pt) {
 function renderPins(points) {
   Object.keys(_pins).forEach(removePin);
   points.forEach(pt => _addPinToScene(pt));
+}
+
+let _fireAssetsRendered = false;
+function _fireMapNotice(message, asset = null) {
+  let panel = document.getElementById('sn-fire-map-panel');
+  if (!panel) {
+    panel = document.createElement('aside');
+    panel.id = 'sn-fire-map-panel';
+    panel.setAttribute('aria-label', 'Fire extinguisher map information');
+    panel.style.cssText = 'position:fixed;right:15px;bottom:76px;z-index:9005;background:#171e25ee;border:1px solid #aa603b;border-radius:11px;padding:14px 16px;color:#fff;font:600 12px Inter,system-ui,sans-serif;max-width:min(330px,calc(100vw - 30px));box-shadow:0 6px 27px #0007;backdrop-filter:blur(6px);';
+    document.body.appendChild(panel);
+  }
+  panel.replaceChildren();
+  const heading = document.createElement('strong');
+  heading.textContent = asset ? `🧯 ${asset.assetCode} · ${asset.type}` : '🧯 FIRE EQUIPMENT · SITENAV';
+  heading.style.cssText = 'display:block;color:#ffad76;margin-bottom:8px;';
+  const content = document.createElement('div');
+  content.textContent = message;
+  content.style.cssText = 'font-weight:400;line-height:1.5;color:#d6e0e9;';
+  const actions = document.createElement('div');
+  actions.style.cssText = 'display:flex;gap:16px;margin-top:10px;';
+  const back = document.createElement('a');
+  back.href = '/fire-ops.html?site=' + encodeURIComponent(_publicRuntime?.siteSlug || 'landcros');
+  back.textContent = 'Fire Operations ↗';
+  back.style.cssText = 'color:#ffad76;text-decoration:none;';
+  const dismiss = document.createElement('button');
+  dismiss.textContent = 'Hide';
+  dismiss.style.cssText = 'color:#e8f1f7;background:transparent;border:0;padding:0;font:inherit;';
+  dismiss.onclick = () => panel.remove();
+  actions.append(back, dismiss);
+  panel.append(heading, content, actions);
+}
+
+async function _loadFireEquipmentLayer() {
+  if (!_fireLayerRequested || _fireAssetsRendered) return;
+  _fireAssetsRendered = true;
+  const slug = _publicRuntime?.siteSlug || 'landcros';
+  if (!/^[a-z0-9][a-z0-9-]{1,62}$/.test(slug)) return;
+  try {
+    // Same-origin authenticated staff session only. No public asset fallback.
+    const response = await fetch(`/api/sites/${encodeURIComponent(slug)}/fire-ops/map`,
+      { credentials: 'same-origin', cache: 'no-store' });
+    if (!response.ok) throw new Error('Fire equipment access requires the staff SiteNav login.');
+    const items = await response.json();
+    if (!Array.isArray(items)) throw new Error('Fire equipment feed unavailable.');
+    const valid = items.filter(a => Number.isFinite(Number(a.sceneX)) && Number.isFinite(Number(a.sceneZ))
+      && a.sceneX !== null && a.sceneZ !== null && /^[0-9a-fA-F-]{36}$/.test(a.id || ''));
+    const pins = [];
+    for (const asset of valid) {
+      const x = Number(asset.sceneX), z = Number(asset.sceneZ);
+      const root = new THREE.Group();
+      root.position.set(x, 0, z);
+      const frame = createSceneGroundFrame(THREE, asset.condition === 'in_service' ? 0xf36a25 : 0xff5555);
+      root.add(frame.group);
+      _pinAnimatables.push({squareGroup:frame.group,squareMat:frame.material});
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.setAttribute('aria-label', `Fire extinguisher ${asset.assetCode}, ${asset.locationDetail}`);
+      button.style.cssText = 'display:flex;align-items:center;gap:4px;background:#ad391d;color:#fff;font:800 12px Inter,system-ui,sans-serif;padding:6px 9px;border:2px solid #fff;border-radius:19px;box-shadow:0 3px 10px #0009;cursor:pointer;white-space:nowrap;';
+      const symbol = document.createElement('span');symbol.textContent = '🧯';
+      const text = document.createElement('span');text.textContent = asset.assetCode;
+      button.append(symbol, text);
+      button.addEventListener('pointerup', event => {
+        event.preventDefault();event.stopPropagation();
+        _fireMapNotice(`${asset.locationDetail} · ${asset.capacity} ${asset.unit}. ${asset.condition.replaceAll('_',' ')}.`,asset);
+        _focusPinCamera(new THREE.Vector3(x,0,z),{source:'fire-extinguisher'});
+      });
+      const marker = new CSS2DObject(button);
+      marker.position.set(0,1.7,0);
+      root.add(marker);scene.add(root);
+      pins.push({asset,x,z});
+    }
+    _fireMapNotice(pins.length
+      ? `${pins.length} surveyed extinguisher position${pins.length === 1?'':'s'} displayed. Select an orange marker for asset details.`
+      : 'No extinguisher coordinates have been verified and saved yet. Visit Fire Operations to complete the register.');
+    const deep = pins.find(p => p.asset.id === _fireAssetDeepLink);
+    if (deep) setTimeout(() => {
+      _fireMapNotice(`${deep.asset.locationDetail} · ${deep.asset.capacity} ${deep.asset.unit}. ${deep.asset.condition.replaceAll('_',' ')}.`,deep.asset);
+      _focusPinCamera(new THREE.Vector3(deep.x,0,deep.z),{source:'fire-extinguisher'});
+    }, 1750);
+  } catch (error) {
+    _fireMapNotice('Fire equipment map unavailable. Open this map from your authenticated staff SiteNav session.');
+  }
 }
 
 function upsertPin(pt) {
@@ -5004,6 +5091,7 @@ async function boot() {
     }
   }
   _armPublicGuideHistory();
+  if (_fireLayerRequested) _loadFireEquipmentLayer();
   } else if (_debugMode) {
   _updateVisitHud([]);
   }

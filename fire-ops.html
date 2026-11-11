@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#101419">
+  <title>Fire Operations | LANDCROS SiteNav</title>
+  <link rel="stylesheet" href="fire-ops.css">
+</head>
+<body>
+  <div id="sn-auth-gate" role="region" aria-label="Staff sign in">
+    <div class="login-mark">LANDCROS <span>SiteNav</span></div>
+    <div class="login-card">
+      <div class="login-icon">F</div>
+      <h1>Fire Operations</h1>
+      <p id="sn-auth-msg">Sign in with your approved staff account to view fire operations.</p>
+      <div id="sn-auth-email-row"><input id="sn-email-input" type="email" autocomplete="email" placeholder="name@hcma.com.au" aria-label="Work email"><button id="sn-email-submit">Continue</button></div>
+      <button id="sn-create-submit" style="display:none">Create profile</button>
+      <p id="sn-auth-error" class="error" style="display:none"></p>
+    </div>
+  </div>
+
+  <div id="fire-app" hidden>
+    <header class="topbar">
+      <div class="brand"><span class="brand-mark">L</span><div>LANDCROS <small>SITE NAVIGATOR</small></div></div>
+      <div class="topbar-right"><span class="app-tag">INTERNAL SAFETY OPERATIONS</span><span id="user-email" class="user-email"></span><button id="logout" class="text-btn">Sign out</button></div>
+    </header>
+    <main class="page-shell">
+      <div class="eyebrow"><span class="live-dot"></span> FORRESTDALE WORKSHOP <span class="separator">/</span> CITY OF ARMADALE</div>
+      <div class="page-heading">
+        <div><h1>Fire operations <span class="heading-accent">control centre</span></h1><p>One register for fire conditions, departmental hot work, trained staff and extinguishers.</p></div>
+        <div class="heading-actions"><a class="outline-btn" href="/index.html?fire=1" id="open-map">View SiteNav fire map <span aria-hidden="true">↗</span></a><button class="primary-btn" id="new-work">+ Plan hot work</button></div>
+      </div>
+
+      <section class="condition-grid" aria-label="Official fire condition feeds">
+        <div class="condition-card ban-card">
+          <div class="card-top"><span class="mini-label">TOTAL FIRE BAN · ARMADALE</span><span class="source-pill">DFES FEED</span></div>
+          <div class="condition-display"><div class="condition-icon">!</div><div><strong id="ban-title">Checking official feed…</strong><p id="ban-description">Awaiting current status.</p></div></div>
+          <div class="condition-footer"><span id="ban-checked">Not checked</span><a href="https://www.emergency.wa.gov.au/" target="_blank" rel="noopener noreferrer">Verify on Emergency WA ↗</a></div>
+        </div>
+        <div class="condition-card">
+          <div class="card-top"><span class="mini-label">FIRE DANGER RATINGS</span><span class="source-pill">RSS</span></div>
+          <strong id="danger-title" class="small-condition">Checking feed…</strong>
+          <div class="feed-preview" id="danger-items">Official fire danger guidance for the relevant district.</div>
+          <a class="feed-link" href="https://www.emergency.wa.gov.au/" target="_blank" rel="noopener noreferrer">View official ratings ↗</a>
+        </div>
+        <div class="condition-card">
+          <div class="card-top"><span class="mini-label">BUSHFIRE / INCIDENT WARNINGS</span><span class="source-pill">METRO SOUTH EAST</span></div>
+          <strong id="warning-title" class="small-condition">Checking feed…</strong>
+          <div class="feed-preview" id="warning-items">Regional feed, not an exact site-distance alert.</div>
+          <a class="feed-link" href="https://www.emergency.wa.gov.au/" target="_blank" rel="noopener noreferrer">Open incident map ↗</a>
+        </div>
+      </section>
+      <div class="source-notice"><span>i</span> Feed matching is indicative, not an all-clear or authority to work. Confirm the current ban, Fire Danger Rating, work classification, council restrictions and notification requirements before starting work. RSS is checked at most once every five minutes.</div>
+
+      <div class="section-nav" role="tablist" aria-label="Fire operations sections">
+        <button role="tab" aria-selected="true" data-tab="overview">Overview</button>
+        <button role="tab" aria-selected="false" data-tab="work">Hot-work schedule</button>
+        <button role="tab" aria-selected="false" data-tab="staff">Trained personnel</button>
+        <button role="tab" aria-selected="false" data-tab="assets">Extinguishers</button>
+      </div>
+
+      <section data-panel="overview" class="tab-panel">
+        <div class="stats-grid">
+          <div class="stat"><span>PLANNED HOT WORK · 7 DAYS</span><strong id="stat-work">—</strong><small id="stat-departments">Across departments</small></div>
+          <div class="stat"><span>NOTIFICATION RECEIPTS</span><strong id="stat-notified">—</strong><small>Recorded DFES NOT references</small></div>
+          <div class="stat"><span>EXTINGUISHER TRAINING</span><strong id="stat-trained">—</strong><small id="stat-expiring">Personnel in register</small></div>
+          <div class="stat"><span>REGISTERED EXTINGUISHERS</span><strong id="stat-assets">—</strong><small id="stat-map-pins">Verified map positions</small></div>
+        </div>
+        <div class="two-col">
+          <div class="panel"><div class="panel-heading"><div><span class="mini-label">7-DAY WORKLOAD</span><h2>By department</h2></div><button data-goto="work" class="link-btn">All work ↗</button></div><div id="department-bars" class="department-bars empty-message">No jobs entered yet.</div></div>
+          <div class="panel"><div class="panel-heading"><div><span class="mini-label">NEXT 7 DAYS</span><h2>Upcoming activity</h2></div><span class="muted">Perth time · AWST</span></div><div id="upcoming" class="upcoming-list empty-message">No planned hot work.</div></div>
+        </div>
+        <div class="panel handoff-panel"><div><span class="mini-label">REGULATORY HANDOFF</span><h2>Central coordinator review</h2><p>For commercial outdoor hot work on a Total Fire Ban, verify the prescribed conditions and submit the official online notification for DFES and the relevant local government. Keep the NOT reference. A new notice is needed for each consecutive ban day; this website cannot lodge or approve an exemption.</p></div><div class="handoff-links"><a href="https://www.dfes.wa.gov.au/hazard-information/bushfire/total-fire-ban" target="_blank" rel="noopener noreferrer" class="outline-btn">DFES requirements ↗</a><a href="https://forms.digital.wa.gov.au/221860790821053" target="_blank" rel="noopener noreferrer" class="primary-btn">Official notification form ↗</a></div></div>
+      </section>
+
+      <section data-panel="work" class="tab-panel" hidden>
+        <div class="panel"><div class="panel-heading stack-mobile"><div><span class="mini-label">DEPARTMENT SUBMISSIONS</span><h2>Hot-work planning register</h2><p>Central record for today and coming days; a submission alone never authorises work.</p></div><div class="heading-actions"><button id="download-work" class="outline-btn">Export CSV</button><button id="print-work" class="outline-btn">Print report</button><button id="work-add" class="primary-btn">+ Add work</button></div></div>
+          <div class="filters"><label>From <input id="work-from" type="date"></label><label>To <input id="work-to" type="date"></label><label>Department <select id="work-department"><option value="">All departments</option></select></label><button id="work-reset" class="text-btn">Reset</button></div>
+          <div id="work-summary" class="summary-row"></div>
+          <div class="table-scroller"><table><thead><tr><th>Date / Time</th><th>Department / Trade</th><th>SiteNav Location</th><th>Hot work / Controls</th><th>Workflow</th><th>Internal actions</th></tr></thead><tbody id="work-rows"></tbody></table></div>
+        </div>
+      </section>
+
+      <section data-panel="staff" class="tab-panel" hidden>
+        <div class="panel"><div class="panel-heading stack-mobile"><div><span class="mini-label">TRAINING AND COMPETENCY</span><h2>Fire-trained personnel</h2><p>Trade-filtered register of extinguisher, fire-watch and bushfire training, with documented expiry or reassessment dates.</p></div><button id="staff-add" class="primary-btn editor-only">+ Add employee</button></div>
+          <div class="filters"><label>Trade <select id="staff-trade"><option value="">All trades</option></select></label><label>Department <select id="staff-department"><option value="">All departments</option></select></label><label>Search <input id="staff-search" type="search" placeholder="Name or employee number"></label></div>
+          <div class="table-scroller"><table><thead><tr><th>Employee</th><th>Department / Trade</th><th>Extinguisher competency</th><th>Fire-watch / Bushfire</th><th>Evidence</th><th class="editor-only">Edit</th></tr></thead><tbody id="staff-rows"></tbody></table></div>
+          <p class="panel-footnote">“Expiry / reassessment” is the date documented in the qualification or your company policy. An annual certificate expiry is not presumed under WA law. Unrecorded training must not be represented as current competency.</p>
+        </div>
+      </section>
+
+      <section data-panel="assets" class="tab-panel" hidden>
+        <div class="panel"><div class="panel-heading stack-mobile"><div><span class="mini-label">FIRE EQUIPMENT REGISTER</span><h2>Extinguisher locations</h2><p>Each extinguisher is identified by an asset ID, building, exact position, type and inspection status. Coordinates place audited assets in SiteNav 3D.</p></div><div class="heading-actions"><a href="/index.html?fire=1" class="outline-btn">SiteNav fire layer ↗</a><button id="asset-add" class="primary-btn editor-only">+ Add extinguisher</button></div></div>
+          <div class="filters"><label>Building <select id="asset-building"><option value="">All buildings</option></select></label><label>Status <select id="asset-condition"><option value="">All</option><option value="in_service">In service</option><option value="out_of_service">Out of service</option><option value="missing">Missing</option></select></label></div>
+          <div class="table-scroller"><table><thead><tr><th>Asset ID</th><th>Type / Capacity</th><th>Exact location</th><th>Inspection</th><th>Condition</th><th>SiteNav</th><th class="editor-only">Edit</th></tr></thead><tbody id="asset-rows"></tbody></table></div>
+          <p class="panel-footnote">Only an on-site audit can establish an extinguisher’s exact location and condition. A building-level location is not treated as an exact 3D position.</p>
+        </div>
+      </section>
+
+      <footer class="footer">LANDCROS · SiteNav Fire Operations <span>Internal planning &amp; communication tool. Official notices and workplace procedures take precedence.</span></footer>
+    </main>
+  </div>
+
+  <dialog id="work-dialog" class="form-dialog"><form id="work-form" class="dialog-body"><input name="id" type="hidden"><div class="dialog-header"><div><span class="mini-label">DEPARTMENTAL HOT-WORK PLAN</span><h2>Plan hot work</h2></div><button type="button" class="close-dialog" aria-label="Close">×</button></div>
+    <div class="form-grid"><label>Work date <input name="workDate" type="date" required></label><label>Department <select name="department" required data-departments></select></label><label>Start (AWST) <input name="startTime" type="time" required></label><label>Finish (AWST) <input name="endTime" type="time" required></label><label>Trade <select name="trade" required data-trades></select></label><label>SiteNav building <select name="buildingRef" required data-buildings></select></label><label class="wide">Exact work location <input name="locationDetail" maxlength="250" placeholder="e.g. western bay, door 3" required></label><label class="wide">Work description <textarea name="description" rows="2" maxlength="1200" placeholder="What is being done?" required></textarea></label><label class="wide">Hot work / equipment <input name="equipment" maxlength="300" placeholder="Welding, grinding, cutting…" required></label><label>Building enclosure <select name="enclosure"><option value="fully_enclosed">Fully enclosed (all openings shut)</option><option value="open_workshop">Open doors/windows workshop</option><option value="outdoors">Outdoors</option></select></label><label>Vegetation within 30 m? <select name="vegetationWithin30m"><option value="">Not assessed</option><option value="true">Yes</option><option value="false">No</option></select></label><label>DBCA land within 3 km? <select name="dbcaWithin3km"><option value="">Not assessed</option><option value="true">Yes</option><option value="false">No</option></select></label><label>Fire-watch officer <select name="fireWatchEmployeeId" id="work-fire-watch"><option value="">Not assigned yet</option></select></label><label class="wide">Planned risk controls <textarea name="controls" rows="2" maxlength="1500" placeholder="Exclusion zone, spark containment, fire watch, available extinguishers…"></textarea></label></div>
+    <p class="dialog-hint">On a TFB, qualifying outdoor / open-workshop commercial hot work requires prescribed safety conditions and an official notification 24 hours to 30 minutes before work. Ordinary commercial hot work must not proceed at Catastrophic fire danger. Saving a plan does not authorise work.</p><div class="dialog-actions"><button type="button" class="outline-btn close-dialog">Cancel</button><button type="submit" class="primary-btn">Submit plan</button></div><p class="form-error" aria-live="polite"></p>
+  </form></dialog>
+
+  <dialog id="staff-dialog" class="form-dialog"><form id="staff-form" class="dialog-body"><input name="id" type="hidden"><div class="dialog-header"><div><span class="mini-label">STAFF COMPETENCY RECORD</span><h2>Employee training</h2></div><button type="button" class="close-dialog" aria-label="Close">×</button></div>
+    <div class="form-grid"><label>Full name <input name="fullName" required maxlength="120"></label><label>Employee no. <input name="employeeNumber" maxlength="40"></label><label>Department <select name="department" data-departments></select></label><label>Trade <select name="trade" data-trades></select></label>
+    <h3 class="wide form-divider">Fire extinguisher training</h3><label>Completed <input name="extinguisherTrainedOn" type="date"></label><label>Expiry / reassessment <input name="extinguisherExpiresOn" type="date"></label>
+    <h3 class="wide form-divider">Fire-watch induction (optional company training)</h3><label>Completed <input name="fireWatchTrainedOn" type="date"></label><label>Expiry / reassessment <input name="fireWatchExpiresOn" type="date"></label>
+    <h3 class="wide form-divider">Firefighting-vehicle operation training</h3><label>Completed <input name="fireVehicleTrainedOn" type="date"></label><label>Expiry / reassessment <input name="fireVehicleExpiresOn" type="date"></label>
+    <h3 class="wide form-divider">Bushfire suppression training</h3><label>Completed <input name="bushfireTrainedOn" type="date"></label><label>Expiry / reassessment <input name="bushfireExpiresOn" type="date"></label>
+    <label class="wide">Internal evidence reference <input name="evidenceReference" maxlength="300" placeholder="Secure HR training register reference (no document upload)"></label><label>Current employee <select name="active"><option value="true">Active</option><option value="false">Inactive / left site</option></select></label><label class="wide">Notes <textarea name="notes" maxlength="700" rows="2"></textarea></label></div>
+    <div class="dialog-actions"><button type="button" class="outline-btn close-dialog">Cancel</button><button type="submit" class="primary-btn">Save record</button></div><p class="form-error" aria-live="polite"></p>
+  </form></dialog>
+
+  <dialog id="asset-dialog" class="form-dialog"><form id="asset-form" class="dialog-body"><input name="id" type="hidden"><div class="dialog-header"><div><span class="mini-label">FIRE EQUIPMENT ASSET</span><h2>Extinguisher location</h2></div><button type="button" class="close-dialog" aria-label="Close">×</button></div>
+    <div class="form-grid"><label>Asset ID / label <input name="assetCode" required maxlength="65" placeholder="e.g. FE-001"></label><label>Type <select name="type"><option>ABE Dry Powder</option><option>CO₂</option><option>Foam</option><option>Water</option><option>Wet Chemical</option><option>Other</option></select></label><label>Capacity <input name="capacity" type="number" min="0.1" max="9999" step="0.1" required></label><label>Unit <select name="unit"><option value="kg">kg</option><option value="L">L</option></select></label><label>SiteNav building <select name="buildingRef" required data-buildings></select></label><label class="wide">Exact location <input name="locationDetail" required maxlength="250" placeholder="e.g. external south wall beside roller door 2"></label><h3 class="wide form-divider">3D map position (after physical verification)</h3><label>SiteNav X <input name="sceneX" type="number" step="0.001" placeholder="Optional"></label><label>SiteNav Z <input name="sceneZ" type="number" step="0.001" placeholder="Optional"></label><label>Last inspected <input name="inspectedOn" type="date"></label><label>Next inspection due <input name="inspectionDueOn" type="date"></label><label>Condition <select name="condition"><option value="in_service">In service</option><option value="out_of_service">Out of service</option><option value="missing">Missing</option></select></label><label class="wide">Notes <textarea name="notes" maxlength="700" rows="2"></textarea></label></div>
+    <p class="dialog-hint">Leave both coordinates empty until verified against the actual SiteNav position. An unpositioned asset remains in the register but is not shown as a map pin.</p><div class="dialog-actions"><button type="button" class="outline-btn close-dialog">Cancel</button><button type="submit" class="primary-btn">Save extinguisher</button></div><p class="form-error" aria-live="polite"></p>
+  </form></dialog>
+
+  <dialog id="not-dialog" class="form-dialog narrow"><form id="not-form" class="dialog-body"><div class="dialog-header"><div><span class="mini-label">HUMAN-VERIFIED NOTIFICATION</span><h2>Record DFES NOT reference</h2></div><button type="button" class="close-dialog" aria-label="Close">×</button></div><p>Enter the reference only after the official DFES notification has actually been submitted. This is not an exemption or permit.</p><input type="hidden" name="id"><label>DFES NOT number <input name="notNumber" required maxlength="80" autocomplete="off" placeholder="Reference from official receipt"></label><div class="dialog-actions"><button type="button" class="outline-btn close-dialog">Cancel</button><button type="submit" class="primary-btn">Record reference</button></div><p class="form-error" aria-live="polite"></p></form></dialog>
+
+  <div id="toast" role="status" aria-live="polite" hidden></div>
+  <script src="auth-gate.js"></script>
+  <script src="staff-nav.js"></script>
+  <script src="fire-ops.js" defer></script>
+</body>
+</html>

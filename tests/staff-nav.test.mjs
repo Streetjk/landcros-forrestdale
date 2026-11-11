@@ -21,11 +21,12 @@ test('staff nav exposes only same-origin existing staff destinations', () => {
     { id: 'map', label: 'Map', href: '/index.html' },
     { id: 'pins', label: 'My Pins', href: '/admin3d.html' },
     { id: 'reports', label: 'Reports', href: '/editor.html?site=landcros&mode=hazard' },
+    { id: 'fire', label: 'Fire', href: '/fire-ops.html?site=landcros' },
     { id: 'more', label: 'More', href: '/portal.html' },
   ]);
   assert.deepEqual(
     nav.buildItems({ siteSlug: 'landcros' }).map((item) => item.label),
-    ['Map', 'My Pins', 'Reports', 'More'],
+    ['Map', 'My Pins', 'Reports', 'Fire', 'More'],
   );
   assert.equal(nav.buildItems({ siteSlug: 'landcros' }).some((item) => item.id === 'editor'), false);
   for (const item of nav.buildItems({ siteSlug: 'landcros' })) assert.match(item.href, /^\//);
@@ -114,7 +115,7 @@ test('My Pins nav gains Reports only after a validated site slug is available', 
   assert.deepEqual(mounted.children.map((el) => el.dataset.staffNav), ['map', 'pins', 'more']);
 
   mounted = nav.mount({ currentPage: 'pins', siteSlug: 'landcros', document: doc });
-  assert.deepEqual(mounted.children.map((el) => el.dataset.staffNav), ['map', 'pins', 'reports', 'more']);
+  assert.deepEqual(mounted.children.map((el) => el.dataset.staffNav), ['map', 'pins', 'reports', 'fire', 'more']);
   assert.equal(mounted.children.find((el) => el.dataset.staffNav === 'pins').getAttribute('aria-current'), 'page');
 });
 

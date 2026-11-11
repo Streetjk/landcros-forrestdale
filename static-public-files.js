@@ -5,6 +5,7 @@
 const PUBLIC_ROOT_FILES = Object.freeze([
   'index.html', 'viewer3d.html', 'admin3d.html', 'gallery.html', 'editor.html',
   'portal.html', 'reset-pin.html', 'start.html', 'style.css', 'site-brand-layout.css', 'ppe-matrix.css',
+  'fire-ops.html', 'fire-ops.js', 'fire-ops.css',
   'coi-serviceworker.js', 'auth-gate.js', 'panel-state.js', 'panel-mobile.js', 'mobile-detail-sheet.js', 'mobile-detail-sheet.css',
   'staff-map-shell.js', 'staff-nav.js', 'admin3d.js', 'gallery.js',
   'scene-editor.js', 'scene-label-pin.js', 'scene-bundle-loader.js', 'scene-early-photos.js', 'shared-scene-pin-preview.js', 'shared-scene-startup-focus.js', 'scene-photo-gallery-view.js', 'photo-zoom.js', 'site-gps-calibration.js', 'gps-tracking.js', 'viewer3d.js', 'db.js', 'detail-card.js', 'guide-url.js',
@@ -15,6 +16,11 @@ const PUBLIC_ROOT_FILES = Object.freeze([
   'visit-analytics.js',
 ]);
 const PUBLIC_ROOT_SET = new Set(PUBLIC_ROOT_FILES);
+
+// These assets are safe to serve by the authenticated Node origin, but they
+// depend on same-origin staff sessions and must not be copied onto the
+// credential-free public static CDN. The public start chooser links to Node.
+const BACKEND_ONLY_ROOT_FILES = Object.freeze(['fire-ops.html','fire-ops.js','fire-ops.css']);
 
 const PUBLIC_DATA_FILES = Object.freeze([
   'config.json', 'public-runtime.json', 'buildings.geojson', 'traffic.json', 'roads.json',
@@ -79,6 +85,7 @@ function classifyPublicStaticPath(pathname) {
 
 module.exports = {
   PUBLIC_ROOT_FILES,
+  BACKEND_ONLY_ROOT_FILES,
   PUBLIC_DATA_FILES,
   PUBLIC_SITE_ROOT_FILES,
   PUBLIC_ASSET_EXTENSIONS,

@@ -25,6 +25,7 @@ test('start chooser derives staff links from validated runtime apiOrigin', () =>
   assert.match(start, /const staffOrigin = runtime\?\.apiOrigin \|\| location\.origin/);
   assert.match(start, /link-admin'\)\.href = _staffHref\(staffOrigin, '\/editor\.html', slug\)/);
   assert.match(start, /link-hazard'\)\.href = _staffHref\(staffOrigin, '\/editor\.html', slug, \{ mode: 'hazard' \}\)/);
+  assert.match(start, /link-fire'\)\.href = _staffHref\(staffOrigin, '\/fire-ops\.html', slug\)/);
   assert.match(start, /link-pin-admin'\)\.href = _staffHref\(staffOrigin, '\/admin3d\.html', slug\)/);
   assert.match(start, /link-platform'\)\.href = _staffHref\(staffOrigin, '\/portal\.html', slug\)/);
 
@@ -40,6 +41,7 @@ test('executable chooser preserves backend-valid trailing-hyphen slug on the Nod
   const anchors = new Map([
     ['link-admin', { href: 'editor.html?site=landcros' }],
     ['link-hazard', { href: 'editor.html?site=landcros&mode=hazard' }],
+    ['link-fire', { href: 'fire-ops.html?site=landcros' }],
     ['link-pin-admin', { href: 'admin3d.html' }],
     ['link-platform', { href: 'portal.html' }],
   ]);
@@ -63,4 +65,6 @@ test('executable chooser preserves backend-valid trailing-hyphen slug on the Nod
   assert.equal(new URL(anchors.get('link-admin').href).searchParams.get('site'), 'alpha-');
   assert.equal(new URL(anchors.get('link-hazard').href).searchParams.get('site'), 'alpha-');
   assert.equal(new URL(anchors.get('link-hazard').href).searchParams.get('mode'), 'hazard');
+  assert.equal(new URL(anchors.get('link-fire').href).origin, staffOrigin);
+  assert.equal(new URL(anchors.get('link-fire').href).searchParams.get('site'), 'alpha-');
 });
