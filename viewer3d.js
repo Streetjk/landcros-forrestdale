@@ -3172,7 +3172,7 @@ async function renderBuildings(geoData) {
         _camAnimating = false;
         updatePinHighlight(null);
         history.pushState(null, '', clearPinUrl(window.location.href));
-        showBuildingDetail(f, _openDetailPanel);
+        showBuildingDetail(f, _openDetailPanel, { siteSlug: _publicRuntime?.siteSlug });
         // First tap is a useful summary; second tap opens the complete card.
         _mobileDetails.open('building:' + p.id);
       };

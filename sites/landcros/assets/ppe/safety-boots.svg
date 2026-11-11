@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-labelledby="title">
+  <title id="title">Protective footwear</title>
+  <circle cx="50" cy="50" r="49.5" fill="#F36B21"/>
+  <path fill="#fff" d="M52 17c-4 0-7 3-7 8v15c-2 8-8 14-15 18l-9 3c-6 2-9 6-9 12v3c0 3 2 5 5 5h68c3 0 5-2 5-5v-7c0-4-3-7-8-8l-6-2-1-23c0-5-3-8-8-9l-2-5c-2-3-7-5-13-5z"/>
+  <path d="M17 69c17 3 38 5 68-1M18 77h64M28 60l4 13M64 30l-7 7M62 24c-6-2-11-1-15 1M73 57l-8 9" fill="none" stroke="#F36B21" stroke-width="3.3" stroke-linecap="round"/>
+  <path d="M46 39l16 13m-18-4 16 13m-22-7 15 12" fill="none" stroke="#F36B21" stroke-width="3.5" stroke-linecap="round"/>
+  <circle cx="46" cy="39" r="2.4" fill="#fff" stroke="#F36B21" stroke-width="2"/>
+  <circle cx="44" cy="48" r="2.4" fill="#fff" stroke="#F36B21" stroke-width="2"/>
+  <circle cx="38" cy="54" r="2.4" fill="#fff" stroke="#F36B21" stroke-width="2"/>
+  <path d="M20 82h6m5 0h6m5 0h6m5 0h6m5 0h6m5 0h6" fill="none" stroke="#F36B21" stroke-width="3.2" stroke-linecap="round"/>
+</svg>

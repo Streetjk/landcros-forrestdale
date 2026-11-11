@@ -1,5 +1,6 @@
 // location-details.js - Metadata validator and safe DOM renderer for building details
 import { createDetailPhoneLink } from './detail-card.js';
+import { renderBuildingPpe } from './ppe-matrix.js';
 
 const RASTER_EXT_RE = /\.(jpe?g|png|webp|avif|gif)$/i;
 
@@ -232,7 +233,7 @@ export function buildPointDetailModel(point, contacts, { phoneOverride = null } 
  * @param {object} building - GeoJSON feature or properties object
  * @param {Function} openDetailPanel - Chrome panel opening callback (_openDetailPanel)
  */
-export function showBuildingDetail(building, openDetailPanel) {
+export function showBuildingDetail(building, openDetailPanel, { siteSlug = '' } = {}) {
   if (typeof document === 'undefined') return;
   const detailPanel = document.getElementById('point-detail');
   if (!detailPanel) return;
@@ -282,6 +283,9 @@ export function showBuildingDetail(building, openDetailPanel) {
     if (body) body.textContent = details.visitorInfo || '';
     visitorBlock.hidden = !details.visitorInfo;
   }
+
+  // Department-specific entry requirements; unknown buildings remain blank.
+  renderBuildingPpe(p, document, siteSlug);
 
   const navSection = document.getElementById('detail-nav-section');
   if (navSection) navSection.style.display = 'none';

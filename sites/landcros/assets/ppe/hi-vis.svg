@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-labelledby="title">
+  <title id="title">High visibility clothing</title>
+  <circle cx="50" cy="50" r="49.5" fill="#F36B21"/>
+  <path fill="#fff" d="M29 18 42 14l8 17 8-17 13 4 9 23 4 10-7 5v27H23V56l-7-5 4-10z"/>
+  <path d="m42 14 8 17 8-17M50 31v52M23 52h54M23 65h54" fill="none" stroke="#F36B21" stroke-width="4.6" stroke-linejoin="round"/>
+  <path d="m29 18-6 17-5 16m53-33 6 17 5 16" fill="none" stroke="#F36B21" stroke-width="3" stroke-linecap="round"/>
+</svg>
