@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-labelledby="title">
+  <title id="title">Safety glasses</title>
+  <circle cx="50" cy="50" r="49.5" fill="#F36B21"/>
+  <path d="M13 40c6-5 15-8 26-6l11 3 11-3c11-2 20 1 26 6" fill="none" stroke="#fff" stroke-width="5.7" stroke-linecap="round"/>
+  <path d="M15 43c3-1 8-1 12 0l18 4c2 0 3 1 5 1s3-1 5-1l18-4c4-1 9-1 12 0v13c0 12-9 20-21 21-7 1-13-3-17-10l-3-5c-1-2-3-2-4 0l-3 5c-4 7-10 11-17 10-12-1-21-9-21-21V43z" transform="translate(7 0) scale(.86 1)" fill="none" stroke="#fff" stroke-width="6" stroke-linejoin="round"/>
+  <path d="M8 46h10m64 0h10" fill="none" stroke="#fff" stroke-width="7" stroke-linecap="round"/>
+</svg>
