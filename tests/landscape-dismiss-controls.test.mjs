@@ -19,7 +19,7 @@ test('landscape restores the normal map-edge offset after a fully expanded detai
 
 test('both public entrypoints bypass cached detail styles on mobile', () => {
   for (const name of ['index.html','viewer3d.html']) {
-    assert.match(read(name), /mobile-detail-sheet\.css\?v=mobile-ppe-frame-20261111i/);
+    assert.match(read(name), /mobile-detail-sheet\.css\?v=mobile-ppe-frame-20261111j/);
   }
 });
 

@@ -48,7 +48,7 @@ test('compact preview mirrors only visible approved PPE icons',()=>{
   const icons=[
     {src:'./assets/ppe/safety-boots-generated.webp',label:'Safety boots'},
     {src:'./assets/ppe/hi-vis-generated.webp',label:'Hi-vis clothing'},
-    {src:'./assets/ppe/no-smoking-generated.webp',label:'No smoking'},
+    {src:'./assets/ppe/no-smoking.svg',label:'No smoking'},
   ];
   const cells=icons.map(icon=>({
     querySelector:selector=>selector==='img'
@@ -196,17 +196,13 @@ test('mobile initial load shows a location-information capsule, and a later resi
     }
   }
 });
-test('generated PPE badges share the same outer diameter and centred artwork',()=>{
+test('generated PPE images are inset while the vector prohibition sign keeps its intrinsic size',()=>{
   for(const cssFile of ['mobile-detail-sheet.css','ppe-matrix.css']){
     const css=read(cssFile);
     assert.match(css,/\[src\*="-generated.webp"\]:not\(\[src\*="no-smoking"\]\)/);
     assert.match(css,/padding:\s*3px/);
     assert.match(css,/box-sizing:\s*border-box/);
-    const noSmokingRule=css.match(/\[src\*="no-smoking-generated.webp"\]\s*\{([^}]+)\}/)?.[1]||'';
-    assert.match(noSmokingRule,/padding:\s*0;/);
-    assert.match(noSmokingRule,/object-position:\s*center/);
-    assert.match(noSmokingRule,/transform:\s*scale\(1\.036\)/);
-    assert.match(noSmokingRule,/transform-origin:\s*center/);
+    assert.doesNotMatch(css,/\[src\*="no-smoking-generated.webp"\]\s*\{/);
   }
   const summaryCss=read('mobile-detail-sheet.css');
   assert.match(summaryCss,/data-detail-stage="summary"\]\[data-summary-layout="ppe"\]/);

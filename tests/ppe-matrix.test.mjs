@@ -42,7 +42,7 @@ test('PPE module, styles and generated WebP icons are permitted on the static si
     '/ppe-matrix.js', '/ppe-matrix.css',
     '/assets/ppe/safety-boots-generated.webp', '/assets/ppe/safety-glasses-generated.webp',
     '/assets/ppe/hi-vis-generated.webp', '/assets/ppe/long-clothing-generated.webp',
-    '/assets/ppe/no-smoking-generated.webp',
+    '/assets/ppe/no-smoking-generated.webp', '/assets/ppe/no-smoking.svg',
   ]) {
     assert.ok(classifyPublicStaticPath(path), `expected public: ${path}`);
   }
@@ -59,6 +59,20 @@ test('All five generated PPE assets are complete WebP images', () => {
     assert.equal(bytes.toString('ascii', 0, 4), 'RIFF');
     assert.equal(bytes.toString('ascii', 8, 12), 'WEBP');
   }
+});
+
+test('No-smoking sign has an exactly concentric white disc and uniform red rim', () => {
+  const svg = readFileSync(new URL('../sites/landcros/assets/ppe/no-smoking.svg', import.meta.url), 'utf8');
+  const circles = [...svg.matchAll(/<circle cx="([\d.]+)" cy="([\d.]+)" r="([\d.]+)" fill="(#[\da-fA-F]+)"\s*\/>/g)];
+  assert.equal(circles.length, 2);
+  assert.equal(circles[0][1], circles[1][1]);
+  assert.equal(circles[0][2], circles[1][2]);
+  assert.equal(circles[0][1], '50');
+  assert.equal(circles[0][2], '50');
+  assert.ok(Math.abs(Number(circles[0][3]) - Number(circles[1][3]) - 8.3) < 1e-8);
+  assert.equal(circles[0][4], '#E40301');
+  assert.equal(circles[1][4], '#FEFEFE');
+  assert.doesNotMatch(svg, /scale\(/);
 });
 
 function createMinimalDetailDocument() {
@@ -110,7 +124,7 @@ test('No smoking shares the same uniform PPE tile grid', () => {
     'Safety boots', 'Safety glasses', 'Hi-vis clothing', 'Long clothing', 'No smoking',
   ]);
   assert.equal(documentRef.getElementById('ppe-rule-heading'), null);
-  assert.equal(list.children[4].children[0].src, './assets/ppe/no-smoking-generated.webp?v=ppe-20261111d');
+  assert.equal(list.children[4].children[0].src, './assets/ppe/no-smoking.svg?v=ppe-20261111e');
 
   assert.equal(renderBuildingPpe({ id: 'bld-parts-despatch' }, documentRef, 'landcros'), true);
   assert.deepEqual(list.children.map((cell) => cell.children[1].textContent), [

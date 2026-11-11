@@ -61,17 +61,6 @@
   background: #ed5e13;
 }
 
-/* Unlike the orange pictograms, the red sign is the entire badge.
-   Its image has a 247/256 visible diameter; centre-scale it to match the badge size. */
-#detail-ppe .ppe-icon-cell img[src*="no-smoking-generated.webp"] {
-  box-sizing: border-box;
-  padding: 0;
-  object-fit: contain;
-  object-position: center;
-  transform: scale(1.036);
-  transform-origin: center;
-}
-
 #detail-ppe .ppe-icon-label {
   display: block;
   width: 100%;
