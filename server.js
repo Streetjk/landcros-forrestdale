@@ -45,6 +45,7 @@ const { readPublicSiteMetadata } = require('./site-metadata');
 const { NotificationStatusPartialError, notifyThenPersistStatus, partialCompletionBody } = require('./hazard-status-workflow');
 const { publicBasePoint, publicContact, projectLegacySharePinData } = require('./data-projections');
 const { classifyPublicStaticPath } = require('./static-public-files');
+const { createFireOpsHandler } = require('./fire-ops-routes');
 
 // Generic client error body — logs the real error server-side, never leaks
 // DB/schema/config detail (e.message) to the client.
@@ -179,6 +180,12 @@ const handleScenePointPhotos = createScenePointPhotoHandler({
 function _requireSiteAdmin(req, res, slug, cb) {
   _requireSiteRole(req, res, slug, 'admin', cb);
 }
+
+// Staff-only fire operations. The same active-session + site-role checks as
+// SiteNav scenes apply to all records, official feed proxy and map assets.
+const handleFireOps = createFireOpsHandler({
+  requireRole:_requireSiteRole,readJson:_readJsonBody,json:_json,rateLimit:_rateLimited,
+});
 
 // Shared public-submission handler for both /api/submissions (env SITE) and
 // /api/sites/:slug/submissions — rate-limited per-IP, gated on published,
@@ -414,6 +421,8 @@ const server = http.createServer((req, res) => {
     });
     return res.end();
   }
+
+  if (handleFireOps(req,res,pathname)) return;
 
   // ── Auth: per-user email + 6-digit PIN login, gates the admin surface ──
   // Two-step from the client's point of view: POST {email} first, which

@@ -5,6 +5,7 @@
 const PUBLIC_ROOT_FILES = Object.freeze([
   'index.html', 'viewer3d.html', 'admin3d.html', 'gallery.html', 'editor.html',
   'portal.html', 'reset-pin.html', 'start.html', 'style.css', 'site-brand-layout.css', 'ppe-matrix.css',
+  'fire-ops.html', 'fire-ops.js', 'fire-ops.css',
   'coi-serviceworker.js', 'auth-gate.js', 'panel-state.js', 'panel-mobile.js', 'mobile-detail-sheet.js', 'mobile-detail-sheet.css',
   'staff-map-shell.js', 'staff-nav.js', 'admin3d.js', 'gallery.js',
   'scene-editor.js', 'scene-label-pin.js', 'scene-bundle-loader.js', 'scene-early-photos.js', 'shared-scene-pin-preview.js', 'shared-scene-startup-focus.js', 'scene-photo-gallery-view.js', 'photo-zoom.js', 'site-gps-calibration.js', 'gps-tracking.js', 'viewer3d.js', 'db.js', 'detail-card.js', 'guide-url.js',
