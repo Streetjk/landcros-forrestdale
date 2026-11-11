@@ -12,11 +12,11 @@ export const REQUIRED_PPE_BY_BUILDING_ID = Object.freeze({
 });
 
 const PPE_ITEMS = Object.freeze({
-  boots: { label: 'Safety boots', filename: 'safety-boots.svg' },
-  glasses: { label: 'Safety glasses', filename: 'safety-glasses.svg' },
-  hiVis: { label: 'Hi-vis clothing', filename: 'hi-vis.svg' },
-  longClothing: { label: 'Long clothing', filename: 'long-clothing.svg' },
-  noSmoking: { label: 'No smoking', filename: 'no-smoking.svg' },
+  boots: { label: 'Safety boots', filename: 'safety-boots-generated.webp' },
+  glasses: { label: 'Safety glasses', filename: 'safety-glasses-generated.webp' },
+  hiVis: { label: 'Hi-vis clothing', filename: 'hi-vis-generated.webp' },
+  longClothing: { label: 'Long clothing', filename: 'long-clothing-generated.webp' },
+  noSmoking: { label: 'No smoking', filename: 'no-smoking-generated.webp' },
 });
 
 const ICON_BASE = './assets/ppe/';
@@ -29,7 +29,7 @@ export function requiredPpeForBuilding(buildingId, siteSlug) {
 
 function createIcon(documentRef, filename) {
   const image = documentRef.createElement('img');
-  image.src = ICON_BASE + filename + '?v=ppe-20261111c';
+  image.src = ICON_BASE + filename + '?v=ppe-20261111d';
   image.alt = '';
   image.setAttribute('aria-hidden', 'true');
   image.width = 44;

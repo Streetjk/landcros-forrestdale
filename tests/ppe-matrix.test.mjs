@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { requiredPpeForBuilding, renderBuildingPpe } from '../ppe-matrix.js';
 import { showBuildingDetail } from '../location-details.js';
@@ -36,14 +37,27 @@ test('The Forrestdale matrix never appears on another site sharing building IDs'
   }
 });
 
-test('PPE module, styles and SVG icons are permitted on the static site', () => {
+test('PPE module, styles and generated WebP icons are permitted on the static site', () => {
   for (const path of [
     '/ppe-matrix.js', '/ppe-matrix.css',
-    '/assets/ppe/safety-boots.svg', '/assets/ppe/safety-glasses.svg',
-    '/assets/ppe/hi-vis.svg', '/assets/ppe/long-clothing.svg',
-    '/assets/ppe/no-smoking.svg',
+    '/assets/ppe/safety-boots-generated.webp', '/assets/ppe/safety-glasses-generated.webp',
+    '/assets/ppe/hi-vis-generated.webp', '/assets/ppe/long-clothing-generated.webp',
+    '/assets/ppe/no-smoking-generated.webp',
   ]) {
     assert.ok(classifyPublicStaticPath(path), `expected public: ${path}`);
+  }
+});
+
+test('All five generated PPE assets are complete WebP images', () => {
+  for (const filename of [
+    'safety-boots-generated.webp', 'safety-glasses-generated.webp',
+    'hi-vis-generated.webp', 'long-clothing-generated.webp',
+    'no-smoking-generated.webp',
+  ]) {
+    const bytes = readFileSync(new URL(`../sites/landcros/assets/ppe/${filename}`, import.meta.url));
+    assert.ok(bytes.length > 4000, `truncated icon: ${filename}`);
+    assert.equal(bytes.toString('ascii', 0, 4), 'RIFF');
+    assert.equal(bytes.toString('ascii', 8, 12), 'WEBP');
   }
 });
 
@@ -96,7 +110,7 @@ test('No smoking shares the same uniform PPE tile grid', () => {
     'Safety boots', 'Safety glasses', 'Hi-vis clothing', 'Long clothing', 'No smoking',
   ]);
   assert.equal(documentRef.getElementById('ppe-rule-heading'), null);
-  assert.equal(list.children[4].children[0].src, './assets/ppe/no-smoking.svg?v=ppe-20261111c');
+  assert.equal(list.children[4].children[0].src, './assets/ppe/no-smoking-generated.webp?v=ppe-20261111d');
 
   assert.equal(renderBuildingPpe({ id: 'bld-parts-despatch' }, documentRef, 'landcros'), true);
   assert.deepEqual(list.children.map((cell) => cell.children[1].textContent), [
