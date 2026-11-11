@@ -18,6 +18,7 @@ mkdir -p "${OUT}/assets" "${OUT}/data"
 # One source of truth with server.js: raw contacts/changelog/share files and
 # server-only modules are never copied simply because they exist in the repo.
 while IFS= read -r f; do
+  case "$f" in fire-ops.html|fire-ops.js|fire-ops.css) continue ;; esac
   [ -f "$f" ] && cp "$f" "${OUT}/"
 done < <(node -e "for (const f of require('./static-public-files').PUBLIC_ROOT_FILES) console.log(f)")
 

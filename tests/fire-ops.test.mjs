@@ -148,4 +148,8 @@ test('migration is private, scoped, audited and cannot store fake approved statu
   assert.match(map,/_fireLayerRequested = _params\.get\('fire'\) === '1'/);
   assert.match(map,/credentials: 'same-origin', cache: 'no-store'/);
   assert.match(map,/_loadFireEquipmentLayer\(\)/);
+  const classifier=require('../static-public-files');
+  assert.ok(classifier.BACKEND_ONLY_ROOT_FILES.includes('fire-ops.html'));
+  const build=fs.readFileSync(new URL('../build.sh',import.meta.url),'utf8');
+  assert.match(build,/fire-ops\.html\|fire-ops\.js\|fire-ops\.css\) continue/);
 });

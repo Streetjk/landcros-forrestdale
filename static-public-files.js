@@ -17,6 +17,11 @@ const PUBLIC_ROOT_FILES = Object.freeze([
 ]);
 const PUBLIC_ROOT_SET = new Set(PUBLIC_ROOT_FILES);
 
+// These assets are safe to serve by the authenticated Node origin, but they
+// depend on same-origin staff sessions and must not be copied onto the
+// credential-free public static CDN. The public start chooser links to Node.
+const BACKEND_ONLY_ROOT_FILES = Object.freeze(['fire-ops.html','fire-ops.js','fire-ops.css']);
+
 const PUBLIC_DATA_FILES = Object.freeze([
   'config.json', 'public-runtime.json', 'buildings.geojson', 'traffic.json', 'roads.json',
 ]);
@@ -80,6 +85,7 @@ function classifyPublicStaticPath(pathname) {
 
 module.exports = {
   PUBLIC_ROOT_FILES,
+  BACKEND_ONLY_ROOT_FILES,
   PUBLIC_DATA_FILES,
   PUBLIC_SITE_ROOT_FILES,
   PUBLIC_ASSET_EXTENSIONS,
