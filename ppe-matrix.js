@@ -1,7 +1,7 @@
 // Forrestdale site-entry requirements, transcribed from the approved matrix.
 // Only these building IDs receive a PPE panel. Unlisted locations remain blank.
-const FULL_PPE = Object.freeze(['boots', 'glasses', 'hiVis', 'longClothing']);
-const PARTS_PPE = Object.freeze(['boots', 'hiVis']);
+const FULL_PPE = Object.freeze(['boots', 'glasses', 'hiVis', 'longClothing', 'noSmoking']);
+const PARTS_PPE = Object.freeze(['boots', 'hiVis', 'noSmoking']);
 
 export const REQUIRED_PPE_BY_BUILDING_ID = Object.freeze({
   'bld-mining': FULL_PPE,
@@ -16,6 +16,7 @@ const PPE_ITEMS = Object.freeze({
   glasses: { label: 'Safety glasses', filename: 'safety-glasses.svg' },
   hiVis: { label: 'Hi-vis clothing', filename: 'hi-vis.svg' },
   longClothing: { label: 'Long clothing', filename: 'long-clothing.svg' },
+  noSmoking: { label: 'No smoking', filename: 'no-smoking.svg' },
 });
 
 const ICON_BASE = './assets/ppe/';
@@ -53,23 +54,8 @@ function createPpeSection(documentRef, detailPanel) {
   list.className = 'ppe-icon-grid';
   list.setAttribute('role', 'list');
 
-  const ruleGroup = documentRef.createElement('div');
-  ruleGroup.className = 'ppe-rule-group';
-  ruleGroup.setAttribute('role', 'group');
-  ruleGroup.setAttribute('aria-labelledby', 'ppe-rule-heading');
-  const ruleHeading = documentRef.createElement('h4');
-  ruleHeading.id = 'ppe-rule-heading';
-  ruleHeading.className = 'ppe-rule-heading';
-  ruleHeading.textContent = 'Site rule';
-  const rule = documentRef.createElement('div');
-  rule.className = 'ppe-site-rule';
-  const ruleIcon = createIcon(documentRef, 'no-smoking.svg');
-  const ruleText = documentRef.createElement('span');
-  ruleText.textContent = 'No smoking';
-  rule.append(ruleIcon, ruleText);
-  ruleGroup.append(ruleHeading, rule);
-
-  section.append(heading, list, ruleGroup);
+  // Every entry requirement, including No smoking, uses one uniform tile list.
+  section.append(heading, list);
   const hero = detailPanel.querySelector('.detail-hero');
   if (hero) hero.insertAdjacentElement('afterend', section);
   else detailPanel.appendChild(section);

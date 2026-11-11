@@ -1,6 +1,6 @@
 // location-details.js - Metadata validator and safe DOM renderer for building details
 import { createDetailPhoneLink } from './detail-card.js';
-import { renderBuildingPpe } from './ppe-matrix.js';
+import { renderBuildingPpe } from './ppe-matrix.js?v=ppe-20261111b';
 
 const RASTER_EXT_RE = /\.(jpe?g|png|webp|avif|gif)$/i;
 
@@ -257,9 +257,9 @@ export function showBuildingDetail(building, openDetailPanel, { siteSlug = '' } 
 
   const notes = document.getElementById('detail-notes');
   if (notes) {
-    const empty = !hasBuildingDetailContent(p.details);
-    notes.textContent = details.description || (empty ? 'Visitor information is not available for this location.' : '');
-    notes.classList.toggle('detail-empty-state', empty);
+    // Leave the description node in place for future public building details.
+    notes.textContent = details.description || '';
+    notes.classList.remove('detail-empty-state');
   }
 
   let visitorBlock = document.getElementById('detail-visitor-info');

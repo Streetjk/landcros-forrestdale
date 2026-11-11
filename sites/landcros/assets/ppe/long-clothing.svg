@@ -1,7 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-labelledby="title">
-  <title id="title">Long-sleeved work clothing</title>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-labelledby="ppe-clothing-title">
+  <title id="ppe-clothing-title">Long-sleeved work clothing</title>
   <circle cx="50" cy="50" r="49.5" fill="#F36B21"/>
   <path fill="#fff" d="M41 15 30 20c-4 2-6 5-8 10L14 50l11 5 10-20v30l-3 24h16l2-28 2 28h16l-3-24V35l10 20 11-5-8-20c-2-5-4-8-8-10l-11-5-9 10z"/>
-  <path d="m41 15 9 10 9-10m-9 10v41M34 48h32M35 55h30M14 50l11 5m50 0 11-5M35 65l-3 24m33-24 3 24" fill="none" stroke="#F36B21" stroke-width="2.6" stroke-linejoin="round"/>
-  <path d="M38 31h9v10h-9zm15 0h9v10h-9zM35 66h8v10h-8zm22 0h8v10h-8z" fill="none" stroke="#F36B21" stroke-width="2.3" stroke-linejoin="round"/>
+  <path d="m41 15 9 10 9-10m-9 10v41M34 50h32M14 50l11 5m50 0 11-5M35 65l-3 24m33-24 3 24" fill="none" stroke="#F36B21" stroke-width="3.5" stroke-linejoin="round" stroke-linecap="round"/>
 </svg>
