@@ -73,10 +73,11 @@
   .sn-summary-ppe-icon[src*="-generated.webp"]:not([src*="no-smoking"]) {
     box-sizing:border-box;padding:3px;border-radius:50%;background:#ed5e13;
   }
-  /* The red prohibition badge has a transparent surround: centre it in the
-     same inset image box without painting an orange background behind it. */
+  /* Fill the same circular footprint as the orange badges while preserving
+     the centred transparent red-and-white sign. */
   .sn-summary-ppe-icon[src*="no-smoking-generated.webp"] {
-    box-sizing:border-box;padding:3px;object-fit:contain;object-position:center;
+    box-sizing:border-box;padding:0;object-fit:contain;object-position:center;
+    transform:scale(1.036);transform-origin:center;
   }
   .sn-summary-ppe-label {display:block;width:100%;color:#f4f7fb;
     font:600 11px/1.25 'DM Sans',sans-serif;overflow-wrap:normal;text-wrap:balance;}

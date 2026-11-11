@@ -196,14 +196,17 @@ test('mobile initial load shows a location-information capsule, and a later resi
     }
   }
 });
-test('generated PPE images are optically inset, with a centred transparent no-smoking sign',()=>{
+test('generated PPE badges share the same outer diameter and centred artwork',()=>{
   for(const cssFile of ['mobile-detail-sheet.css','ppe-matrix.css']){
     const css=read(cssFile);
     assert.match(css,/\[src\*="-generated.webp"\]:not\(\[src\*="no-smoking"\]\)/);
     assert.match(css,/padding:\s*3px/);
     assert.match(css,/box-sizing:\s*border-box/);
-    assert.match(css,/\[src\*="no-smoking-generated.webp"\]/);
-    assert.match(css,/object-position:\s*center/);
+    const noSmokingRule=css.match(/\[src\*="no-smoking-generated.webp"\]\s*\{([^}]+)\}/)?.[1]||'';
+    assert.match(noSmokingRule,/padding:\s*0;/);
+    assert.match(noSmokingRule,/object-position:\s*center/);
+    assert.match(noSmokingRule,/transform:\s*scale\(1\.036\)/);
+    assert.match(noSmokingRule,/transform-origin:\s*center/);
   }
   const summaryCss=read('mobile-detail-sheet.css');
   assert.match(summaryCss,/data-detail-stage="summary"\]\[data-summary-layout="ppe"\]/);
