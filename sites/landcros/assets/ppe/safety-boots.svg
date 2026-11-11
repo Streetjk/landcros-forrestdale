@@ -1,9 +1,7 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-labelledby="ppe-boots-title">
-  <title id="ppe-boots-title">Protective footwear</title>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-labelledby="ppe-boot-v3-title">
+  <title id="ppe-boot-v3-title">Safety work boot</title>
   <circle cx="50" cy="50" r="49.5" fill="#F36B21"/>
-  <g transform="translate(50 50) scale(.84) translate(-50 -50)">
-    <path fill="#fff" d="M52 17c-4 0-7 3-7 8v15c-2 8-8 14-15 18l-9 3c-6 2-9 6-9 12v3c0 3 2 5 5 5h68c3 0 5-2 5-5v-7c0-4-3-7-8-8l-6-2-1-23c0-5-3-8-8-9l-2-5c-2-3-7-5-13-5z"/>
-    <path d="M17 69c17 3 38 5 68-1M18 77h64M28 60l4 13M64 30l-7 7M73 57l-8 9" fill="none" stroke="#F36B21" stroke-width="3.5" stroke-linecap="round"/>
-    <path d="M46 39l16 13m-18-4 16 13m-22-7 15 12" fill="none" stroke="#F36B21" stroke-width="3.6" stroke-linecap="round"/>
-  </g>
+  <path fill="#FFFFFF" d="M27 20H48V45C48 53 56 59 66 61L76 63C83 65 87 69 87 75H14C14 69 17 64 23 60L27 53Z"/>
+  <path fill="#FFFFFF" d="M14 74H87V84H14Z"/>
+  <path fill="#F36B21" d="M37 85V81C37 75 41 72 48 72S59 75 59 81V85Z"/>
 </svg>

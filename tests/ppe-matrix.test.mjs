@@ -96,7 +96,7 @@ test('No smoking shares the same uniform PPE tile grid', () => {
     'Safety boots', 'Safety glasses', 'Hi-vis clothing', 'Long clothing', 'No smoking',
   ]);
   assert.equal(documentRef.getElementById('ppe-rule-heading'), null);
-  assert.equal(list.children[4].children[0].src, './assets/ppe/no-smoking.svg');
+  assert.equal(list.children[4].children[0].src, './assets/ppe/no-smoking.svg?v=ppe-20261111c');
 
   assert.equal(renderBuildingPpe({ id: 'bld-parts-despatch' }, documentRef, 'landcros'), true);
   assert.deepEqual(list.children.map((cell) => cell.children[1].textContent), [

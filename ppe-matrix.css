@@ -47,8 +47,8 @@
 }
 
 #detail-ppe .ppe-icon-cell img {
-  width: 40px;
-  height: 40px;
+  width: 44px;
+  height: 44px;
   display: block;
   flex: none;
 }
@@ -58,7 +58,7 @@
   width: 100%;
   min-height: 26px;
   color: #eef0f4;
-  font: 500 11px/13px Inter, system-ui, sans-serif;
+  font: 500 12px/15px Inter, system-ui, sans-serif;
   overflow-wrap: normal;
   word-break: normal;
   hyphens: manual;
@@ -70,8 +70,8 @@
     flex-basis: calc((100% - 24px) / 5);
   }
   #detail-ppe .ppe-icon-cell img {
-    width: 44px;
-    height: 44px;
+    width: 46px;
+    height: 46px;
   }
   #detail-ppe .ppe-icon-label {
     min-height: 30px;

@@ -1,6 +1,6 @@
 // location-details.js - Metadata validator and safe DOM renderer for building details
 import { createDetailPhoneLink } from './detail-card.js';
-import { renderBuildingPpe } from './ppe-matrix.js?v=ppe-20261111b';
+import { renderBuildingPpe } from './ppe-matrix.js?v=ppe-20261111c';
 
 const RASTER_EXT_RE = /\.(jpe?g|png|webp|avif|gif)$/i;
 

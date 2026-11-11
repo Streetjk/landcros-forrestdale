@@ -8,7 +8,7 @@ import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer
 import { Sky } from 'three/addons/objects/Sky.js';
 import { initComparison, updateComparison, comparisonNeedsRender } from './splat-compare.js';
 import { buildPinUrl, clearPinUrl, buildMyPinShareUrl, buildMyPinPhotoUrl } from './guide-url.js';
-import { buildPointDetailModel, hasSiteDetail, showBuildingDetail, showSiteDetail } from './location-details.js?v=ppe-20261111b';
+import { buildPointDetailModel, hasSiteDetail, showBuildingDetail, showSiteDetail } from './location-details.js?v=ppe-20261111c';
 import { loadPublicArray, renderPublicDataNotice, isRenderablePoint, isRenderableContact, projectPublicPoint, projectPublicContact } from './public-data.js';
 import { resolvePublicSiteMetadata, resolveSiteBranding, sanitizePublicLogoUrl } from './public-site.js';
 import { loadPublicRuntimeConfig, loadPublicTransport, backendRedirectForScopedRoute, shouldProbeStaffSession, backendApiUrl } from './public-transport.js';

@@ -29,11 +29,11 @@ export function requiredPpeForBuilding(buildingId, siteSlug) {
 
 function createIcon(documentRef, filename) {
   const image = documentRef.createElement('img');
-  image.src = ICON_BASE + filename;
+  image.src = ICON_BASE + filename + '?v=ppe-20261111c';
   image.alt = '';
   image.setAttribute('aria-hidden', 'true');
-  image.width = 40;
-  image.height = 40;
+  image.width = 44;
+  image.height = 44;
   image.decoding = 'async';
   return image;
 }

@@ -1,9 +1,9 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-labelledby="ppe-glasses-title">
-  <title id="ppe-glasses-title">Safety glasses</title>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-labelledby="ppe-glasses-v3-title">
+  <title id="ppe-glasses-v3-title">Safety spectacles</title>
   <circle cx="50" cy="50" r="49.5" fill="#F36B21"/>
-  <g transform="translate(50 50) scale(.82) translate(-50 -50)" fill="none" stroke="#fff" stroke-linecap="round">
-    <path d="M13 40c6-5 15-8 26-6l11 3 11-3c11-2 20 1 26 6" stroke-width="5.7"/>
-    <path d="M15 43c3-1 8-1 12 0l18 4c2 0 3 1 5 1s3-1 5-1l18-4c4-1 9-1 12 0v13c0 12-9 20-21 21c-5 1-9-2-11-6l-1-3c-.5-1.5-1-2-2-2c-1 0-1.5.5-2 2l-1 3c-2 4-6 7-11 6c-12-1-21-9-21-21z" stroke-width="6" stroke-linejoin="round"/>
-    <path d="M8 46h10m64 0h10" stroke-width="7"/>
-  </g>
+  <path fill="#FFFFFF" d="M16 39C22 35 35 35 43 39V54C42 64 36 70 29 70C21 70 16 63 16 53Z"/>
+  <path fill="#FFFFFF" d="M57 39C65 35 78 35 84 39V53C84 63 79 70 71 70C64 70 58 64 57 54Z"/>
+  <path fill="#FFFFFF" d="M41 41C46 38 54 38 59 41V47C54 44 46 44 41 47Z"/>
+  <path fill="#FFFFFF" d="M16 42L10 40L7 46L17 48Z"/>
+  <path fill="#FFFFFF" d="M84 42L90 40L93 46L83 48Z"/>
 </svg>
