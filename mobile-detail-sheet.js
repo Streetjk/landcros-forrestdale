@@ -55,6 +55,7 @@ export function createMobileDetailSheet({ onDismiss = () => {}, enabled = () => 
   let syncQueued = false;
   let focusWorld = null;
   let lastLayoutSignature = '';
+  let initialBrowseShown = false;
   const compact = () => window.innerWidth <= 1024 && enabled();
   const el = id => document.getElementById(id);
   const usable = () => compact() && el('side-panel') && el('point-detail');
@@ -107,9 +108,9 @@ export function createMobileDetailSheet({ onDismiss = () => {}, enabled = () => 
     image.addEventListener('error', () => { picture.hidden = true; summary.classList.remove('has-photo'); });
     panel.insertBefore(header,detail);
     panel.insertBefore(summary,detail);
-    const browse = make('button','sn-details-browse','Locations');
+    const browse = make('button','sn-details-browse','Location information');
     browse.id = 'sn-details-browse'; browse.type = 'button';
-    browse.setAttribute('aria-label','Open locations');
+    browse.setAttribute('aria-label','Open location information');
     browse.addEventListener('click', browseLocations);
     app.appendChild(browse);
     ui = { panel, detail, app, header, expand, close, summary, title, kind, description,
@@ -242,6 +243,15 @@ export function createMobileDetailSheet({ onDismiss = () => {}, enabled = () => 
     change({type:'expand'});
     return true;
   }
+  // The visitor starts with the same compact dock shown after dismissing a pin.
+  // Run once so a later resize does not close a list the visitor opened manually.
+  function initialize() {
+    if (initialBrowseShown || state.stage !== 'idle' || !usable()) return false;
+    initialBrowseShown = true;
+    state = {stage:'closed',key:null};
+    apply();
+    return true;
+  }
   function browseLocations() {
     const parts = ensure();
     if (!parts) return false;
@@ -274,6 +284,6 @@ export function createMobileDetailSheet({ onDismiss = () => {}, enabled = () => 
     apply();
     return true;
   }
-  window.addEventListener('resize', () => { if (ui) apply(); });
-  return Object.freeze({open,repeat,reset,dismiss,browseLocations,refresh,snapshot:()=>({...state}),isCompact:compact});
+  window.addEventListener('resize', () => { if (!initialize() && ui) apply(); });
+  return Object.freeze({initialize,open,repeat,reset,dismiss,browseLocations,refresh,snapshot:()=>({...state}),isCompact:compact});
 }

@@ -69,6 +69,10 @@
     gap:3px;text-align:center;}
   .sn-summary-ppe-icon {display:block;width:clamp(40px,12vw,48px);
     height:clamp(40px,12vw,48px);object-fit:contain;flex:none;}
+  /* Keep the orange badge size but inset the generated white PPE artwork. */
+  .sn-summary-ppe-icon[src*="-generated.webp"]:not([src*="no-smoking"]) {
+    box-sizing:border-box;padding:3px;border-radius:50%;background:#ed5e13;
+  }
   .sn-summary-ppe-label {display:block;width:100%;color:#f4f7fb;
     font:600 11px/1.25 'DM Sans',sans-serif;overflow-wrap:normal;text-wrap:balance;}
   .sn-summary-picture {display:block;position:relative;width:70px;height:70px;

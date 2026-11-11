@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {nextDetailState, trackMapTaps, compactPpeEntries} from '../mobile-detail-sheet.js';
+import {nextDetailState, trackMapTaps, compactPpeEntries, createMobileDetailSheet} from '../mobile-detail-sheet.js';
 
 const idle={stage:'idle',key:null};
 test('first selection is a summary; same pin second and subsequent taps remain fully expanded',()=>{
@@ -121,4 +121,71 @@ test('compact summary caps height and removes redundant full-details footer',()=
   assert.match(css,/max-height:min\(40dvh,235px\)!important/);
   assert.match(css,/\.sn-summary-footer \{display:none!important;\}/);
   assert.match(css,/\.sn-summary-ppe-icon \{display:block;width:clamp\(40px,12vw,48px\)/);
+});
+
+test('mobile initial load shows a location-information capsule, and a later resize preserves an open list',()=>{
+  const prior={window:globalThis.window,document:globalThis.document,
+    MutationObserver:globalThis.MutationObserver,ResizeObserver:globalThis.ResizeObserver,
+    requestAnimationFrame:globalThis.requestAnimationFrame};
+  const listeners=new Map();
+  const node=tag=>{
+    const values=new Set(),attrs=new Map();
+    return {tag,id:'',children:[],dataset:{},style:{setProperty(){},removeProperty(){}},
+      classList:{
+        add(...names){names.forEach(name=>values.add(name));},
+        remove(...names){names.forEach(name=>values.delete(name));},
+        toggle(name,force){if(force) values.add(name);else values.delete(name);},
+        contains:name=>values.has(name),
+      },
+      setAttribute:(name,value)=>attrs.set(name,String(value)),
+      getAttribute:name=>attrs.get(name)||null,removeAttribute:name=>attrs.delete(name),
+      addEventListener(){},append(...children){this.children.push(...children);},
+      appendChild(child){this.children.push(child);return child;},
+      insertBefore(child){this.children.push(child);return child;},
+      replaceChildren(...children){this.children=children;},
+      querySelector:()=>null,querySelectorAll:()=>[],
+      getBoundingClientRect:()=>({height:0,width:390,bottom:800}),
+    };
+  };
+  const app=node('div'),panel=node('aside'),detail=node('section');
+  const ids={'app':app,'side-panel':panel,'point-detail':detail};
+  globalThis.document={createElement:node,getElementById:id=>ids[id]||null,addEventListener(){}};
+  globalThis.window={innerWidth:390,innerHeight:800,addEventListener:(name,fn)=>listeners.set(name,fn)};
+  globalThis.MutationObserver=class{observe(){}};
+  globalThis.ResizeObserver=undefined;
+  globalThis.requestAnimationFrame=()=>{};
+  try {
+    const sheet=createMobileDetailSheet();
+    assert.equal(sheet.initialize(),true);
+    assert.equal(sheet.snapshot().stage,'closed');
+    assert.ok(app.classList.contains('sn-details-dismissed'));
+    const capsule=app.children.find(child=>child.id==='sn-details-browse');
+    assert.equal(capsule.textContent,'Location information');
+    assert.equal(capsule.getAttribute('aria-label'),'Open location information');
+    assert.equal(sheet.initialize(),false);
+    assert.equal(sheet.browseLocations(),true);
+    assert.ok(!app.classList.contains('sn-details-dismissed'));
+    listeners.get('resize')();
+    assert.ok(!app.classList.contains('sn-details-dismissed'));
+    assert.equal(sheet.open('building:parts'),true);
+    assert.equal(sheet.snapshot().stage,'summary');
+    assert.ok(app.classList.contains('sn-details-active'));
+  } finally {
+    for(const [key,value] of Object.entries(prior)) {
+      if(value===undefined) delete globalThis[key]; else globalThis[key]=value;
+    }
+  }
+});
+test('generated PPE silhouettes have an inset while the no-smoking badge is unaffected',()=>{
+  for(const cssFile of ['mobile-detail-sheet.css','ppe-matrix.css']){
+    const css=read(cssFile);
+    assert.match(css,/\[src\*="-generated.webp"\]:not\(\[src\*="no-smoking"\]\)/);
+    assert.match(css,/padding:\s*3px/);
+    assert.match(css,/box-sizing:\s*border-box/);
+  }
+  for(const name of ['index.html','viewer3d.html']){
+    const html=read(name);
+    assert.match(html,/Location information/);
+  }
+  assert.match(read('viewer3d.js'),/_mobileDetails\.initialize\(\);/);
 });

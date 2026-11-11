@@ -1026,9 +1026,9 @@
       outline:2px solid #93c5fd;outline-offset:2px;
     }
   </style>
-  <link rel="stylesheet" href="./mobile-detail-sheet.css?v=mobile-ppe-frame-20261111f">
+  <link rel="stylesheet" href="./mobile-detail-sheet.css?v=mobile-ppe-frame-20261111g">
   <link rel="stylesheet" href="./site-brand-layout.css?v=20261015a">
-  <link rel="stylesheet" href="./ppe-matrix.css?v=20261111d">
+  <link rel="stylesheet" href="./ppe-matrix.css?v=20261111e">
 </head>
 <body>
 <div id="app" class="sitenav-shell">
@@ -1081,11 +1081,11 @@
     <div class="panel-handle"></div>
 
     <!-- Peek-state tap target (mobile only, hidden when sheet open) -->
-    <button type="button" class="sheet-peek-cta" id="sheet-peek-toggle" onclick="togglePanel()" aria-label="Open locations" aria-controls="side-panel" aria-expanded="false">
+    <button type="button" class="sheet-peek-cta" id="sheet-peek-toggle" onclick="togglePanel()" aria-label="Open location information" aria-controls="side-panel" aria-expanded="false">
       <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
         <path d="M3 9L7 5L11 9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
       </svg>
-      Locations
+      Location information
     </button>
 
     <div id="panel-header" onclick="togglePanel()">
@@ -1204,6 +1204,6 @@
     if (el && r) el.textContent = 'Error: ' + (r?.message || (typeof r === 'string' ? r : 'unknown'));
   });
 </script>
-<script type="module" src="./viewer3d.js?v=adaptive-dpr-20261023b-ppe-20261111d-mobile-20261111f"></script>
+<script type="module" src="./viewer3d.js?v=adaptive-dpr-20261023b-ppe-20261111d-mobile-20261111g"></script>
 </body>
 </html>

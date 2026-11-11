@@ -27,7 +27,7 @@ test('landscape dismiss keeps only the right drawer tab, portrait retains bottom
   assert.match(detailCss,/#app\.sn-details-dismissed #sn-details-browse\s*\{[^}]*display:block;/);
   assert.match(detailJs,/function browseLocations\(\)\s*\{/);
   assert.match(detailJs,/browse\.addEventListener\('click', browseLocations\)/);
-  assert.match(detailJs,/Object\.freeze\(\{open,repeat,reset,dismiss,browseLocations,/);
+  assert.match(detailJs,/Object\.freeze\(\{initialize,open,repeat,reset,dismiss,browseLocations,/);
   assert.match(viewerJs,/window\._snShowLocationsFromSideTab = \(\) =>/);
   assert.match(viewerJs,/_mobileDetails\.browseLocations\(\)/);
   for(const page of ['index.html','viewer3d.html']){

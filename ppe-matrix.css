@@ -53,6 +53,14 @@
   flex: none;
 }
 
+/* Inset generated PPE silhouettes without shrinking the 44–46 px orange badges. */
+#detail-ppe .ppe-icon-cell img[src*="-generated.webp"]:not([src*="no-smoking"]) {
+  box-sizing: border-box;
+  padding: 3px;
+  border-radius: 50%;
+  background: #ed5e13;
+}
+
 #detail-ppe .ppe-icon-label {
   display: block;
   width: 100%;
