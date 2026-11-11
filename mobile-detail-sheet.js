@@ -12,6 +12,16 @@ export function nextDetailState(current, event) {
   return state;
 }
 
+// Summary reads the approved full-detail list; it never maintains a second matrix.
+export function compactPpeEntries(detail) {
+  const sourcePpe = detail?.querySelector?.('#detail-ppe');
+  if (!sourcePpe || sourcePpe.hidden) return [];
+  return [...sourcePpe.querySelectorAll('.ppe-icon-cell')].map(cell => ({
+    src:cell.querySelector('img')?.getAttribute('src') || '',
+    label:cell.querySelector('.ppe-icon-label')?.textContent?.trim() || '',
+  })).filter(entry => entry.src && entry.label);
+}
+
 // A drag, orbit, or two-finger gesture must not be mistaken for an empty-map tap.
 export function trackMapTaps(canvas) {
   let gesture = null, last = null;
@@ -39,10 +49,12 @@ export function trackMapTaps(canvas) {
   return event => event.detail === 0 || (!!last?.valid && Date.now()-last.at < 1000);
 }
 
-export function createMobileDetailSheet({ onDismiss = () => {}, enabled = () => true } = {}) {
+export function createMobileDetailSheet({ onDismiss = () => {}, enabled = () => true, onLayout = () => {} } = {}) {
   let state = { stage:'idle', key:null };
   let ui = null;
   let syncQueued = false;
+  let focusWorld = null;
+  let lastLayoutSignature = '';
   const compact = () => window.innerWidth <= 1024 && enabled();
   const el = id => document.getElementById(id);
   const usable = () => compact() && el('side-panel') && el('point-detail');
@@ -83,8 +95,14 @@ export function createMobileDetailSheet({ onDismiss = () => {}, enabled = () => 
     image.decoding = 'async'; image.loading = 'eager';
     const photoCount = make('span','sn-summary-photo-count');
     picture.append(image,photoCount);
+    // Reuse the already-rendered full-detail PPE matrix; never infer new rules.
+    const ppe = make('span','sn-summary-ppe');
+    ppe.hidden = true;
+    const ppeHeading = make('span','sn-summary-ppe-heading','PPE REQUIREMENTS');
+    const ppeGrid = make('span','sn-summary-ppe-grid');
+    ppe.append(ppeHeading,ppeGrid);
     const footer = make('span','sn-summary-footer','View full details →');
-    summary.append(text,picture,footer);
+    summary.append(text,picture,ppe,footer);
     summary.addEventListener('click', () => change({type:'expand'}));
     image.addEventListener('error', () => { picture.hidden = true; summary.classList.remove('has-photo'); });
     panel.insertBefore(header,detail);
@@ -95,7 +113,7 @@ export function createMobileDetailSheet({ onDismiss = () => {}, enabled = () => 
     browse.addEventListener('click', browseLocations);
     app.appendChild(browse);
     ui = { panel, detail, app, header, expand, close, summary, title, kind, description,
-      picture, image, photoCount, footer, browse };
+      ppe, ppeGrid, picture, image, photoCount, footer, browse };
     const observer = new MutationObserver(() => {
       if (syncQueued) return;
       syncQueued = true;
@@ -114,16 +132,46 @@ export function createMobileDetailSheet({ onDismiss = () => {}, enabled = () => 
 
   function updateHeight() {
     if (!ui || !compact() || !['summary','full'].includes(state.stage)) return;
-    ui.app.style.setProperty('--sn-active-detail-height', Math.round(ui.panel.getBoundingClientRect().height)+'px');
+    const rect = ui.panel.getBoundingClientRect();
+    const height = Math.round(rect.height);
+    const width = Math.round(rect.width);
+    const bottomInset = Math.max(0,Math.round(window.innerHeight-rect.bottom));
+    ui.app.style.setProperty('--sn-active-detail-height',height+'px');
+    const focusKey = focusWorld ? [focusWorld.x,focusWorld.y,focusWorld.z].join(',') : '';
+    const signature = [state.stage,state.key,height,width,bottomInset,window.innerWidth,window.innerHeight,focusKey].join('|');
+    if (signature === lastLayoutSignature) return;
+    lastLayoutSignature = signature;
+    onLayout({stage:state.stage,height,width,bottomInset,focusWorld});
   }
   function refresh() {
     if (!ui || !state.key) return;
-    const {detail,title,kind,description,picture,image,photoCount,summary,footer,expand} = ui;
+    const {detail,title,kind,description,ppe,ppeGrid,picture,image,photoCount,summary,footer,expand} = ui;
     const titleText = el('detail-label')?.textContent?.trim() || 'Location';
     title.textContent = titleText;
     kind.textContent = el('detail-chip')?.textContent?.trim() || 'Location';
-    description.textContent = el('detail-notes')?.textContent?.trim() || 'Tap to view location details.';
-    summary.setAttribute('aria-label','View full details for '+titleText);
+    const entries = compactPpeEntries(detail);
+    const signature = entries.map(entry => entry.src+'|'+entry.label).join('||');
+    if (ppeGrid.dataset.signature !== signature) {
+      ppeGrid.replaceChildren();
+      for (const entry of entries) {
+        const cell = make('span','sn-summary-ppe-cell');
+        const icon = make('img','sn-summary-ppe-icon');
+        icon.src = entry.src;
+        icon.alt = '';
+        icon.setAttribute('aria-hidden','true');
+        const label = make('span','sn-summary-ppe-label',entry.label);
+        cell.append(icon,label);
+        ppeGrid.appendChild(cell);
+      }
+      ppeGrid.dataset.signature = signature;
+    }
+    ppeGrid.dataset.count = String(entries.length);
+    ppe.hidden = entries.length === 0;
+    const notes = el('detail-notes')?.textContent?.trim() || '';
+    description.textContent = notes || (entries.length ? '' : 'Tap to view location details.');
+    description.hidden = !description.textContent;
+    summary.setAttribute('aria-label','View full details for '+titleText
+      + (entries.length ? '. PPE requirements: '+entries.map(entry=>entry.label).join(', ') : ''));
     const candidates = [...detail.querySelectorAll('#detail-scene-photo[src], #detail-photo[src], #detail-photos img[src]')]
       .filter(img => !img.closest('[hidden]') && img.parentElement?.style.display !== 'none');
     const source = candidates[0];
@@ -165,6 +213,10 @@ export function createMobileDetailSheet({ onDismiss = () => {}, enabled = () => 
     } else {
       delete panel.dataset.detailStage;
       if (!compact() && state.key) app.classList.add('panel-open');
+      if (lastLayoutSignature !== 'closed') {
+        lastLayoutSignature = 'closed';
+        onLayout({stage:'closed',height:0,width:0,bottomInset:0,focusWorld:null});
+      }
     }
     refresh();
   }
@@ -174,10 +226,12 @@ export function createMobileDetailSheet({ onDismiss = () => {}, enabled = () => 
     apply();
     if (ui && state.stage === 'full' && previous.stage !== 'full') ui.detail.scrollTop = 0;
   }
-  function open(key) {
+  function open(key, {focusWorld:nextFocusWorld = null} = {}) {
     if (!usable()) return false;
     // New selections always start in summary even after an expanded card.
     state = {stage:'summary',key:String(key)};
+    focusWorld = nextFocusWorld && [nextFocusWorld.x,nextFocusWorld.y,nextFocusWorld.z].every(Number.isFinite)
+      ? {x:nextFocusWorld.x,y:nextFocusWorld.y,z:nextFocusWorld.z} : null;
     if (el('detail-notes')?.querySelector('form,textarea,input,select')) state.stage='full';
     apply();
     if (ui) ui.detail.scrollTop = 0;
@@ -200,7 +254,10 @@ export function createMobileDetailSheet({ onDismiss = () => {}, enabled = () => 
   }
   function reset() {
     state = {stage:'idle',key:null};
+    focusWorld = null;
     if (!ui) return;
+    lastLayoutSignature = 'closed';
+    onLayout({stage:'closed',height:0,width:0,bottomInset:0,focusWorld:null});
     delete ui.panel.dataset.detailStage;
     ui.app.classList.remove('sn-details-active','sn-details-full','sn-details-dismissed');
     ui.image.removeAttribute('src');
@@ -211,6 +268,7 @@ export function createMobileDetailSheet({ onDismiss = () => {}, enabled = () => 
     // Existing code cancels detail-photo requests and clears pin highlights.
     onDismiss();
     state = {stage:'closed',key:null};
+    focusWorld = null;
     apply();
     return true;
   }

@@ -16,7 +16,8 @@ import { getBasePublicVisitPointId } from './visit-analytics.js';
 import { createPointListItem } from './point-list-item.js';
 import { createSceneLabelPin, createSceneGroundFrame, SCENE_PIN_FLOAT_HEIGHT, SCENE_PIN_GROUND_Y, preloadSceneLabelPhotos, preloadSceneLabelThumbnails, scenePhotoItems, markerScaleForZoom } from './scene-label-pin.js?v=photo-perf-20261023a';
 import { renderScenePhotoGallery, hideScenePhotoGallery } from './scene-photo-gallery-view.js?v=photoload-20261022a';
-import { createMobileDetailSheet, trackMapTaps } from './mobile-detail-sheet.js?v=brand-dock-20261015a';
+import { createMobileDetailSheet, trackMapTaps } from './mobile-detail-sheet.js?v=mobile-ppe-frame-20261111e';
+import { mobileCameraFraming } from './mobile-camera-framing.js?v=mobile-ppe-frame-20261111e';
 import { loadSharedSceneBundle, loadSharedSceneBundleWithEarlyResult } from './scene-bundle-loader.js?v=earlyphoto-20261022a';
 import { loadSharedScenePinPreview } from './shared-scene-pin-preview.js?v=scene-detail-hydrate-20261015a';
 import { singleSharedSceneLabelPosition } from './shared-scene-startup-focus.js';
@@ -104,6 +105,11 @@ const _Q = (() => {
 
 const scene    = new THREE.Scene();
 const camera   = new THREE.PerspectiveCamera(60, 1, 0.1, 500);
+// A reversible projection shift keeps the map's centre above the mobile sheet.
+// Actual camera/orbit positions remain untouched, including during pin flights.
+const _mobileMapOffset = {x:0,y:0};
+let _mobileMapShiftTween = null;
+let _mobileMapProjectionDirty = false;
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: _Q.antialias });
 renderer.setPixelRatio(_Q.pixelRatio);
 renderer.toneMapping = _Q.toneMapping;
@@ -644,6 +650,67 @@ const _dirLight = new THREE.DirectionalLight(0xffffff, 0.6);
 _dirLight.position.set(10, 30, 10);
 scene.add(_dirLight);
 
+function _applyMobileMapProjection() {
+  const wrap = canvas.parentElement;
+  const w = wrap?.offsetWidth, h = wrap?.offsetHeight;
+  if (!(w > 0 && h > 0)) return;
+  if (Math.abs(_mobileMapOffset.x) > 0.01 || Math.abs(_mobileMapOffset.y) > 0.01) {
+    camera.setViewOffset(w,h,_mobileMapOffset.x,_mobileMapOffset.y,w,h);
+  } else if (camera.view?.enabled) {
+    camera.clearViewOffset();
+  }
+  _mobileMapProjectionDirty = true;
+  _labelLayoutDirty = true;
+}
+
+// Animate the projection rather than taking ownership of the camera's
+// position, which may simultaneously be controlled by a pin fly-to or orbit.
+function _reframeMobileMap({stage = 'closed',height = 0,width = 0,bottomInset = 0,focusWorld = null} = {}) {
+  const wrap = canvas.parentElement;
+  const viewportWidth = wrap?.offsetWidth || window.innerWidth;
+  const viewportHeight = wrap?.offsetHeight || window.innerHeight;
+  const landscape = window.matchMedia?.('(orientation: landscape)')?.matches || false;
+  let focusScreenX = null, focusScreenY = null;
+  if (focusWorld && [focusWorld.x,focusWorld.y,focusWorld.z].every(Number.isFinite)) {
+    const projection = new THREE.Vector3(focusWorld.x,focusWorld.y,focusWorld.z).project(camera);
+    if (projection.z >= -1 && projection.z <= 1) {
+      // Undo the active crop to recover its unshifted screen position.
+      focusScreenX = (projection.x + 1) * viewportWidth / 2 + _mobileMapOffset.x;
+      focusScreenY = (1 - projection.y) * viewportHeight / 2 + _mobileMapOffset.y;
+    }
+  }
+  const next = mobileCameraFraming({
+    stage,viewportWidth,viewportHeight,panelHeight:height,panelWidth:width,
+    bottomInset,landscape,focusScreenX,focusScreenY,
+  });
+  _mobileMapShiftTween?.kill();
+  _mobileMapShiftTween = null;
+  if (Math.abs(next.x - _mobileMapOffset.x) < 0.5 &&
+      Math.abs(next.y - _mobileMapOffset.y) < 0.5) return;
+  const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches;
+  if (reducedMotion) {
+    _mobileMapOffset.x = next.x;
+    _mobileMapOffset.y = next.y;
+    _applyMobileMapProjection();
+    return;
+  }
+  const motion = {x:_mobileMapOffset.x,y:_mobileMapOffset.y};
+  _mobileMapShiftTween = gsap.to(motion, {
+    x:next.x,y:next.y,duration:0.48,ease:'power2.out',
+    onUpdate() {
+      _mobileMapOffset.x = motion.x;
+      _mobileMapOffset.y = motion.y;
+      _applyMobileMapProjection();
+    },
+    onComplete() {
+      _mobileMapOffset.x = next.x;
+      _mobileMapOffset.y = next.y;
+      _applyMobileMapProjection();
+      _mobileMapShiftTween = null;
+    },
+  });
+}
+
 function resize() {
   const wrap = canvas.parentElement;
   const w = wrap.offsetWidth;
@@ -652,6 +719,9 @@ function resize() {
   css2d.setSize(w, h);
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
+  if (_mobileMapOffset.x || _mobileMapOffset.y) {
+    camera.setViewOffset(w,h,_mobileMapOffset.x,_mobileMapOffset.y,w,h);
+  }
   _labelLayoutDirty = true;
 }
 
@@ -869,8 +939,10 @@ function animate() {
   }
   if (camera.position.y < 0.5) camera.position.y = 0.5;
 
+  const projectionChanged = _mobileMapProjectionDirty;
+  _mobileMapProjectionDirty = false;
   const moved = !camera.position.equals(_prevCamPos) ||
-                !camera.quaternion.equals(_prevCamQuat);
+                !camera.quaternion.equals(_prevCamQuat) || projectionChanged;
   const motionChange = _movingResolution.observeFrame(performance.now(), moved || _camAnimating, Boolean(_splatViewer));
   if (motionChange) _perf.mark('adaptiveMotionDpr', motionChange);
   if (moved || _camAnimating) {
@@ -2536,6 +2608,7 @@ const _raycaster = new THREE.Raycaster();
 const _pointer   = new THREE.Vector2();
 const _mobileDetails = createMobileDetailSheet({
   enabled: () => !document.getElementById('admin-controls') && !document.getElementById('add-label-btn'),
+  onLayout: _reframeMobileMap,
   // Closing a UI sheet must not cancel its independently running 3D camera.
   onDismiss: () => window.showPointList?.({historyMode:'none',preserveCamera:true}),
 });
@@ -3173,8 +3246,8 @@ async function renderBuildings(geoData) {
         updatePinHighlight(null);
         history.pushState(null, '', clearPinUrl(window.location.href));
         showBuildingDetail(f, _openDetailPanel, { siteSlug: _publicRuntime?.siteSlug });
-        // First tap is a useful summary; second tap opens the complete card.
-        _mobileDetails.open('building:' + p.id);
+        // First tap is a useful summary; keep its selected label above the sheet.
+        _mobileDetails.open('building:' + p.id, {focusWorld:{x:lx,y:ly,z:lz}});
       };
       label._scaleEl.addEventListener('click', onOpenBuilding);
       // OrbitControls listens on the WebGL canvas, so bridge wheel input from

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
-import {nextDetailState, trackMapTaps} from '../mobile-detail-sheet.js';
+import {nextDetailState, trackMapTaps, compactPpeEntries} from '../mobile-detail-sheet.js';
 
 const idle={stage:'idle',key:null};
 test('first selection is a summary; same pin second and subsequent taps remain fully expanded',()=>{
@@ -42,6 +42,25 @@ test('tap detection rejects orbit drag, pinch, and pointer cancellation',()=>{
     down(1,10,10);globalListeners.get('pointercancel')({type:'pointercancel',pointerId:1,clientX:10,clientY:10});
     assert.equal(isTap({detail:1}),false);
   } finally {globalThis.window=oldWindow;}
+});
+
+test('compact preview mirrors only visible approved PPE icons',()=>{
+  const icons=[
+    {src:'./assets/ppe/safety-boots-generated.webp',label:'Safety boots'},
+    {src:'./assets/ppe/hi-vis-generated.webp',label:'Hi-vis clothing'},
+    {src:'./assets/ppe/no-smoking-generated.webp',label:'No smoking'},
+  ];
+  const cells=icons.map(icon=>({
+    querySelector:selector=>selector==='img'
+      ? {getAttribute:name=>name==='src'?icon.src:null}
+      : selector==='.ppe-icon-label'?{textContent:icon.label}:null,
+  }));
+  const section={hidden:false,querySelectorAll:()=>cells};
+  const detail={querySelector:selector=>selector==='#detail-ppe'?section:null};
+  assert.deepEqual(compactPpeEntries(detail),icons);
+  section.hidden=true;
+  assert.deepEqual(compactPpeEntries(detail),[]);
+  assert.deepEqual(compactPpeEntries({querySelector:()=>null}),[]);
 });
 
 const read=name=>readFileSync(new URL('../'+name,import.meta.url),'utf8');
