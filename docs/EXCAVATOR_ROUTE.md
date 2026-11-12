@@ -13,8 +13,8 @@ in the reference screenshot are separate and must not be modified.
 - The normal root URL continues using `index.html`.
 - The build makes a copy of the HTML viewer with the new suffix. Its animation
   code only imports on that suffix.
-- Asset target: `assets/excavator/EX2000_7_SiteNav_v4.glb`.
-- The v2 and v3 GLBs are retained for comparison; the route page uses v4.
+- Asset target: `assets/excavator/EX2000_7_SiteNav_v5.glb`.
+- Previous v2, v3 and v4 GLBs are retained for comparison; the route page uses v5.
 - Rejected primitive model must **never** be copied to this asset path.
 
 ## Route georeferencing
@@ -66,20 +66,28 @@ traffic-control arrows.
   equivalent to 4.2 km/h (twice the first demo's baseline); starting 2× is
   an 8.4 km/h equivalent *visual playback rate*, not a recommended machine
   travel speed.
+- On portrait phones (up to 600 CSS px wide), the control panel becomes a
+  compact two-row toolbar beneath the LANDCROS branding: a short live-status
+  chip plus a single row of playback, camera and labelled speed controls.
+  It retains 40px touch targets, keyboard focus indicators and the full
+  desktop panel for larger screens. The camera remains draggable.
 - Motion uses the Opus-generated `ExcavatorRig` solver and 92 instanced
   track shoes, independently rotating upperstructure, and a one-way
   spline route. The original rig retains its joint and cylinder animation
   capability, but the public **Dig cycle button is removed**.
-- The Opus 5.5-generated v4 model is derived from six workshop photographs,
-  removes both front hanging ladders and replaces all MMS/chevron markings
-  with legible yellow **BIG YELLOW** decals on the front and counterweight.
-  The cabin has a simplified hollow interior and its tinted `CAB_GLASS`
-  material has glTF `alphaMode=BLEND` with opacity **0.50**. Other structural
-  materials remain opaque. V4 has fewer than 100,000 triangles and is under
-  3 MiB; the v3 GLB remains a visual comparison baseline.
-  It preserves the v2/v3 joint hierarchy and passed 500 random rig poses with
-  <0.001 m hydraulic pin misalignment, including validation against the
-  original params. These are mechanical checks, not cross-device proof.
+- The Opus 5.5-generated v5 model retains v4 geometry, assembled from six
+  owner photographs. Both front hanging ladders remain removed, and the
+  **BIG YELLOW** markings replace MMS/chevrons. The tint of `CAB_GLASS`
+  retains glTF `alphaMode=BLEND` and now has opacity **0.15** (85% transparent).
+  Its factory-inspired Hitachi orange material is calibrated against the
+  photographed orange paint: sRGB `#EE6B1F` (converted to linear channels
+  `0.855, 0.147, 0.0137` for glTF). This is a visual photo match, not an
+  independently verified OEM paint-code specification.
+  All other structural materials remain opaque. V5 is 73,030 triangles,
+  1.41 MB; its binary geometry and animation buffer is byte-identical to v4.
+  All 92 track shoes and the named joints and three clips are preserved.
+  The v5 rig passed both parameter validations, with 500 random pose checks.
+  These are mechanical checks, not cross-device proof.
 - The camera follows by default, slowly zooms in over about 18 seconds and
   orbits the moving excavator. Dragging, panning or zooming the view changes
   to **manual-follow**: the owner retains their chosen view while the camera

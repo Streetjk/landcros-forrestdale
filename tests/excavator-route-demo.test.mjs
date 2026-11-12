@@ -127,6 +127,9 @@ const assertNear=(actual,expected,tolerance=0.025)=>{
 assertNear(rig.position.x,-5.77);
 assertNear(rig.position.z,-11.16);
 assert.equal(el('ex-focus').textContent, 'Unfollow');
+assert.equal(el('ex-state').textContent, 'Moving');
+assert.equal(el('ex-state').attributes['data-state'], 'moving');
+assert.equal(el('excavator-demo-status').textContent, 'Model loaded · one-way route running');
 assert.ok(source.includes('value="2" selected>2×'));
 assert.ok(source.includes('value="5">5×'));
 assert.ok(!source.includes('value="10"'));
@@ -160,6 +163,7 @@ const d0=Math.hypot(camera.position.x-rig.position.x,camera.position.z-rig.posit
 for(let i=0;i<3500;i++){now+=80;instance.update(now);}
 assert.equal(el('ex-play').textContent,'Replay');
 assert.equal(el('excavator-demo-status').textContent,'Route complete · parked');
+assert.equal(el('ex-state').textContent,'Parked');
 assertNear(rig.position.x,-7.44);
 assertNear(rig.position.z,0.72);
 const distanceAfterFinish=mechanics.distance;
@@ -176,6 +180,7 @@ assert.ok(Math.abs(camera.position.x-c0)>0.2,'cinematic camera should keep orbit
 el('ex-play').click();
 now+=80;instance.update(now);
 assert.equal(el('ex-play').textContent,'Pause');
+assert.equal(el('ex-state').textContent,'Moving','replay must report moving');
 assertNear(rig.position.x,-5.77,0.1);
 assertNear(rig.position.z,-11.16,0.1);
 // Dragging the camera must interrupt cinematic orbit without interrupting
@@ -196,6 +201,8 @@ const beforePause = mechanics.distance;
 for(let i=0;i<50;i++){now+=80;instance.update(now);}
 assert.equal(mechanics.distance,beforePause, 'tracks must not move while paused');
 assert.equal(el('ex-play').textContent,'Play');
+assert.equal(el('ex-state').textContent,'Paused');
+assert.equal(el('ex-state').attributes['data-state'],'paused');
 assert.ok(mechanics.poses.length>3000);
 instance.dispose();
 assert.equal(controls.handlers.start,undefined,'disposing must unregister drag listener');

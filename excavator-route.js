@@ -8,7 +8,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { ExcavatorRig } from './excavator-rig.js';
 
 const SCENE_METRES = 12.449; // provisional GPS calibration; scene units are NOT metres
-const MODEL_URL = './assets/excavator/EX2000_7_SiteNav_v4.glb';
+const MODEL_URL = './assets/excavator/EX2000_7_SiteNav_v5.glb';
 const RIG_PARAMS_URL = './assets/excavator/params.json';
 
 // Travel in the opposite direction to the first demo: start at the eastern
@@ -28,52 +28,131 @@ const EXCAVATOR_LAYER = 29; // dedicated final render pass, never in the site's 
 const ZOOM_SECONDS = 18;
 const ORBIT_RADIANS_PER_SECOND = 0.058;
 
+// Portrait phones (320–430 CSS px) get a compact two-row overlay below the
+// SiteNav brand/address; wider viewports keep the original desktop panel.
+const MOBILE_TOOLBAR_QUERY = '(max-width:600px)';
+
+// All presentation lives in this stylesheet, never in inline style
+// attributes, so the mobile media query can override the desktop rules.
+const TOOLBAR_CSS = `
+  #excavator-route-controls {
+    position:fixed;z-index:940;right:16px;top:88px;
+    width:min(248px,calc(100vw - 32px));box-sizing:border-box;
+    padding:13px 15px;border-radius:12px;
+    border:1px solid rgba(255,199,40,.36);
+    background:rgba(9,13,19,.91);backdrop-filter:blur(14px);
+    -webkit-backdrop-filter:blur(14px);
+    box-shadow:0 12px 30px rgba(0,0,0,.32);
+    font:12px/1.4 Inter,system-ui,sans-serif;color:#e5e7eb
+  }
+  #excavator-route-controls .exr-head {display:block}
+  #excavator-route-controls .exr-title {font-weight:700;font-size:13px;color:#ffd25c}
+  #excavator-route-controls .exr-state {display:none}
+  #excavator-route-controls .exr-detail {font-size:11px;margin:6px 0 10px;color:#cbd5e1}
+  #excavator-route-controls .exr-row {display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+  #excavator-route-controls .exr-speed {display:contents}
+  #excavator-route-controls .exr-speed label {font-size:11px}
+  #excavator-route-controls .exr-note {font-size:10px;color:#8fa3b5;margin-top:8px}
+  #excavator-route-controls button,#excavator-route-controls select {
+    border:1px solid rgba(255,255,255,.23);color:#e5e7eb;
+    background:#25303d;border-radius:6px;padding:5px 8px;
+    font:600 11px Inter,system-ui,sans-serif;cursor:pointer
+  }
+  #excavator-route-controls button:focus-visible,#excavator-route-controls select:focus-visible {
+    outline:2px solid #fbbf24;outline-offset:2px
+  }
+  @media ${MOBILE_TOOLBAR_QUERY} {
+    #excavator-route-controls {
+      top:calc(70px + env(safe-area-inset-top, 0px));
+      left:calc(10px + env(safe-area-inset-left, 0px));right:auto;
+      width:min(320px,calc(100vw - 20px));max-width:calc(100vw - 20px);
+      padding:7px 8px 8px;border-radius:12px;
+      box-shadow:0 6px 18px rgba(0,0,0,.30)
+    }
+    #excavator-route-controls .exr-head {
+      display:flex;align-items:center;justify-content:space-between;gap:8px;
+      min-height:22px;margin:0 2px 6px
+    }
+    #excavator-route-controls .exr-title {
+      font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis
+    }
+    #excavator-route-controls .exr-state {
+      display:inline-flex;align-items:center;gap:5px;flex:none;
+      padding:2px 8px;border-radius:999px;background:rgba(255,255,255,.08);
+      font:600 11px/16px Inter,system-ui,sans-serif;color:#e5e7eb;white-space:nowrap
+    }
+    #excavator-route-controls .exr-state::before {
+      content:"";width:7px;height:7px;border-radius:50%;background:#94a3b8
+    }
+    #excavator-route-controls .exr-state[data-state="moving"]::before {background:#4ade80}
+    #excavator-route-controls .exr-state[data-state="paused"]::before {background:#fbbf24}
+    #excavator-route-controls .exr-state[data-state="parked"]::before {background:#60a5fa}
+    #excavator-route-controls .exr-state[data-state="unavailable"]::before {background:#f87171}
+    #excavator-route-controls .exr-detail,
+    #excavator-route-controls .exr-note {display:none}
+    #excavator-route-controls .exr-row {
+      display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.2fr) auto;
+      gap:6px;flex-wrap:nowrap
+    }
+    #excavator-route-controls button,#excavator-route-controls select {
+      min-height:40px;padding:0 8px;font-size:12px;border-radius:8px;
+      white-space:nowrap;touch-action:manipulation
+    }
+    #excavator-route-controls .exr-speed {
+      display:flex;align-items:center;gap:5px;white-space:nowrap
+    }
+    #excavator-route-controls .exr-speed label {font-size:11px;color:#cbd5e1}
+    #excavator-route-controls select {min-width:58px;padding:0 6px}
+  }
+`;
+
+const ROUTE_STATES = {
+  loading:'Loading', moving:'Moving', paused:'Paused',
+  parked:'Parked', unavailable:'Unavailable',
+};
+
 function createToolbar() {
   const wrap = document.createElement('section');
   wrap.id = 'excavator-route-controls';
-  wrap.setAttribute('aria-label', 'Excavator route controls');
-  wrap.style.cssText = [
-    'position:fixed;z-index:940;right:16px;top:88px',
-    'width:min(248px,calc(100vw - 32px));box-sizing:border-box',
-    'padding:13px 15px;border-radius:12px',
-    'border:1px solid rgba(255,199,40,.36)',
-    'background:rgba(9,13,19,.91);backdrop-filter:blur(14px)',
-    'box-shadow:0 12px 30px rgba(0,0,0,.32)',
-    'font:12px/1.4 Inter,system-ui,sans-serif;color:#e5e7eb',
-  ].join(';');
+  wrap.setAttribute('aria-label', 'EX2000-7 excavator route controls');
+  // Desktop announces the long status line; mobile hides it (display:none
+  // drops it from the accessibility tree) and announces the short state.
   wrap.innerHTML = `
-    <div style="font-weight:700;font-size:13px;color:#ffd25c">EX2000-7 · Route demo</div>
-    <div id="excavator-demo-status" role="status" style="font-size:11px;margin:6px 0 10px;color:#cbd5e1">Loading rig…</div>
-    <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+    <div class="exr-head">
+      <span class="exr-title">EX2000-7 · Route demo</span>
+      <span id="ex-state" class="exr-state" role="status" data-state="loading">Loading</span>
+    </div>
+    <div id="excavator-demo-status" class="exr-detail" role="status">Loading rig…</div>
+    <div class="exr-row" role="group" aria-label="Playback and camera">
       <button id="ex-play" type="button" aria-pressed="false">Pause</button>
       <button id="ex-focus" type="button" aria-pressed="true">Unfollow</button>
-      <label for="ex-speed" style="font-size:11px">Speed</label>
-      <select id="ex-speed" aria-label="Animation speed">
-        <option value="1">1×</option><option value="2" selected>2×</option>
-        <option value="5">5×</option>
-      </select>
+      <span class="exr-speed">
+        <label for="ex-speed">Speed</label>
+        <select id="ex-speed" aria-label="Animation speed">
+          <option value="1">1×</option><option value="2" selected>2×</option>
+          <option value="5">5×</option>
+        </select>
+      </span>
     </div>
-    <div style="font-size:10px;color:#8fa3b5;margin-top:8px">
+    <div class="exr-note">
       One-way journey · automatic camera orbit · not an approved vehicle route
     </div>`;
   const style = document.createElement('style');
-  style.textContent = `
-    #excavator-route-controls button,#excavator-route-controls select {
-      border:1px solid rgba(255,255,255,.23);color:#e5e7eb;
-      background:#25303d;border-radius:6px;padding:5px 8px;
-      font:600 11px Inter,system-ui,sans-serif;cursor:pointer
-    }
-    #excavator-route-controls button:focus-visible,#excavator-route-controls select:focus-visible {
-      outline:2px solid #fbbf24;outline-offset:2px
-    }
-    @media(max-width:760px){#excavator-route-controls {top:70px;right:10px;width:210px}}
-  `;
+  style.id = 'excavator-route-controls-style';
+  style.textContent = TOOLBAR_CSS;
   document.head.appendChild(style);
   document.body.appendChild(wrap);
-  return { wrap, status:wrap.querySelector('#excavator-demo-status'),
+  return { wrap, style, status:wrap.querySelector('#excavator-demo-status'),
+    state:wrap.querySelector('#ex-state'),
     play:wrap.querySelector('#ex-play'),
     focus:wrap.querySelector('#ex-focus'),
     speed:wrap.querySelector('#ex-speed') };
+}
+
+function showRouteState(ui, key, detail) {
+  ui.state.textContent = ROUTE_STATES[key];
+  ui.state.setAttribute('data-state', key);
+  if (detail !== undefined) ui.status.textContent = detail;
 }
 
 export async function createExcavatorRoute({THREE,scene,camera,controls,invalidate}) {
@@ -134,6 +213,7 @@ export async function createExcavatorRoute({THREE,scene,camera,controls,invalida
     }else{
       state.playing=!state.playing;
     }
+    if(state.rig)showRouteState(ui,state.playing?'moving':'paused');
     ui.play.textContent=state.playing?'Pause':'Play';
     ui.play.setAttribute('aria-pressed',String(!state.playing));
     state.lastMs=performance.now();
@@ -174,11 +254,11 @@ export async function createExcavatorRoute({THREE,scene,camera,controls,invalida
     // Enabling an extra layer does not affect ordinary SiteNav rendering.
     scene.traverse(object=>{if(object.isLight)object.layers.enable(EXCAVATOR_LAYER);});
     controls.autoRotate=false;
-    ui.status.textContent='Model loaded · one-way route running';
+    showRouteState(ui,state.playing?'moving':'paused','Model loaded · one-way route running');
   } catch (error) {
-    ui.status.textContent='Model unavailable — animation not started';
+    showRouteState(ui,'unavailable','Model unavailable — animation not started');
     console.error('[excavator-route] GLB could not load:',error);
-    return {update(){return false;},dispose(){controls.removeEventListener('start',onControlStart);routeMesh.removeFromParent();ui.wrap.remove();}};
+    return {update(){return false;},dispose(){controls.removeEventListener('start',onControlStart);routeMesh.removeFromParent();ui.wrap.remove();ui.style.remove();}};
   }
 
   const vec=new THREE.Vector3();
@@ -200,7 +280,7 @@ export async function createExcavatorRoute({THREE,scene,camera,controls,invalida
       state.playing=false;
       ui.play.textContent='Replay';
       ui.play.setAttribute('aria-pressed','false');
-      ui.status.textContent='Route complete · parked';
+      showRouteState(ui,'parked','Route complete · parked');
     }
     const t=state.progress;
     route.getPointAt(t,vec);
@@ -265,5 +345,5 @@ export async function createExcavatorRoute({THREE,scene,camera,controls,invalida
     }
   };
   update(performance.now());
-  return {update,renderOverlay,dispose(){controls.removeEventListener('start',onControlStart);routeMesh.removeFromParent();state.rig?.removeFromParent();ui.wrap.remove();}};
+  return {update,renderOverlay,dispose(){controls.removeEventListener('start',onControlStart);routeMesh.removeFromParent();state.rig?.removeFromParent();ui.wrap.remove();ui.style.remove();}};
 }
