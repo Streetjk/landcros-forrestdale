@@ -81,7 +81,7 @@ class Layers {
 }
 const rawRigMeshes = [
   {isMesh:true,layers:new Layers(), material:{transparent:false,opacity:1,depthWrite:true}},
-  {isMesh:true,layers:new Layers(), material:{transparent:true,opacity:0.5,depthWrite:false}},
+  {isMesh:true,layers:new Layers(), material:{transparent:true,opacity:0.15,depthWrite:false}},
 ];
 const rig={
   layers:new Layers(),
@@ -138,7 +138,7 @@ assert.equal(rawRigMeshes.every(x=>x.renderOrder===50),true);
 assert.equal(rawRigMeshes.every(x=>x.material.depthTest),true);
 assert.equal(rawRigMeshes[0].material.transparent,false,'opaque body must stay opaque');
 assert.equal(rawRigMeshes[1].material.transparent,true,'glass must stay blended');
-assert.equal(rawRigMeshes[1].material.opacity,0.5);
+assert.equal(rawRigMeshes[1].material.opacity,0.15);
 assert.equal(rawRigMeshes[1].material.depthWrite,false);
 assert.equal(scene.objects[1].renderOrder,4);
 const modelMask=1<<29;
@@ -160,7 +160,56 @@ const forward=new Vec(Math.cos(rig.rotation.y),0,-Math.sin(rig.rotation.y));
 assert.ok(forward.x*initialTangent.x+forward.z*initialTangent.z>0.9);
 
 const d0=Math.hypot(camera.position.x-rig.position.x,camera.position.z-rig.position.z);
-for(let i=0;i<3500;i++){now+=80;instance.update(now);}
+// The cinematic must preserve the SiteNav camera on the first frame and
+// enter its orbit gradually, rather than jumping straight to a new pose.
+const cameraAtStart=new Vec().copy(camera.position);
+now+=80;instance.update(now);
+now+=80;instance.update(now);
+assert.ok(Math.hypot(
+  camera.position.x-cameraAtStart.x,camera.position.y-cameraAtStart.y,
+  camera.position.z-cameraAtStart.z,
+)<0.10,'first 160ms of zoom must be gentle');
+
+let parkingFrames=0;
+let slewAtArrival=null;
+let trackDistanceAtArrival=null;
+let chassisYawAtArrival=null;
+let priorParkingSlew=null;
+for(let i=0;i<3500;i++){
+  now+=80;
+  instance.update(now);
+  if(el('ex-state').textContent==='Parking'){
+    parkingFrames++;
+    const slewNow=mechanics.poses.at(-1).slew;
+    if(slewAtArrival===null){
+      slewAtArrival=slewNow;
+      trackDistanceAtArrival=mechanics.distance;
+      chassisYawAtArrival=rig.rotation.y;
+      assert.equal(el('ex-play').textContent,'Pause',
+        'Replay should only appear once the final slew finishes');
+    }
+    assert.equal(mechanics.distance,trackDistanceAtArrival,
+      'tracks must remain stationary throughout the final slew');
+    assertNear(rig.rotation.y,chassisYawAtArrival,0.000001);
+    if(priorParkingSlew!==null){
+      assert.ok(slewNow<=priorParkingSlew+0.000001,
+        'the final upperstructure rotation must be clockwise only');
+    }
+    priorParkingSlew=slewNow;
+    if(parkingFrames===30){
+      // Pause/resume must freeze the parking animation, not restart it.
+      el('ex-play').click();
+      assert.equal(el('ex-state').textContent,'Paused');
+      for(let j=0;j<8;j++){now+=80;instance.update(now);}
+      assertNear(mechanics.poses.at(-1).slew,slewNow,0.000001);
+      assert.equal(mechanics.distance,trackDistanceAtArrival);
+      el('ex-play').click();
+      assert.equal(el('ex-state').textContent,'Parking');
+    }
+  }
+}
+assert.ok(parkingFrames>=90,'the final 180° slew should take approximately 8 seconds');
+assertNear(mechanics.poses.at(-1).slew,slewAtArrival-180,0.01);
 assert.equal(el('ex-play').textContent,'Replay');
 assert.equal(el('excavator-demo-status').textContent,'Route complete · parked');
 assert.equal(el('ex-state').textContent,'Parked');
@@ -177,12 +226,19 @@ const c0=camera.position.x;
 for(let i=0;i<150;i++){now+=80;instance.update(now);}
 assert.ok(Math.abs(camera.position.x-c0)>0.2,'cinematic camera should keep orbiting after arrival');
 
+const cameraRelativeAtPark=new Vec().copy(camera.position).sub(rig.position);
+const targetRelativeAtPark=new Vec().copy(controls.target).sub(rig.position);
 el('ex-play').click();
+assertNear(camera.position.x-rig.position.x,cameraRelativeAtPark.x,0.000001);
+assertNear(camera.position.z-rig.position.z,cameraRelativeAtPark.z,0.000001);
+assertNear(controls.target.x-rig.position.x,targetRelativeAtPark.x,0.000001);
 now+=80;instance.update(now);
 assert.equal(el('ex-play').textContent,'Pause');
 assert.equal(el('ex-state').textContent,'Moving','replay must report moving');
 assertNear(rig.position.x,-5.77,0.1);
 assertNear(rig.position.z,-11.16,0.1);
+assert.ok(Math.abs(mechanics.poses.at(-1).slew)<20,
+  'Replay must restore the upperstructure to its normal travel orientation');
 // Dragging the camera must interrupt cinematic orbit without interrupting
 // follow; subsequent track travel must translate the dragged camera pose.
 controls.start();
@@ -196,6 +252,11 @@ assertNear(controls.target.x-rig.position.x,targetOffsetX,0.01);
 assert.equal(el('ex-focus').textContent,'Recenter','drag must not disengage focus');
 el('ex-focus').click();
 assert.equal(el('ex-focus').textContent,'Unfollow','explicit recenter should resume cinematic');
+const recenterFrom=new Vec().copy(camera.position);
+now+=80;instance.update(now);
+assert.ok(Math.hypot(camera.position.x-recenterFrom.x,
+  camera.position.y-recenterFrom.y,camera.position.z-recenterFrom.z)<0.10,
+  'Recenter must start with the current camera pose');
 el('ex-play').click();
 const beforePause = mechanics.distance;
 for(let i=0;i<50;i++){now+=80;instance.update(now);}
@@ -206,4 +267,4 @@ assert.equal(el('ex-state').attributes['data-state'],'paused');
 assert.ok(mechanics.poses.length>3000);
 instance.dispose();
 assert.equal(controls.handlers.start,undefined,'disposing must unregister drag listener');
-console.log('PASS: opposite heading, one-way stop/replay, pause, default 2x, no dig button, overlay order, zoom/orbit, manual follow/recenter.');
+console.log('PASS: one-way route, 180-degree clockwise parked slew, pause/resume and Replay reset, smooth intro/recenter, layer isolation and controls.');

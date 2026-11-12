@@ -47,8 +47,12 @@ The renderer spline follows all intermediate points in
 the excavator starts at the eastern yellow termination and heads **180°
 opposite** the previous animation, finishing in the Module lane. The path
 is one-way; travel stops at the end. **Replay** resets to the eastern start,
-and there is no automated backwards return. It does not follow the orange
-traffic-control arrows.
+and there is no automated backwards return. At the destination, the tracks
+stop and only the upperstructure slews **clockwise 180°** over 8 seconds with
+smooth start/stop easing. The final position is held until Replay. Pause/Resume
+also works during this parking slew; the control shows **Parking** until the
+turn completes, then **Parked**. It does not follow the orange traffic-control
+arrows.
 
 ## Dimensions and animation
 
@@ -88,11 +92,14 @@ traffic-control arrows.
   All 92 track shoes and the named joints and three clips are preserved.
   The v5 rig passed both parameter validations, with 500 random pose checks.
   These are mechanical checks, not cross-device proof.
-- The camera follows by default, slowly zooms in over about 18 seconds and
-  orbits the moving excavator. Dragging, panning or zooming the view changes
-  to **manual-follow**: the owner retains their chosen view while the camera
-  translates with the travelling rig. **Recenter** resumes the scripted
-  cinematic; **Unfollow** and **Focus** toggle follow entirely.
+- The camera follows by default and slowly zooms over about 18 seconds while
+  orbiting the excavator. The zoom radius now uses quintic easing, and its
+  first 6 seconds blend from the actual SiteNav camera pose into the cinematic
+  orbit, preventing an abrupt starting jump. Dragging, panning or zooming
+  switches to **manual-follow**: the owner retains their chosen view while
+  the camera translates with the travelling rig. **Recenter** re-enters the
+  same gentle blend from the current camera pose; **Unfollow** and **Focus**
+  toggle follow entirely.
 - The ordinary SiteNav introduction is suppressed **only** on
   `/excavator-route.html` to prevent it fighting the route camera. The normal
   homepage retains its original introductory sequence.

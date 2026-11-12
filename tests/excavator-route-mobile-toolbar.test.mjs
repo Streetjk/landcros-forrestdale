@@ -48,7 +48,7 @@ test('accessible names, live state and focus ring', () => {
   assert.ok(markup.includes('aria-label="Animation speed"'));
   assert.ok(markup.includes('role="group" aria-label="Playback and camera"'));
   assert.match(css, /button:focus-visible,#excavator-route-controls select:focus-visible \{\s*outline:2px solid #fbbf24/);
-  for (const state of ['Loading', 'Moving', 'Paused', 'Parked']) assert.ok(source.includes(`'${state}'`));
+  for (const state of ['Loading', 'Moving', 'Paused', 'Parking', 'Parked']) assert.ok(source.includes(`'${state}'`));
 });
 
 test('speed options unchanged and no dig control', () => {

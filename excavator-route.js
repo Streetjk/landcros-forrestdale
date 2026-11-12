@@ -26,7 +26,13 @@ const WAYPOINTS = [
 const OVERLAY_ORDER = 50;
 const EXCAVATOR_LAYER = 29; // dedicated final render pass, never in the site's splat pass
 const ZOOM_SECONDS = 18;
+const CAMERA_INTRO_BLEND_SECONDS = 6;
+const PARK_SLEW_SECONDS = 8;
 const ORBIT_RADIANS_PER_SECOND = 0.058;
+const smootherstep = value => {
+  const t = Math.max(0,Math.min(1,value));
+  return t*t*t*(t*(t*6-15)+10);
+};
 
 // Portrait phones (320–430 CSS px) get a compact two-row overlay below the
 // SiteNav brand/address; wider viewports keep the original desktop panel.
@@ -86,6 +92,7 @@ const TOOLBAR_CSS = `
     }
     #excavator-route-controls .exr-state[data-state="moving"]::before {background:#4ade80}
     #excavator-route-controls .exr-state[data-state="paused"]::before {background:#fbbf24}
+    #excavator-route-controls .exr-state[data-state="parking"]::before {background:#fb923c}
     #excavator-route-controls .exr-state[data-state="parked"]::before {background:#60a5fa}
     #excavator-route-controls .exr-state[data-state="unavailable"]::before {background:#f87171}
     #excavator-route-controls .exr-detail,
@@ -108,7 +115,7 @@ const TOOLBAR_CSS = `
 
 const ROUTE_STATES = {
   loading:'Loading', moving:'Moving', paused:'Paused',
-  parked:'Parked', unavailable:'Unavailable',
+  parking:'Parking', parked:'Parked', unavailable:'Unavailable',
 };
 
 function createToolbar() {
@@ -174,8 +181,9 @@ export async function createExcavatorRoute({THREE,scene,camera,controls,invalida
   scene.add(routeMesh);
 
   const state={rig:null,mechanics:null,progress:0,playing:true,completed:false,
+    parking:false,parkSlewElapsed:0,parkSlewStart:0,
     speed:2,lastMs:0,lastYaw:0,resetYaw:true,elapsed:0,
-    follow:true,manualCamera:false,cameraElapsed:0};
+    follow:true,manualCamera:false,cameraElapsed:0,cameraIntroPending:true};
   const onControlStart=()=>{
     if(!state.follow)return;
     // Keep following the excavator's position while the owner controls the
@@ -188,6 +196,7 @@ export async function createExcavatorRoute({THREE,scene,camera,controls,invalida
     if(state.follow&&state.manualCamera){
       state.manualCamera=false;
       state.cameraElapsed=0;
+      state.cameraIntroPending=true;
       ui.focus.textContent='Unfollow';
       invalidate();
       return;
@@ -198,6 +207,7 @@ export async function createExcavatorRoute({THREE,scene,camera,controls,invalida
     if(state.follow){
       state.manualCamera=false;
       state.cameraElapsed=0;
+      state.cameraIntroPending=true;
       controls.autoRotate=false;
     }
     invalidate();
@@ -205,15 +215,33 @@ export async function createExcavatorRoute({THREE,scene,camera,controls,invalida
   ui.focus.addEventListener('click',focus);
   ui.play.addEventListener('click',()=>{
     if(state.completed){
+      // Replay relocates the follow camera with the restarted chassis,
+      // preserving its relative framing before the gentle zoom begins.
+      const replayShift=route.getPointAt(0,new THREE.Vector3()).sub(state.rig.position);
+      if(state.follow){
+        camera.position.add(replayShift);
+        controls.target.add(replayShift);
+      }
+      state.rig.position.add(replayShift);
       state.progress=0;
       state.completed=false;
+      state.parking=false;
+      state.parkSlewElapsed=0;
+      state.parkSlewStart=0;
+      state.elapsed=0;
       state.resetYaw=true;
-      ui.status.textContent='Model loaded · one-way route running';
+      state.cameraElapsed=0;
+      state.cameraIntroPending=true;
       state.playing=true;
     }else{
       state.playing=!state.playing;
     }
-    if(state.rig)showRouteState(ui,state.playing?'moving':'paused');
+    if(state.rig)showRouteState(
+      ui,state.playing?(state.parking?'parking':'moving'):'paused',
+      state.parking
+        ? (state.playing?'At destination · rotating upperstructure clockwise 180°':'Parking slew paused')
+        : (state.playing?'Model loaded · one-way route running':'Playback paused'),
+    );
     ui.play.textContent=state.playing?'Pause':'Play';
     ui.play.setAttribute('aria-pressed',String(!state.playing));
     state.lastMs=performance.now();
@@ -239,7 +267,7 @@ export async function createExcavatorRoute({THREE,scene,camera,controls,invalida
     // traffic arrows produces sorting conflicts even with high renderOrder.
     // Assign the entire rig, including dynamically instanced track shoes, to
     // a dedicated camera layer. It will be drawn in a second, final pass.
-    // This keeps the v4 glass's genuine 50% alpha and correct internal depth.
+    // This preserves the v5 cab glass's genuine 85% transparency and internal depth.
     rig.traverse(object=>{
       object.layers.set(EXCAVATOR_LAYER);
       if(!object.isMesh)return;
@@ -266,21 +294,29 @@ export async function createExcavatorRoute({THREE,scene,camera,controls,invalida
   const travelShift=new THREE.Vector3();
   const orbitPosition=new THREE.Vector3();
   const orbitTarget=new THREE.Vector3();
+  const introCameraStart=new THREE.Vector3();
+  const introTargetStart=new THREE.Vector3();
+  const introRigStart=new THREE.Vector3();
+  const introTravel=new THREE.Vector3();
+  const blendedPosition=new THREE.Vector3();
+  const blendedTarget=new THREE.Vector3();
   const update=ms=>{
     const dt=state.lastMs ? Math.min((ms-state.lastMs)/1000,0.08) : 0;
     state.lastMs=ms;
     if(!state.rig)return false;
-    const driving=state.playing&&!state.completed;
+    const driving=state.playing&&!state.completed&&!state.parking;
     const requestedMetres=driving?dt*1.1667*state.speed:0; // 4.2 km/h at 1× (demo rate)
     const remainingMetres=(1-state.progress)*pathLength*SCENE_METRES;
     const travelMetres=Math.min(requestedMetres,remainingMetres);
     state.progress=Math.min(1,state.progress+travelMetres/(pathLength*SCENE_METRES));
     if(driving&&state.progress>=1){
-      state.completed=true;
-      state.playing=false;
-      ui.play.textContent='Replay';
-      ui.play.setAttribute('aria-pressed','false');
-      showRouteState(ui,'parked','Route complete · parked');
+      // The chassis has parked: stop the tracks, then slew ONLY the upper
+      // structure clockwise through 180 degrees. Negative Y is clockwise
+      // when viewed from above the excavator.
+      state.parking=true;
+      state.parkSlewElapsed=0;
+      state.parkSlewStart=14*Math.sin((state.elapsed+dt)*0.26);
+      showRouteState(ui,'parking','At destination · rotating upperstructure clockwise 180°');
     }
     const t=state.progress;
     route.getPointAt(t,vec);
@@ -296,9 +332,16 @@ export async function createExcavatorRoute({THREE,scene,camera,controls,invalida
         camera.position.add(travelShift);
         controls.target.add(travelShift);
       }else{
+        if(state.cameraIntroPending){
+          // Preserve the actual SiteNav camera pose at startup or Recenter.
+          // An instant switch to the demo orbit caused the abrupt initial zoom.
+          introCameraStart.copy(camera.position);
+          introTargetStart.copy(controls.target);
+          introRigStart.copy(vec);
+          state.cameraIntroPending=false;
+        }
         state.cameraElapsed+=dt;
-        const u=Math.min(1,state.cameraElapsed/ZOOM_SECONDS);
-        const eased=u*u*(3-2*u);
+        const eased=smootherstep(state.cameraElapsed/ZOOM_SECONDS);
         const radius=THREE.MathUtils.lerp(5.6,1.95,eased);
         // Start at the forward three-quarter angle, not directly behind the
         // travel axis; turn with the chassis and slowly orbit around it.
@@ -309,9 +352,15 @@ export async function createExcavatorRoute({THREE,scene,camera,controls,invalida
           vec.y+0.92+radius*0.29,
           vec.z+Math.cos(azimuth)*radius,
         );
-        const smoothing=1-Math.exp(-dt*1.7);
-        controls.target.lerp(orbitTarget,smoothing);
-        camera.position.lerp(orbitPosition,smoothing);
+        // Blend from the original, moving-with-chassis camera to the orbit.
+        // The quintic curve starts and finishes with zero blend velocity.
+        const blend=smootherstep(state.cameraElapsed/CAMERA_INTRO_BLEND_SECONDS);
+        introTravel.copy(vec).sub(introRigStart);
+        blendedPosition.copy(introCameraStart).add(introTravel).lerp(orbitPosition,blend);
+        blendedTarget.copy(introTargetStart).add(introTravel).lerp(orbitTarget,blend);
+        const smoothing=1-Math.exp(-dt*1.3);
+        controls.target.lerp(blendedTarget,smoothing);
+        camera.position.lerp(blendedPosition,smoothing);
       }
       controls.update();
     }
@@ -321,9 +370,26 @@ export async function createExcavatorRoute({THREE,scene,camera,controls,invalida
     if(travelMetres>0)state.mechanics.drive(travelMetres+turnDiff,travelMetres-turnDiff);
     state.lastYaw=yaw;
     if(state.playing)state.elapsed+=dt;
-    const phase=state.elapsed*0.26;
+    let slew=14*Math.sin(state.elapsed*0.26);
+    if(state.parking){
+      if(state.playing){
+        state.parkSlewElapsed=Math.min(PARK_SLEW_SECONDS,state.parkSlewElapsed+dt);
+      }
+      slew=state.parkSlewStart-180*smootherstep(state.parkSlewElapsed/PARK_SLEW_SECONDS);
+      if(state.parkSlewElapsed>=PARK_SLEW_SECONDS){
+        state.parking=false;
+        state.completed=true;
+        state.playing=false;
+        ui.play.textContent='Replay';
+        ui.play.setAttribute('aria-pressed','false');
+        showRouteState(ui,'parked','Route complete · parked');
+      }
+    }else if(state.completed){
+      // Hold the completed position: no return rotation or reverse playback.
+      slew=state.parkSlewStart-180;
+    }
     state.mechanics.setPose({
-      slew:14*Math.sin(phase),
+      slew,
       boom:22,
       stick:-122,
       bucket:0,
