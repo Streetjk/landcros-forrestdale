@@ -170,6 +170,15 @@ assert.ok(Math.hypot(
   camera.position.z-cameraAtStart.z,
 )<0.10,'first 160ms of zoom must be gentle');
 
+// The first two seconds must preserve compass heading and camera pitch.
+// Translation towards the excavator is permitted; a map-wide turn is not.
+const initialView=new Vec().copy(cameraAtStart).normalize();
+for(let i=0;i<23;i++){now+=80;instance.update(now);}
+const earlyView=new Vec().copy(camera.position).sub(controls.target).normalize();
+const viewDot=initialView.x*earlyView.x+initialView.y*earlyView.y+initialView.z*earlyView.z;
+assert.ok(viewDot>0.999, 'initial approach must not rotate the entire site view');
+
+let zoomRadiusAtElevenSeconds=null;
 let parkingFrames=0;
 let slewAtArrival=null;
 let trackDistanceAtArrival=null;
@@ -178,6 +187,13 @@ let priorParkingSlew=null;
 for(let i=0;i<3500;i++){
   now+=80;
   instance.update(now);
+  if(zoomRadiusAtElevenSeconds===null&&now>=11000){
+    zoomRadiusAtElevenSeconds=Math.hypot(
+      camera.position.x-controls.target.x,
+      camera.position.y-controls.target.y,
+      camera.position.z-controls.target.z,
+    );
+  }
   if(el('ex-state').textContent==='Parking'){
     parkingFrames++;
     const slewNow=mechanics.poses.at(-1).slew;
@@ -209,7 +225,11 @@ for(let i=0;i<3500;i++){
   }
 }
 assert.ok(parkingFrames>=90,'the final 180° slew should take approximately 8 seconds');
-assertNear(mechanics.poses.at(-1).slew,slewAtArrival-180,0.01);
+assert.ok(zoomRadiusAtElevenSeconds<2.3,'zoom must reach close-up framing in about 10 seconds');
+assertNear(slewAtArrival,0,0.1); // upperstructure must be aligned before parking
+assertNear(mechanics.poses.at(-1).slew,-180,0.001); // exact half-turn
+assert.ok(Math.abs(Math.sin(mechanics.poses.at(-1).slew*Math.PI/180))<1e-8,
+  'final upperstructure axis must be parallel to the track axis');
 assert.equal(el('ex-play').textContent,'Replay');
 assert.equal(el('excavator-demo-status').textContent,'Route complete · parked');
 assert.equal(el('ex-state').textContent,'Parked');

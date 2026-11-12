@@ -49,7 +49,10 @@ opposite** the previous animation, finishing in the Module lane. The path
 is one-way; travel stops at the end. **Replay** resets to the eastern start,
 and there is no automated backwards return. At the destination, the tracks
 stop and only the upperstructure slews **clockwise 180°** over 8 seconds with
-smooth start/stop easing. The final position is held until Replay. Pause/Resume
+smooth start/stop easing. During travel the house remains exactly aligned
+with the undercarriage at 0°. The final slew lands at **−180°**, facing
+rearward but exactly parallel to the tracks; it cannot stop a few degrees
+skewed. The final position is held until Replay. Pause/Resume
 also works during this parking slew; the control shows **Parking** until the
 turn completes, then **Parked**. It does not follow the orange traffic-control
 arrows.
@@ -92,11 +95,15 @@ arrows.
   All 92 track shoes and the named joints and three clips are preserved.
   The v5 rig passed both parameter validations, with 500 random pose checks.
   These are mechanical checks, not cross-device proof.
-- The camera follows by default and slowly zooms over about 18 seconds while
-  orbiting the excavator. The zoom radius now uses quintic easing, and its
-  first 6 seconds blend from the actual SiteNav camera pose into the cinematic
-  orbit, preventing an abrupt starting jump. Dragging, panning or zooming
-  switches to **manual-follow**: the owner retains their chosen view while
+- The camera follows by default. It retains the **actual SiteNav compass
+  heading and pitch** during the initial dolly, focuses on the moving machine
+  over 5 seconds and reaches close-up framing in about **10 seconds** (down
+  from 18). Camera distance uses quintic easing; pitch only begins to adjust
+  after 3 seconds and the gentle azimuth orbit starts after 4 seconds, with
+  a further 4-second acceleration ramp. The view is never snapped to the
+  chassis heading, avoiding the previous abrupt site-wide rotation.
+  Dragging, panning or zooming switches to **manual-follow**: the owner
+  retains their chosen view while
   the camera translates with the travelling rig. **Recenter** re-enters the
   same gentle blend from the current camera pose; **Unfollow** and **Focus**
   toggle follow entirely.

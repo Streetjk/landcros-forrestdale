@@ -25,8 +25,13 @@ const WAYPOINTS = [
 
 const OVERLAY_ORDER = 50;
 const EXCAVATOR_LAYER = 29; // dedicated final render pass, never in the site's splat pass
-const ZOOM_SECONDS = 18;
-const CAMERA_INTRO_BLEND_SECONDS = 6;
+const ZOOM_SECONDS = 10; // reach the excavator about 1.8× sooner
+const CAMERA_FOCUS_SECONDS = 5; // glide the target to the travelling chassis
+const CAMERA_ORBIT_DELAY_SECONDS = 4; // do not turn the map during initial dolly
+const CAMERA_ORBIT_RAMP_SECONDS = 4;
+const CAMERA_PITCH_DELAY_SECONDS = 3;
+const CAMERA_PITCH_SECONDS = 6;
+const CAMERA_FINAL_ELEVATION = 0.62;
 const PARK_SLEW_SECONDS = 8;
 const ORBIT_RADIANS_PER_SECOND = 0.058;
 const smootherstep = value => {
@@ -183,7 +188,8 @@ export async function createExcavatorRoute({THREE,scene,camera,controls,invalida
   const state={rig:null,mechanics:null,progress:0,playing:true,completed:false,
     parking:false,parkSlewElapsed:0,parkSlewStart:0,
     speed:2,lastMs:0,lastYaw:0,resetYaw:true,elapsed:0,
-    follow:true,manualCamera:false,cameraElapsed:0,cameraIntroPending:true};
+    follow:true,manualCamera:false,cameraElapsed:0,cameraIntroPending:true,
+    cameraStartRadius:1,cameraStartAzimuth:0,cameraStartElevation:0};
   const onControlStart=()=>{
     if(!state.follow)return;
     // Keep following the excavator's position while the owner controls the
@@ -297,8 +303,8 @@ export async function createExcavatorRoute({THREE,scene,camera,controls,invalida
   const introCameraStart=new THREE.Vector3();
   const introTargetStart=new THREE.Vector3();
   const introRigStart=new THREE.Vector3();
+  const introCameraOffset=new THREE.Vector3();
   const introTravel=new THREE.Vector3();
-  const blendedPosition=new THREE.Vector3();
   const blendedTarget=new THREE.Vector3();
   const update=ms=>{
     const dt=state.lastMs ? Math.min((ms-state.lastMs)/1000,0.08) : 0;
@@ -310,12 +316,12 @@ export async function createExcavatorRoute({THREE,scene,camera,controls,invalida
     const travelMetres=Math.min(requestedMetres,remainingMetres);
     state.progress=Math.min(1,state.progress+travelMetres/(pathLength*SCENE_METRES));
     if(driving&&state.progress>=1){
-      // The chassis has parked: stop the tracks, then slew ONLY the upper
-      // structure clockwise through 180 degrees. Negative Y is clockwise
-      // when viewed from above the excavator.
+      // Keep the chassis/track heading fixed while slewing only the house.
+      // It travels at 0° relative to the tracks, so a clockwise -180° finish
+      // is both an exact half-turn and precisely aligned with the tracks.
       state.parking=true;
       state.parkSlewElapsed=0;
-      state.parkSlewStart=14*Math.sin((state.elapsed+dt)*0.26);
+      state.parkSlewStart=0;
       showRouteState(ui,'parking','At destination · rotating upperstructure clockwise 180°');
     }
     const t=state.progress;
@@ -333,34 +339,56 @@ export async function createExcavatorRoute({THREE,scene,camera,controls,invalida
         controls.target.add(travelShift);
       }else{
         if(state.cameraIntroPending){
-          // Preserve the actual SiteNav camera pose at startup or Recenter.
-          // An instant switch to the demo orbit caused the abrupt initial zoom.
+          // Capture the real SiteNav viewing direction. Changing azimuth to
+          // chassis yaw here rotated the *entire* splat map on mobile.
           introCameraStart.copy(camera.position);
           introTargetStart.copy(controls.target);
           introRigStart.copy(vec);
+          introCameraOffset.copy(introCameraStart).sub(introTargetStart);
+          const horizontal=Math.hypot(introCameraOffset.x,introCameraOffset.z);
+          state.cameraStartRadius=Math.max(0.1,Math.hypot(
+            horizontal,introCameraOffset.y,
+          ));
+          state.cameraStartAzimuth=horizontal>0.001
+            ? Math.atan2(introCameraOffset.x,introCameraOffset.z)
+            : yaw+0.45;
+          state.cameraStartElevation=Math.atan2(introCameraOffset.y,horizontal);
           state.cameraIntroPending=false;
         }
         state.cameraElapsed+=dt;
-        const eased=smootherstep(state.cameraElapsed/ZOOM_SECONDS);
-        const radius=THREE.MathUtils.lerp(5.6,1.95,eased);
-        // Start at the forward three-quarter angle, not directly behind the
-        // travel axis; turn with the chassis and slowly orbit around it.
-        const azimuth=yaw+0.45+state.cameraElapsed*ORBIT_RADIANS_PER_SECOND;
-        orbitTarget.set(vec.x,vec.y+0.30,vec.z);
-        orbitPosition.set(
-          vec.x+Math.sin(azimuth)*radius,
-          vec.y+0.92+radius*0.29,
-          vec.z+Math.cos(azimuth)*radius,
+        const zoom=smootherstep(state.cameraElapsed/ZOOM_SECONDS);
+        const radius=THREE.MathUtils.lerp(state.cameraStartRadius,1.95,zoom);
+        const pitch=smootherstep(
+          (state.cameraElapsed-CAMERA_PITCH_DELAY_SECONDS)/CAMERA_PITCH_SECONDS,
         );
-        // Blend from the original, moving-with-chassis camera to the orbit.
-        // The quintic curve starts and finishes with zero blend velocity.
-        const blend=smootherstep(state.cameraElapsed/CAMERA_INTRO_BLEND_SECONDS);
+        const elevation=THREE.MathUtils.lerp(
+          state.cameraStartElevation,CAMERA_FINAL_ELEVATION,pitch,
+        );
+        // Hold the original compass heading through the initial zoom; only
+        // begin a slow, accelerated orbit once the excavator is in view.
+        const orbitElapsed=Math.max(0,state.cameraElapsed-CAMERA_ORBIT_DELAY_SECONDS);
+        const orbitPhase=ORBIT_RADIANS_PER_SECOND*(
+          orbitElapsed-CAMERA_ORBIT_RAMP_SECONDS*(
+            1-Math.exp(-orbitElapsed/CAMERA_ORBIT_RAMP_SECONDS)
+          )
+        );
+        const azimuth=state.cameraStartAzimuth+orbitPhase;
+        orbitTarget.set(vec.x,vec.y+0.30,vec.z);
+        // Translate both the focus and camera together. Keeping their relative
+        // vector intact eliminates the original hard pan/rotation at startup.
         introTravel.copy(vec).sub(introRigStart);
-        blendedPosition.copy(introCameraStart).add(introTravel).lerp(orbitPosition,blend);
-        blendedTarget.copy(introTargetStart).add(introTravel).lerp(orbitTarget,blend);
-        const smoothing=1-Math.exp(-dt*1.3);
+        blendedTarget.copy(introTargetStart).add(introTravel).lerp(
+          orbitTarget,smootherstep(state.cameraElapsed/CAMERA_FOCUS_SECONDS),
+        );
+        const horizontalRadius=radius*Math.cos(elevation);
+        orbitPosition.set(
+          blendedTarget.x+Math.sin(azimuth)*horizontalRadius,
+          blendedTarget.y+radius*Math.sin(elevation),
+          blendedTarget.z+Math.cos(azimuth)*horizontalRadius,
+        );
+        const smoothing=1-Math.exp(-dt*1.8);
         controls.target.lerp(blendedTarget,smoothing);
-        camera.position.lerp(blendedPosition,smoothing);
+        camera.position.lerp(orbitPosition,smoothing);
       }
       controls.update();
     }
@@ -370,12 +398,15 @@ export async function createExcavatorRoute({THREE,scene,camera,controls,invalida
     if(travelMetres>0)state.mechanics.drive(travelMetres+turnDiff,travelMetres-turnDiff);
     state.lastYaw=yaw;
     if(state.playing)state.elapsed+=dt;
-    let slew=14*Math.sin(state.elapsed*0.26);
+    let slew=0; // house stays aligned with the tracks during travel
     if(state.parking){
       if(state.playing){
         state.parkSlewElapsed=Math.min(PARK_SLEW_SECONDS,state.parkSlewElapsed+dt);
       }
-      slew=state.parkSlewStart-180*smootherstep(state.parkSlewElapsed/PARK_SLEW_SECONDS);
+      slew=THREE.MathUtils.lerp(
+        state.parkSlewStart,-180,
+        smootherstep(state.parkSlewElapsed/PARK_SLEW_SECONDS),
+      );
       if(state.parkSlewElapsed>=PARK_SLEW_SECONDS){
         state.parking=false;
         state.completed=true;
@@ -385,8 +416,8 @@ export async function createExcavatorRoute({THREE,scene,camera,controls,invalida
         showRouteState(ui,'parked','Route complete · parked');
       }
     }else if(state.completed){
-      // Hold the completed position: no return rotation or reverse playback.
-      slew=state.parkSlewStart-180;
+      // Exact track-parallel, rearward house alignment, held indefinitely.
+      slew=-180;
     }
     state.mechanics.setPose({
       slew,
