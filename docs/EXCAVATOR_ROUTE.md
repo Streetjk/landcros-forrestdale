@@ -13,7 +13,8 @@ in the reference screenshot are separate and must not be modified.
 - The normal root URL continues using `index.html`.
 - The build makes a copy of the HTML viewer with the new suffix. Its animation
   code only imports on that suffix.
-- Asset target: `assets/excavator/EX2000_7_SiteNav_v2.glb`.
+- Asset target: `assets/excavator/EX2000_7_SiteNav_v3.glb`.
+- The v2 GLB is retained for comparison, but the route page uses v3.
 - Rejected primitive model must **never** be copied to this asset path.
 
 ## Route georeferencing
@@ -42,9 +43,12 @@ Key positions:
 | (1098, 473) | (-5.77, -11.16) | Eastern yellow termination |
 
 The renderer spline follows all intermediate points in
-`excavator-route.js`. The initial demonstration traverses and reverses over
-the same marked polyline because the screenshot contains no unambiguous
-one-way order. It does not follow the orange traffic-control arrows.
+`excavator-route.js`. Per the owner's instruction on 12 November 2026,
+the excavator starts at the eastern yellow termination and heads **180°
+opposite** the previous animation, finishing in the Module lane. The path
+is one-way; travel stops at the end. **Replay** resets to the eastern start,
+and there is no automated backwards return. It does not follow the orange
+traffic-control arrows.
 
 ## Dimensions and animation
 
@@ -52,20 +56,30 @@ one-way order. It does not follow the orange traffic-control arrows.
   5.62 m undercarriage width, 7.24 m upperstructure width.
 - Official Hitachi brochure:
   https://hitachicm.com.au/wp-content/uploads/2023/08/KS-EN465Q-EX2000-7-Brochure-JAN-2026-WEB.pdf
-- Uploaded turntable render is EX2600, not EX2000. Use it only as a styling
-  reference, never as evidence of EX2000 dimensions.
+- The first render reference showed an EX2600. Version 3 is instead based
+  primarily on six owner-provided photographs of an actual EX2000-7
+  (EX935/MMS) in the workshop. The photographs show an incomplete assembly,
+  so the installed stick and bucket remain simplified.
 - Scene scale is currently ~12.449 physical metres per SiteNav unit from
   `assets/gps-calibration.json` (status: provisional).
-- Simulation starts at 10× preview speed. Physical baseline used is 2.1 km/h.
-- Motion uses the Opus-generated `ExcavatorRig` mechanical solver and 92
-  instanced shoes, independently rotating upperstructure, and back-and-forth
-  travel animation. The **Dig cycle** button suspends travel, bends the boom,
-  stick and bucket, and animates the cylinders while the upperstructure slews.
-- The GLB is 1,059,532 bytes (52,848 triangles); it passed 500 random rig
-  poses with less than 0.001 m hydraulic pin misalignment. These are geometry
-  tests, not proof the scene renders correctly on all devices.
-- **Focus** toggles a closer camera-follow view of the moving excavator;
-  **Unfollow** releases the camera for normal navigation.
+- Speed choices are **1×, 2× and 5×**; the default 1× demonstration rate is
+  4.2 km/h equivalent (twice the first demo's baseline). Multipliers are
+  visual playback controls, not recommended machine travel speeds.
+- Motion uses the Opus-generated `ExcavatorRig` solver and 92 instanced
+  track shoes, independently rotating upperstructure, and a one-way
+  spline route. The original rig retains its joint and cylinder animation
+  capability, but the public **Dig cycle button is removed**.
+- The v3 GLB is **1,368,484 bytes, 71,414 triangles, eight materials**.
+  It preserves the v2 joint hierarchy and passed 500 random rig poses with
+  <0.001 m hydraulic pin misalignment, including validation against the
+  original params. These are mechanical checks, not cross-device proof.
+- The camera follows by default, slowly zooms in over about 18 seconds
+  and orbits the moving excavator. **Unfollow** returns to manual navigation;
+  **Focus** reactivates the automatic view.
+- The excavator's meshes are submitted to the transparent render queue
+  after the splat (render order 1) and traffic arrows (3), with render order
+  50 and depth testing retained for its own geometry. The isolated route
+  page therefore does not modify the splat on the normal homepage.
 
 ## Acceptance before operational use
 

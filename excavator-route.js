@@ -8,7 +8,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { ExcavatorRig } from './excavator-rig.js';
 
 const SCENE_METRES = 12.449; // provisional GPS calibration; scene units are NOT metres
-const MODEL_URL = './assets/excavator/EX2000_7_SiteNav_v2.glb';
+const MODEL_URL = './assets/excavator/EX2000_7_SiteNav_v3.glb';
 const RIG_PARAMS_URL = './assets/excavator/params.json';
 
 // Travel in the opposite direction to the first demo: start at the eastern
