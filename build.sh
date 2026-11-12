@@ -51,7 +51,7 @@ copy_public_assets assets no
 # only its viewer cache key. The existing index.html remains byte-identical.
 if [ "$SITE" = "landcros" ]; then
   cp "${OUT}/index.html" "${OUT}/excavator-route.html"
-  sed -i -E 's#viewer3d\.js\?v=[^" ]+#viewer3d.js?v=ex2000-route-20261112b#' "${OUT}/excavator-route.html"
+  sed -i -E 's#viewer3d\.js\?v=[^" ]+#viewer3d.js?v=ex2000-route-20261112c#' "${OUT}/excavator-route.html"
 fi
 
 # Static-host helpers contain no site/staff data.
