@@ -896,6 +896,13 @@ let _pins = {}; // id → { group, pinGroup, sphere, icon, label, squareMat, squ
 const PIN_FLOAT_HEIGHT = 1.3;
 let _pageHidden = document.hidden === true;
 let _viewerAnimationFrameId = null;
+// Opt-in excavator route; no GLB or animation code loads on the homepage.
+let _excavatorDemo = null;
+function _invalidateExcavatorFrame() {
+  _idleFrames = 0;
+  _lastRenderMs = 0;
+  _queueViewerFrame();
+}
 
 // Mobile browsers throttle hidden tabs, but keeping a perpetual rAF pending
 // still wastes wakeups on browsers/WebViews that deliver background frames.
@@ -937,6 +944,7 @@ function animate() {
   if (!_camAnimating) {
     controls.update(); // drives autoRotate when _orbitActive
   }
+  const _excavatorMoving = _excavatorDemo?.update(performance.now()) === true;
   if (camera.position.y < 0.5) camera.position.y = 0.5;
 
   const projectionChanged = _mobileMapProjectionDirty;
@@ -964,7 +972,7 @@ function animate() {
   }
 
   const now = performance.now();
-  if (_idleFrames > IDLE_AFTER && now - _lastRenderMs < IDLE_INTERVAL && !comparisonNeedsRender()) {
+  if (_idleFrames > IDLE_AFTER && now - _lastRenderMs < IDLE_INTERVAL && !_excavatorMoving && !comparisonNeedsRender()) {
     _perf.frame({ rendered: false, moving: moved || _camAnimating });
     return;
   }
@@ -4905,6 +4913,15 @@ async function boot() {
   window._v3d = { renderer, camera, controls, _raycaster, _pickGround, renderPins, removePin, upsertPin, updatePinHighlight, latlngToScene, pins: _pins, registerSceneGroundFrame, unregisterSceneGroundFrame };
   _perf.mark('viewerApiReady');
   window.dispatchEvent(new CustomEvent('viewer3d:ready'));
+
+  if (window.location.pathname.endsWith('/excavator-route.html')) {
+    import('./excavator-route.js').then(async ({ createExcavatorRoute }) => {
+      _excavatorDemo = await createExcavatorRoute({
+        THREE, scene, camera, controls, invalidate: _invalidateExcavatorFrame,
+      });
+      _invalidateExcavatorFrame();
+    }).catch(error => console.error('[excavator-route] Startup failed:', error));
+  }
 
   // Scene objects/pins are SCENE-SCOPED (Scenes feature): the default viewer
   // is vanilla and loads NONE. General scenes open with ?scene=<code>. Account

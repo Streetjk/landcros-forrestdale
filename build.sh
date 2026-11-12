@@ -47,6 +47,13 @@ copy_public_assets() {
 copy_public_assets "sites/${SITE}/assets" yes
 copy_public_assets assets no
 
+# Opt-in route page copies the current deployed guide verbatim, then changes
+# only its viewer cache key. The existing index.html remains byte-identical.
+if [ "$SITE" = "landcros" ]; then
+  cp "${OUT}/index.html" "${OUT}/excavator-route.html"
+  sed -i -E 's#viewer3d\.js\?v=[^" ]+#viewer3d.js?v=ex2000-route-20261112#' "${OUT}/excavator-route.html"
+fi
+
 # Static-host helpers contain no site/staff data.
 for f in _headers serve.json staticwebapp.config.json; do
   [ -f "$f" ] && cp "$f" "${OUT}/"
