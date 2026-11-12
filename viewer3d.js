@@ -648,6 +648,8 @@ function _setLowRes(on) {
 // should not waste GPU cycles continually sorting splats or updating labels.
 let _pageHidden = document.hidden === true;
 let _viewerAnimationFrameId = null;
+// Loaded only on /excavator-route.html; the default public viewer is unchanged.
+let _excavatorDemo = null;
 function _queueViewerFrame() {
   if (_pageHidden || _viewerAnimationFrameId !== null) return;
   _viewerAnimationFrameId = requestAnimationFrame(animate);
@@ -688,6 +690,7 @@ function animate() {
   if (!_camAnimating) {
     controls.update(); // drives autoRotate when _orbitActive
   }
+  const _excavatorMoving = _excavatorDemo?.update(performance.now()) === true;
   if (camera.position.y < 0.5) camera.position.y = 0.5;
 
   const moved = camera.position.distanceToSquared(_prevCamPos) > _CAMERA_POSITION_EPS_SQ ||
@@ -703,7 +706,7 @@ function animate() {
   }
 
   const now = performance.now();
-  if (_idleFrames > IDLE_AFTER && now - _lastRenderMs < IDLE_INTERVAL && !comparisonNeedsRender()) {
+  if (_idleFrames > IDLE_AFTER && now - _lastRenderMs < IDLE_INTERVAL && !_excavatorMoving && !comparisonNeedsRender()) {
     _perf.frame({ rendered: false, moving: moved || _camAnimating });
     return;
   }
@@ -3764,6 +3767,13 @@ async function boot() {
   // Expose API for admin3d.js and dispatch ready event
   window._v3d = { renderer, camera, controls, _raycaster, _pickGround, renderPins, removePin, upsertPin, updatePinHighlight, latlngToScene, pins: _pins, registerSceneGroundFrame, unregisterSceneGroundFrame, invalidateRender: _invalidateViewerFrame };
   window.dispatchEvent(new CustomEvent('viewer3d:ready'));
+
+  if (window.location.pathname.endsWith('/excavator-route.html')) {
+    import('./excavator-route.js').then(async ({ createExcavatorRoute }) => {
+      _excavatorDemo = await createExcavatorRoute({ THREE, scene, camera, controls, invalidate: _invalidateViewerFrame });
+      _invalidateViewerFrame();
+    }).catch(error => console.error('[excavator-route] Could not start route demo:', error));
+  }
 
   // Scene objects/pins are SCENE-SCOPED (Scenes feature): the default viewer
   // is vanilla and loads NONE. A scene loads ONLY when opened via

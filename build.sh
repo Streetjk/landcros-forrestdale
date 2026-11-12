@@ -16,9 +16,15 @@ rm -rf "${OUT}"
 mkdir -p "${OUT}/assets"
 
 # Engine files (JS, HTML, CSS, worker, helpers)
-for f in *.js *.html *.css coi-serviceworker.js qr.js; do
+for f in *.js *.mjs *.html *.css coi-serviceworker.js qr.js; do
   [ -f "$f" ] && cp "$f" "${OUT}/" || true
 done
+
+# The excavator route is an opt-in copy of the public viewer. It keeps the
+# current homepage unchanged and has its own stable, bookmarkable URL.
+if [ "$SITE" = "landcros" ]; then
+  cp "${OUT}/index.html" "${OUT}/excavator-route.html"
+fi
 
 # Config and static-host helpers
 for f in _headers serve.json staticwebapp.config.json; do
@@ -29,15 +35,33 @@ done
 cp -r "sites/${SITE}/data" "${OUT}/"
 
 # Site-specific assets (splats, satellite, thumbnails, etc.)
-rsync -a "sites/${SITE}/assets/" "${OUT}/assets/"
+if command -v rsync >/dev/null 2>&1; then
+  rsync -a "sites/${SITE}/assets/" "${OUT}/assets/"
+else
+  cp -a "sites/${SITE}/assets/." "${OUT}/assets/"
+fi
 
 # Site branding files at root (logo, etc.)
 [ -f "sites/${SITE}/logo.png" ]       && cp "sites/${SITE}/logo.png" "${OUT}/"
 [ -f "sites/${SITE}/speedlimit2.png" ] && cp "sites/${SITE}/speedlimit2.png" "${OUT}/"
 
 # Shared engine assets (don't overwrite site-specific files)
-[ -d assets/dirtwithrocks ] && rsync -a --ignore-existing assets/dirtwithrocks/ "${OUT}/assets/dirtwithrocks/"
+if [ -d assets/dirtwithrocks ]; then
+  mkdir -p "${OUT}/assets/dirtwithrocks"
+  if command -v rsync >/dev/null 2>&1; then
+    rsync -a --ignore-existing assets/dirtwithrocks/ "${OUT}/assets/dirtwithrocks/"
+  else
+    cp -an assets/dirtwithrocks/. "${OUT}/assets/dirtwithrocks/"
+  fi
+fi
 [ -f assets/Trex.stl ]     && cp assets/Trex.stl "${OUT}/assets/" 2>/dev/null || true
+
+# Optional Opus-generated excavator GLB and calibrated rig parameters. Keep
+# them additive and entirely outside the ordinary home-page asset load path.
+if [ "$SITE" = "landcros" ] && [ -d assets/excavator ]; then
+  mkdir -p "${OUT}/assets/excavator"
+  cp -a assets/excavator/. "${OUT}/assets/excavator/"
+fi
 
 echo "Done: ${OUT}/"
 find "${OUT}" -type f | sort

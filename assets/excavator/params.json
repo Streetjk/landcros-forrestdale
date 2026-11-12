@@ -1,0 +1,381 @@
+{
+  "meta": {
+    "asset": "EX2000_7_SiteNav_v2",
+    "description": "Representative (non-engineering) Hitachi EX2000-7 backhoe for SiteNav web visualisation. Styling borrowed from an EX2600-7 reference video where consistent; dimensions below are approximate.",
+    "units": "metres, degrees",
+    "date": "2026-11-12"
+  },
+  "axes": {
+    "blender": "Z up, +X forward (boom direction at slew=0), +Y = machine left (cab side), ground plane z=0 under track grousers",
+    "gltf_threejs": "Y up, +X forward, +Z = machine RIGHT. Conversion: three(x,y,z) = blender(x, z, -y)",
+    "joint_angle_convention": "All pitch joints rotate about three.js +Z (= blender -Y). Positive = counter-clockwise seen from machine right side = raising / opening. Slew rotates about three.js +Y (blender +Z), positive = counter-clockwise from above (towards left).",
+    "pin_frames": "Pins are given in the local frame of the node that carries them, blender axes [x, y, z]. Pitch-plane links use (x,z) as the 2-D plane, y = lateral offset."
+  },
+  "official_reference_dimensions": {
+    "boom_BE_length": 8.3,
+    "arm_BE_length": 3.6,
+    "undercarriage_width": 5.62,
+    "upper_house_width": 7.24,
+    "cab_top_height": 6.99,
+    "rear_swing_radius": 6.115,
+    "track_length_overall": 7.48,
+    "shoe_width": 0.8,
+    "source": "official Hitachi EX2000-7 brochure; representative geometry is approximate"
+  },
+  "undercarriage": {
+    "track_center_y": 2.41,
+    "shoe_width": 0.8,
+    "track_path": {
+      "comment": "Stadium (oval) path of the shoe pin line in the side plane, relative to TRACK_L/TRACK_R node. Bottom straight z=-r from x=-c..+c (s=0 at x=-c), front arc centre (+c,0), top straight z=+r from +c..-c, rear arc centre (-c,0).",
+      "c": 2.88,
+      "r": 0.72,
+      "node_height_z": 0.86
+    },
+    "shoes_per_side": 46,
+    "shoe_length": 0.33,
+    "shoe_outer_depth": 0.14,
+    "link_inner_height": 0.1,
+    "bottom_rollers": {
+      "count": 7,
+      "x_min": -2.1,
+      "x_max": 2.1,
+      "radius": 0.2,
+      "z": 0.44
+    },
+    "carrier_rollers": {
+      "x": [
+        -1.25,
+        1.25
+      ],
+      "radius": 0.16,
+      "z": 1.32
+    },
+    "idler": {
+      "x": 2.88,
+      "radius": 0.62,
+      "front": true
+    },
+    "sprocket": {
+      "x": -2.88,
+      "radius": 0.62,
+      "teeth": 11,
+      "rear": true
+    },
+    "swing_bearing_radius": 1.75
+  },
+  "slew": {
+    "origin": [
+      0.0,
+      0.0,
+      1.95
+    ]
+  },
+  "house": {
+    "width": 7.24,
+    "deck_z": [
+      1.97,
+      3.25
+    ],
+    "counterweight_front_x": -4.6,
+    "counterweight_z": [
+      1.92,
+      3.75
+    ],
+    "engine_box": {
+      "x": [
+        -5.3,
+        -2.0
+      ],
+      "y": [
+        -3.3,
+        3.0
+      ],
+      "z_top": 5.25
+    },
+    "pump_box": {
+      "x": [
+        -2.0,
+        0.6
+      ],
+      "y": [
+        -2.75,
+        3.0
+      ],
+      "z_top": 4.95
+    },
+    "tank_box": {
+      "x": [
+        0.6,
+        2.9
+      ],
+      "y": [
+        -3.5,
+        -1.5
+      ],
+      "z_top": 5.0
+    },
+    "cab_pedestal": {
+      "x": [
+        1.1,
+        3.45
+      ],
+      "y": [
+        1.4,
+        3.55
+      ],
+      "z_top": 4.75
+    },
+    "cab": {
+      "x": [
+        1.35,
+        3.35
+      ],
+      "y": [
+        1.5,
+        3.4
+      ],
+      "z": [
+        4.75,
+        6.85
+      ],
+      "roof_top": 6.99
+    }
+  },
+  "boom_shape": {
+    "comment": "Quadratic Bezier spine in BOOM local (x,z): P0=(0,0) foot pin, P1, P2=(8.3,0) tip pin. Box section height/width tables vs spine parameter t.",
+    "bezier_ctrl": [
+      3.2,
+      2.6
+    ],
+    "height": [
+      [
+        0.0,
+        1.5
+      ],
+      [
+        0.15,
+        1.9
+      ],
+      [
+        0.35,
+        2.15
+      ],
+      [
+        0.5,
+        2.0
+      ],
+      [
+        0.75,
+        1.5
+      ],
+      [
+        1.0,
+        1.05
+      ]
+    ],
+    "width": [
+      [
+        0.0,
+        1.7
+      ],
+      [
+        0.3,
+        1.5
+      ],
+      [
+        0.7,
+        1.3
+      ],
+      [
+        1.0,
+        1.1
+      ]
+    ]
+  },
+  "pins": {
+    "SLEW": {
+      "boom_foot": [
+        2.0,
+        0.0,
+        2.05
+      ],
+      "boom_cyl_base_L": [
+        3.55,
+        1.05,
+        0.45
+      ],
+      "boom_cyl_base_R": [
+        3.55,
+        -1.05,
+        0.45
+      ]
+    },
+    "BOOM": {
+      "boom_tip": [
+        8.3,
+        0.0,
+        0.0
+      ],
+      "boom_cyl_rod_L": [
+        3.9,
+        1.05,
+        0.15
+      ],
+      "boom_cyl_rod_R": [
+        3.9,
+        -1.05,
+        0.15
+      ],
+      "arm_cyl_base": [
+        3.0,
+        0.0,
+        3.3
+      ]
+    },
+    "STICK": {
+      "bucket_pin": [
+        3.6,
+        0.0,
+        0.0
+      ],
+      "arm_cyl_rod": [
+        -1.9,
+        0.0,
+        0.35
+      ],
+      "bucket_cyl_base": [
+        -0.4,
+        0.0,
+        1.1
+      ],
+      "guide_link_pivot": [
+        2.7,
+        0.0,
+        0.35
+      ]
+    },
+    "BUCKET": {
+      "bucket_link_pin": [
+        0.43,
+        0.0,
+        0.745
+      ]
+    }
+  },
+  "linkage": {
+    "guide_link_length": 1.0,
+    "bucket_link_length": 1.0,
+    "solution_side": 1,
+    "comment": "J = intersection of circle(guide_link_pivot, guide_len) and circle(bucket_link_pin in STICK frame, bucket_len); choose the solution to the LEFT of vector G->Bl (rotate +90 deg in the x,z plane)."
+  },
+  "cylinders": {
+    "boom": {
+      "barrel_radius": 0.3,
+      "rod_radius": 0.17,
+      "count": 2
+    },
+    "arm": {
+      "barrel_radius": 0.29,
+      "rod_radius": 0.17,
+      "count": 1
+    },
+    "bucket": {
+      "barrel_radius": 0.25,
+      "rod_radius": 0.145,
+      "count": 1
+    },
+    "length_rule": "barrel_length = d_min - 0.35 ; rod_length = d_min - 0.25 (computed at build time from joint limits)"
+  },
+  "joints": {
+    "slew": {
+      "rest": 0.0,
+      "min": -180.0,
+      "max": 180.0
+    },
+    "boom": {
+      "rest": 22.0,
+      "min": -5.0,
+      "max": 45.0
+    },
+    "stick": {
+      "rest": -122.0,
+      "min": -140.0,
+      "max": -65.0
+    },
+    "bucket": {
+      "rest": 15.0,
+      "min": -55.0,
+      "max": 70.0
+    }
+  },
+  "materials": {
+    "HITACHI_ORANGE": {
+      "base_color_linear": [
+        0.8,
+        0.16,
+        0.01
+      ],
+      "metallic": 0.0,
+      "roughness": 0.42
+    },
+    "CHARCOAL": {
+      "base_color_linear": [
+        0.04,
+        0.044,
+        0.05
+      ],
+      "metallic": 0.0,
+      "roughness": 0.55
+    },
+    "STEEL_GREY": {
+      "base_color_linear": [
+        0.3,
+        0.31,
+        0.33
+      ],
+      "metallic": 0.3,
+      "roughness": 0.5
+    },
+    "TRACK_BLACK": {
+      "base_color_linear": [
+        0.012,
+        0.012,
+        0.013
+      ],
+      "metallic": 0.4,
+      "roughness": 0.7
+    },
+    "CAB_GLASS": {
+      "base_color_linear": [
+        0.01,
+        0.016,
+        0.022
+      ],
+      "metallic": 0.0,
+      "roughness": 0.06
+    },
+    "CHROME_ROD": {
+      "base_color_linear": [
+        0.85,
+        0.86,
+        0.88
+      ],
+      "metallic": 1.0,
+      "roughness": 0.16
+    }
+  },
+  "animation_clips": {
+    "fps": 24,
+    "Dig": "boom/stick/bucket dig cycle, 0-120 frames, cylinders and H-link baked consistently",
+    "Slew": "0 -> +90 -> 0 deg, 0-96 frames",
+    "TrackDrive_OnePitch": "forward travel by exactly one shoe pitch, 0-24 frames, seamless loop"
+  },
+  "brochure_check": {
+    "source": "reference/ex2000_dimensions_crop.png (EX2000-7 brochure, added to reference/ during session)",
+    "tumbler_distance": 5.78,
+    "track_height": 1.86,
+    "counterweight_clearance": 1.92,
+    "ground_clearance_min": 0.795,
+    "rear_end_length": 6.03
+  }
+}
