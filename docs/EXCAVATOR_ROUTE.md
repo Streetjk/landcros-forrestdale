@@ -1,6 +1,6 @@
 # EX2000-7 SiteNav animation — isolated demonstrator
 
-Status: staged, **not a published or approved travel route**.
+Status: published as a **visual demonstration only**, not an approved vehicle or traffic route.
 
 The owner drew a yellow excavator route on a 1189×885 screenshot of the
 Forrestdale SiteNav viewer on 12 November 2026. The orange site traffic arrows
@@ -64,12 +64,15 @@ one-way order. It does not follow the orange traffic-control arrows.
 - The GLB is 1,059,532 bytes (52,848 triangles); it passed 500 random rig
   poses with less than 0.001 m hydraulic pin misalignment. These are geometry
   tests, not proof the scene renders correctly on all devices.
+- **Focus** toggles a closer camera-follow view of the moving excavator;
+  **Unfollow** releases the camera for normal navigation.
 
-## Acceptance before production
+## Acceptance before operational use
 
 1. Confirm Opus-produced GLB is genuinely improved compared with rejected V1.
 2. Inspect front, side and rear screenshots for silhouette and decals.
 3. Validate named rig joints, static body separation and moving shoe orientation.
 4. Check the new page loads the original splat, route, and GLB on desktop/mobile.
 5. Confirm the root URL's UI/content and data remain unchanged.
-6. Obtain owner visual acceptance before deploying the model to the live site.
+6. Obtain owner visual acceptance before presenting the animation as an
+   officially approved excavator travel route or a dimensionally exact machine.

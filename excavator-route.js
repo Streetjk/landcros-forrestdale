@@ -90,13 +90,18 @@ export async function createExcavatorRoute({THREE,scene,camera,controls,invalida
   scene.add(routeMesh);
 
   const state={rig:null,mechanics:null,progress:0,dir:1,playing:true,
-    speed:10,lastMs:0,lastYaw:0,elapsed:0,work:false};
+    speed:10,lastMs:0,lastYaw:0,elapsed:0,work:false,follow:false};
   const focus=()=>{
-    const p=state.rig?.position ?? new THREE.Vector3(-4.7,0,-6.4);
-    controls.autoRotate=false;
-    controls.target.copy(p);
-    camera.position.set(p.x+6.5,p.y+8.0,p.z+7.2);
-    controls.update();
+    state.follow=!state.follow;
+    ui.focus.textContent=state.follow?'Unfollow':'Focus';
+    ui.focus.setAttribute('aria-pressed',String(state.follow));
+    if(state.follow){
+      const p=state.rig?.position ?? new THREE.Vector3(-4.7,0,-6.4);
+      controls.autoRotate=false;
+      controls.target.set(p.x,p.y+0.23,p.z);
+      camera.position.set(p.x+1.8,p.y+1.65,p.z+2.2);
+      controls.update();
+    }
     invalidate();
   };
   ui.focus.addEventListener('click',focus);
@@ -152,6 +157,11 @@ export async function createExcavatorRoute({THREE,scene,camera,controls,invalida
     route.getPointAt(t,vec);
     route.getTangentAt(t,tan).normalize();
     state.rig.position.copy(vec);
+    if(state.follow){
+      controls.target.set(vec.x,vec.y+0.23,vec.z);
+      camera.position.set(vec.x+1.8,vec.y+1.65,vec.z+2.2);
+      controls.update();
+    }
     const yaw=-Math.atan2(tan.z,tan.x);
     state.rig.rotation.set(0,yaw,0);
     // Opposite shoe phase during reverse travel; both tracks visibly travel
