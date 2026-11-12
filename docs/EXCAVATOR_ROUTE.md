@@ -13,8 +13,8 @@ in the reference screenshot are separate and must not be modified.
 - The normal root URL continues using `index.html`.
 - The build makes a copy of the HTML viewer with the new suffix. Its animation
   code only imports on that suffix.
-- Asset target: `assets/excavator/EX2000_7_SiteNav_v5.glb`.
-- Previous v2, v3 and v4 GLBs are retained for comparison; the route page uses v5.
+- Asset target: `assets/excavator/EX2000_7_SiteNav_v6.glb`.
+- Previous v2, v3, v4 and v5 GLBs are retained for comparison; the route page uses v6.
 - Rejected primitive model must **never** be copied to this asset path.
 
 ## Route georeferencing
@@ -95,6 +95,21 @@ arrows.
   All 92 track shoes and the named joints and three clips are preserved.
   The v5 rig passed both parameter validations, with 500 random pose checks.
   These are mechanical checks, not cross-device proof.
+- The **Opus 5.5-produced v6** adds a generic, seated Hitachi excavator operator
+  inside the existing cab, attached to `SLEW` so the operator turns with the
+  upperstructure while the tracks remain independent. The 2,288-triangle
+  character wears yellow high-visibility overalls with reflective bands,
+  a white hardhat, gloves, black work boots and small tinted safety glasses.
+  Both hands are positioned at two in-cab joysticks in a separate 356-triangle
+  `CAB_CONTROLS` object. The character is a stylised non-identifiable employee,
+  not a photographic portrait. Its safety glasses are too small to be clearly
+  resolved at the normal mobile-wide camera position; they become visible in
+  close-up. V6 is **75,674 instanced triangles, 1.48 MB** and retains all three
+  motion clips, 92 shoes, 85% transparent glazing and `#EE6B1F` orange.
+  Headless Blender re-import verified `CAB_OPERATOR` and `CAB_CONTROLS` have
+  parent `SLEW`, the operator fits within the cab volume, with zero triangle
+  contacts against the upperstructure, boom and front attachments. Hand/joystick
+  overlaps are intentional. The rig passed 500 random-pose pin checks.
 - The camera follows by default. It retains the **actual SiteNav compass
   heading and pitch** during the initial dolly, focuses on the moving machine
   over 5 seconds and reaches final framing in about **10 seconds**
