@@ -4922,7 +4922,7 @@ async function boot() {
   window.dispatchEvent(new CustomEvent('viewer3d:ready'));
 
   if (window.location.pathname.endsWith('/excavator-route.html')) {
-    import('./excavator-route.js?v=20261112h').then(async ({ createExcavatorRoute }) => {
+    import('./excavator-route.js?v=20261112i').then(async ({ createExcavatorRoute }) => {
       _excavatorDemo = await createExcavatorRoute({
         THREE, scene, camera, controls, invalidate: _invalidateExcavatorFrame,
       });

@@ -25,7 +25,11 @@ const WAYPOINTS = [
 
 const OVERLAY_ORDER = 50;
 const EXCAVATOR_LAYER = 29; // dedicated final render pass, never in the site's splat pass
-const ZOOM_SECONDS = 10; // reach the excavator about 1.8× sooner
+const ZOOM_SECONDS = 10; // retain the fast, smooth approach
+// Portrait screens need more distance to show the full boom, bucket and tracks
+// with breathing room; landscape screens have a much wider horizontal FOV.
+const CAMERA_FINAL_RADIUS_PORTRAIT = 4.15;
+const CAMERA_FINAL_RADIUS_WIDE = 2.85;
 const CAMERA_FOCUS_SECONDS = 5; // glide the target to the travelling chassis
 const CAMERA_ORBIT_DELAY_SECONDS = 4; // do not turn the map during initial dolly
 const CAMERA_ORBIT_RAMP_SECONDS = 4;
@@ -357,7 +361,12 @@ export async function createExcavatorRoute({THREE,scene,camera,controls,invalida
         }
         state.cameraElapsed+=dt;
         const zoom=smootherstep(state.cameraElapsed/ZOOM_SECONDS);
-        const radius=THREE.MathUtils.lerp(state.cameraStartRadius,1.95,zoom);
+        const aspect=Number.isFinite(camera.aspect)?camera.aspect:1.6;
+        const portraitWeight=1-smootherstep((aspect-0.55)/0.85);
+        const finalRadius=THREE.MathUtils.lerp(
+          CAMERA_FINAL_RADIUS_WIDE,CAMERA_FINAL_RADIUS_PORTRAIT,portraitWeight,
+        );
+        const radius=THREE.MathUtils.lerp(state.cameraStartRadius,finalRadius,zoom);
         const pitch=smootherstep(
           (state.cameraElapsed-CAMERA_PITCH_DELAY_SECONDS)/CAMERA_PITCH_SECONDS,
         );

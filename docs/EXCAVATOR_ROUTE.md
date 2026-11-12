@@ -97,8 +97,12 @@ arrows.
   These are mechanical checks, not cross-device proof.
 - The camera follows by default. It retains the **actual SiteNav compass
   heading and pitch** during the initial dolly, focuses on the moving machine
-  over 5 seconds and reaches close-up framing in about **10 seconds** (down
-  from 18). Camera distance uses quintic easing; pitch only begins to adjust
+  over 5 seconds and reaches final framing in about **10 seconds**
+  (down from 18). The ending camera distance now adapts to screen shape:
+  **4.15 SiteNav units on portrait phones**, easing down to **2.85 units on
+  wide screens**, leaving room for the full boom, bucket, house and tracks
+  instead of cutting off the attachment at the edge. Camera distance uses
+  quintic easing; pitch only begins to adjust
   after 3 seconds and the gentle azimuth orbit starts after 4 seconds, with
   a further 4-second acceleration ramp. The view is never snapped to the
   chassis heading, avoiding the previous abrupt site-wide rotation.

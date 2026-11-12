@@ -110,7 +110,7 @@ const THREE={
 };
 const light={isLight:true,layers:new Layers()};
 const scene={objects:[light],add(object){this.objects.push(object);},traverse(fn){this.objects.forEach(fn);}};
-const camera={position:new Vec(6,9,10),layers:new Layers()};
+const camera={position:new Vec(6,9,10),aspect:0.51,fov:60,layers:new Layers()};
 const controls={target:new Vec(),autoRotate:true,handlers:{},update(){},
   addEventListener(type,fn){this.handlers[type]=fn;},
   removeEventListener(type,fn){if(this.handlers[type]===fn)delete this.handlers[type];},
@@ -225,7 +225,7 @@ for(let i=0;i<3500;i++){
   }
 }
 assert.ok(parkingFrames>=90,'the final 180° slew should take approximately 8 seconds');
-assert.ok(zoomRadiusAtElevenSeconds<2.3,'zoom must reach close-up framing in about 10 seconds');
+assertNear(zoomRadiusAtElevenSeconds,4.15,0.22); // full-machine portrait framing
 assertNear(slewAtArrival,0,0.1); // upperstructure must be aligned before parking
 assertNear(mechanics.poses.at(-1).slew,-180,0.001); // exact half-turn
 assert.ok(Math.abs(Math.sin(mechanics.poses.at(-1).slew*Math.PI/180))<1e-8,
@@ -245,6 +245,14 @@ assert.ok(d1<d0, 'cinematic camera should zoom in');
 const c0=camera.position.x;
 for(let i=0;i<150;i++){now+=80;instance.update(now);}
 assert.ok(Math.abs(camera.position.x-c0)>0.2,'cinematic camera should keep orbiting after arrival');
+// A wider viewport should move a little closer, without changing playback.
+camera.aspect=1.6;
+for(let i=0;i<100;i++){now+=80;instance.update(now);}
+assertNear(Math.hypot(
+  camera.position.x-controls.target.x,
+  camera.position.y-controls.target.y,
+  camera.position.z-controls.target.z,
+),2.85,0.05);
 
 const cameraRelativeAtPark=new Vec().copy(camera.position).sub(rig.position);
 const targetRelativeAtPark=new Vec().copy(controls.target).sub(rig.position);
