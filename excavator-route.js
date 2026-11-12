@@ -46,7 +46,6 @@ function createToolbar() {
     <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
       <button id="ex-play" type="button" aria-pressed="false">Pause</button>
       <button id="ex-focus" type="button" aria-pressed="true">Unfollow</button>
-      <button id="ex-work" type="button" aria-pressed="false">Dig cycle</button>
       <label for="ex-speed" style="font-size:11px">Speed</label>
       <select id="ex-speed" aria-label="Animation speed">
         <option value="1" selected>1×</option><option value="2">2×</option>
@@ -73,7 +72,6 @@ function createToolbar() {
   return { wrap, status:wrap.querySelector('#excavator-demo-status'),
     play:wrap.querySelector('#ex-play'),
     focus:wrap.querySelector('#ex-focus'),
-    work:wrap.querySelector('#ex-work'),
     speed:wrap.querySelector('#ex-speed') };
 }
 
@@ -96,7 +94,7 @@ export async function createExcavatorRoute({THREE,scene,camera,controls,invalida
   scene.add(routeMesh);
 
   const state={rig:null,mechanics:null,progress:0,playing:true,completed:false,
-    speed:1,lastMs:0,lastYaw:0,resetYaw:true,elapsed:0,work:false,
+    speed:1,lastMs:0,lastYaw:0,resetYaw:true,elapsed:0,
     follow:true,cameraElapsed:0};
   const focus=()=>{
     state.follow=!state.follow;
@@ -114,9 +112,6 @@ export async function createExcavatorRoute({THREE,scene,camera,controls,invalida
       state.progress=0;
       state.completed=false;
       state.resetYaw=true;
-      state.work=false;
-      ui.work.textContent='Dig cycle';
-      ui.work.setAttribute('aria-pressed','false');
       ui.status.textContent='Model loaded · one-way route running';
       state.playing=true;
     }else{
@@ -128,13 +123,6 @@ export async function createExcavatorRoute({THREE,scene,camera,controls,invalida
     invalidate();
   });
   ui.speed.addEventListener('change',()=>{state.speed=Number(ui.speed.value);});
-  ui.work.addEventListener('click',()=>{
-    state.work=!state.work;
-    ui.work.textContent=state.work?'Resume travel':'Dig cycle';
-    ui.work.setAttribute('aria-pressed',String(state.work));
-    ui.status.textContent=state.work?'Digging · cylinders articulated':state.completed?'Route complete · parked':'Model loaded · one-way route running';
-    invalidate();
-  });
 
   try {
     const [gltf,paramRes]=await Promise.all([
@@ -182,7 +170,7 @@ export async function createExcavatorRoute({THREE,scene,camera,controls,invalida
     const dt=state.lastMs ? Math.min((ms-state.lastMs)/1000,0.08) : 0;
     state.lastMs=ms;
     if(!state.rig)return false;
-    const driving=state.playing&&!state.work&&!state.completed;
+    const driving=state.playing&&!state.completed;
     const requestedMetres=driving?dt*1.1667*state.speed:0; // 4.2 km/h at 1× (demo rate)
     const remainingMetres=(1-state.progress)*pathLength*SCENE_METRES;
     const travelMetres=Math.min(requestedMetres,remainingMetres);
@@ -222,15 +210,15 @@ export async function createExcavatorRoute({THREE,scene,camera,controls,invalida
     const turnDiff=driving?Math.max(-0.18,Math.min(0.18,yawDelta*2.41)):0;
     if(travelMetres>0)state.mechanics.drive(travelMetres+turnDiff,travelMetres-turnDiff);
     state.lastYaw=yaw;
-    if(state.playing||state.work)state.elapsed+=dt;
-    const phase=state.elapsed*(state.work?0.75:0.26);
+    if(state.playing)state.elapsed+=dt;
+    const phase=state.elapsed*0.26;
     state.mechanics.setPose({
-      slew:(state.work?35:14)*Math.sin(phase),
-      boom:state.work?26+10*Math.sin(phase):22,
-      stick:state.work?-120+17*Math.sin(phase-0.8):-122,
-      bucket:state.work?5+19*Math.sin(phase-1.6):0,
+      slew:14*Math.sin(phase),
+      boom:22,
+      stick:-122,
+      bucket:0,
     });
-    return state.playing||state.work||state.follow;
+    return state.playing||state.follow;
   };
   update(performance.now());
   return {update,dispose(){routeMesh.removeFromParent();state.rig?.removeFromParent();ui.wrap.remove();}};
