@@ -24,6 +24,9 @@ done
 # current homepage unchanged and has its own stable, bookmarkable URL.
 if [ "$SITE" = "landcros" ]; then
   cp "${OUT}/index.html" "${OUT}/excavator-route.html"
+  # Give the opt-in page its own viewer module cache key. The main page keeps
+  # its original script URL, while this page fetches the gated route changes.
+  sed -i -E 's#viewer3d\.js\?v=[^" ]+#viewer3d.js?v=ex2000-route-20261112#' "${OUT}/excavator-route.html"
 fi
 
 # Config and static-host helpers
