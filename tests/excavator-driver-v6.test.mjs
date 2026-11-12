@@ -69,6 +69,6 @@ test('motion rig, 92 shoes and animation clips are preserved', () => {
     assert.ok(nodesByName.has(name), 'missing joint: ' + name);
   }
   const source = readFileSync(new URL('../excavator-route.js', import.meta.url), 'utf8');
-  assert.match(source, /EX2000_7_SiteNav_v6\.glb/);
-  assert.doesNotMatch(source, /EX2000_7_SiteNav_v5\.glb/);
+  assert.match(source, /EX2000_7_SiteNav_v7\.glb/);
+  assert.doesNotMatch(source, /EX2000_7_SiteNav_v6\.glb/);
 });

@@ -116,8 +116,13 @@ const controls={target:new Vec(),autoRotate:true,handlers:{},update(){},
   removeEventListener(type,fn){if(this.handlers[type]===fn)delete this.handlers[type];},
   start(){this.handlers.start?.();},
 };
-const createRoute=new Function('GLTFLoader','ExcavatorRig','document','performance','fetch',
-  moduleBody+';return createExcavatorRoute;')(GLTFLoader,ExcavatorRig,document,performance,fetch);
+let operatorRig;
+const makeOperatorRig=()=>{
+  operatorRig={calls:[],apply(command){this.calls.push(command);},reset(){this.calls.push({reset:true});}};
+  return operatorRig;
+};
+const createRoute=new Function('GLTFLoader','ExcavatorRig','makeOperatorRig','document','performance','fetch',
+  moduleBody+';return createExcavatorRoute;')(GLTFLoader,ExcavatorRig,makeOperatorRig,document,performance,fetch);
 const instance=await createRoute({THREE,scene,camera,controls,invalidate(){}});
 const el=id=>toolbar.querySelector('#'+id);
 const assertNear=(actual,expected,tolerance=0.025)=>{
@@ -165,6 +170,8 @@ const d0=Math.hypot(camera.position.x-rig.position.x,camera.position.z-rig.posit
 const cameraAtStart=new Vec().copy(camera.position);
 now+=80;instance.update(now);
 now+=80;instance.update(now);
+assert.ok(operatorRig.calls.some(c=>c.travelL>0 && c.travelR>0),
+  'both travel pedals must engage during forward movement');
 assert.ok(Math.hypot(
   camera.position.x-cameraAtStart.x,camera.position.y-cameraAtStart.y,
   camera.position.z-cameraAtStart.z,
@@ -216,7 +223,10 @@ for(let i=0;i<3500;i++){
       // Pause/resume must freeze the parking animation, not restart it.
       el('ex-play').click();
       assert.equal(el('ex-state').textContent,'Paused');
+      const operatorCallsAtPause=operatorRig.calls.length;
       for(let j=0;j<8;j++){now+=80;instance.update(now);}
+      assert.equal(operatorRig.calls.length,operatorCallsAtPause,
+        'operator must hold hands/joysticks/pedals when parking is paused');
       assertNear(mechanics.poses.at(-1).slew,slewNow,0.000001);
       assert.equal(mechanics.distance,trackDistanceAtArrival);
       el('ex-play').click();
@@ -233,6 +243,11 @@ assert.ok(Math.abs(Math.sin(mechanics.poses.at(-1).slew*Math.PI/180))<1e-8,
 assert.equal(el('ex-play').textContent,'Replay');
 assert.equal(el('excavator-demo-status').textContent,'Route complete · parked');
 assert.equal(el('ex-state').textContent,'Parked');
+assert.ok(operatorRig.calls.some(c=>c.joyL?.lr < -0.5 && c.travelL < 0.08),
+  'left joystick must command clockwise slew after the tracks stop');
+assert.ok(Math.abs(operatorRig.calls.at(-1).joyL.lr)<0.02 &&
+  Math.abs(operatorRig.calls.at(-1).travelL)<0.02,
+  'operator must return controls to neutral after parking');
 assertNear(rig.position.x,-7.44);
 assertNear(rig.position.z,0.72);
 const distanceAfterFinish=mechanics.distance;
@@ -257,6 +272,7 @@ assertNear(Math.hypot(
 const cameraRelativeAtPark=new Vec().copy(camera.position).sub(rig.position);
 const targetRelativeAtPark=new Vec().copy(controls.target).sub(rig.position);
 el('ex-play').click();
+assert.equal(operatorRig.calls.at(-1).reset,true,'Replay must reset operator controls');
 assertNear(camera.position.x-rig.position.x,cameraRelativeAtPark.x,0.000001);
 assertNear(camera.position.z-rig.position.z,cameraRelativeAtPark.z,0.000001);
 assertNear(controls.target.x-rig.position.x,targetRelativeAtPark.x,0.000001);

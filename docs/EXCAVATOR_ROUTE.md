@@ -13,8 +13,8 @@ in the reference screenshot are separate and must not be modified.
 - The normal root URL continues using `index.html`.
 - The build makes a copy of the HTML viewer with the new suffix. Its animation
   code only imports on that suffix.
-- Asset target: `assets/excavator/EX2000_7_SiteNav_v6.glb`.
-- Previous v2, v3, v4 and v5 GLBs are retained for comparison; the route page uses v6.
+- Asset target: `assets/excavator/EX2000_7_SiteNav_v7.glb`.
+- Previous v2, v3, v4, v5 and v6 GLBs are retained for comparison; the route page uses v7.
 - Rejected primitive model must **never** be copied to this asset path.
 
 ## Route georeferencing
@@ -110,6 +110,7 @@ arrows.
   parent `SLEW`, the operator fits within the cab volume, with zero triangle
   contacts against the upperstructure, boom and front attachments. Hand/joystick
   overlaps are intentional. The rig passed 500 random-pose pin checks.
+- The **Opus 5.5-produced v7** replaces the procedural v6 employee with an adapted, low-poly *Worker* by Quaternius (the original 2022 model is listed as CC0 at https://poly.pizza/m/Yg2bQZO6Hj; the current creator-site licence wording may differ). The original source file is retained privately for provenance, not served as a standalone download. The derivative GLB embeds the seated employee's skinned mesh and 22-bone armature inside the cab, wearing yellow high-vis overalls with silver reflective bands, a hardhat and small safety lenses. It preserves the photo-matched Hitachi orange, BIG YELLOW markings and 85%-transparent cab glazing. The new model is approximately **2.23 MB**, **79,694 instanced triangles**, with 92 instanced track shoes and six glTF animation clips. Additional runtime controls are two articulated joysticks, paired arm/hand bones and two travel pedals with moving boots. `excavator-operator-rig.mjs` reads `assets/excavator/operator_rig_contract_v7.json` and sets joint quaternions directly; it does not replace the independently tested excavator linkage solver. During travel, both pedals engage proportionally to the track velocities and the hands respond slightly to steering; during the final clockwise house slew, the left joystick and associated hand move while the tracks stop. The joints ease back to neutral at the end, hold their pose when paused, and reset on Replay. These are illustrative motions, **not a machine-control procedure**. Independent Blender reimport confirmed the employee is under SLEW, the control panel is under SLEW, zero mesh intersections, and the existing 500-pose mechanical validation passes. `tests/excavator-operator-rig.test.mjs` verifies source GLB/contract names, materials, quaternions and reset, and `tests/excavator-route-demo.test.mjs` exercises live state transitions. The worker is stylised and non-identifiable; eyeglasses may not resolve at the normal portrait-camera distance.
 - The camera follows by default. It retains the **actual SiteNav compass
   heading and pitch** during the initial dolly, focuses on the moving machine
   over 5 seconds and reaches final framing in about **10 seconds**

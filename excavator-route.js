@@ -6,10 +6,12 @@
 
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { ExcavatorRig } from './excavator-rig.js';
+import { makeOperatorRig } from './excavator-operator-rig.mjs';
 
 const SCENE_METRES = 12.449; // provisional GPS calibration; scene units are NOT metres
-const MODEL_URL = './assets/excavator/EX2000_7_SiteNav_v6.glb';
+const MODEL_URL = './assets/excavator/EX2000_7_SiteNav_v7.glb';
 const RIG_PARAMS_URL = './assets/excavator/params.json';
+const OPERATOR_CONTRACT_URL = './assets/excavator/operator_rig_contract_v7.json';
 
 // Travel in the opposite direction to the first demo: start at the eastern
 // yellow-line termination, follow the south of Mining, and finish at Module.
@@ -189,7 +191,9 @@ export async function createExcavatorRoute({THREE,scene,camera,controls,invalida
   routeMesh.renderOrder=4;
   scene.add(routeMesh);
 
-  const state={rig:null,mechanics:null,progress:0,playing:true,completed:false,
+  const state={rig:null,mechanics:null,operatorRig:null,
+    operatorAxes:{travelL:0,travelR:0,joyLfb:0,joyLlr:0,joyRfb:0,joyRlr:0},
+    progress:0,playing:true,completed:false,
     parking:false,parkSlewElapsed:0,parkSlewStart:0,
     speed:2,lastMs:0,lastYaw:0,resetYaw:true,elapsed:0,
     follow:true,manualCamera:false,cameraElapsed:0,cameraIntroPending:true,
@@ -243,6 +247,8 @@ export async function createExcavatorRoute({THREE,scene,camera,controls,invalida
       state.cameraElapsed=0;
       state.cameraIntroPending=true;
       state.playing=true;
+      state.operatorRig?.reset();
+      for(const key of Object.keys(state.operatorAxes))state.operatorAxes[key]=0;
     }else{
       state.playing=!state.playing;
     }
@@ -260,11 +266,12 @@ export async function createExcavatorRoute({THREE,scene,camera,controls,invalida
   ui.speed.addEventListener('change',()=>{state.speed=Number(ui.speed.value);});
 
   try {
-    const [gltf,paramRes]=await Promise.all([
-      new GLTFLoader().loadAsync(MODEL_URL),fetch(RIG_PARAMS_URL),
+    const [gltf,paramRes,operatorRes]=await Promise.all([
+      new GLTFLoader().loadAsync(MODEL_URL),fetch(RIG_PARAMS_URL),fetch(OPERATOR_CONTRACT_URL),
     ]);
     if(!paramRes.ok)throw new Error(`Rig params HTTP ${paramRes.status}`);
-    const params=await paramRes.json();
+    if(!operatorRes.ok)throw new Error(`Operator contract HTTP ${operatorRes.status}`);
+    const [params,operatorContract]=await Promise.all([paramRes.json(),operatorRes.json()]);
     const rig=gltf.scene;
     rig.name='EX2000_7_ROUTE_ANIMATED';
     rig.scale.setScalar(1/SCENE_METRES);
@@ -273,6 +280,9 @@ export async function createExcavatorRoute({THREE,scene,camera,controls,invalida
     // Opus's mechanical adapter solves all four cylinder/linkage positions,
     // and instances the 92 Blender-modelled shoes as two draw calls.
     state.mechanics=new ExcavatorRig(rig,params,{instanceShoes:true});
+    // The seated CC0-derived operator, joysticks and travel pedals are
+    // children of SLEW; the rig helper drives only their local joint poses.
+    state.operatorRig=makeOperatorRig(rig,operatorContract);
     // Rendering the model in the same pass as Gaussian splats and transparent
     // traffic arrows produces sorting conflicts even with high renderOrder.
     // Assign the entire rig, including dynamically instanced track shoes, to
@@ -434,6 +444,30 @@ export async function createExcavatorRoute({THREE,scene,camera,controls,invalida
       stick:-122,
       bucket:0,
     });
+    // Sync the operator to the SAME travel/turn/slew state that drives the
+    // actual machine. Hands follow joystick pivots; boots move with pedals.
+    // Pausing freezes the last pose; only completion eases the controls home.
+    if(state.operatorRig&&(state.playing||state.completed)){
+      const moving=driving&&!state.parking&&travelMetres>0;
+      const base=Math.max(0.1,travelMetres+Math.abs(turnDiff));
+      const left=moving?Math.max(-1,Math.min(1,(travelMetres+turnDiff)/base))*0.82:0;
+      const right=moving?Math.max(-1,Math.min(1,(travelMetres-turnDiff)/base))*0.82:0;
+      const steer=moving?Math.max(-1,Math.min(1,turnDiff/base)):0;
+      const parkingSlew=state.parking&&state.playing;
+      const desired={travelL:left,travelR:right,
+        joyLfb:moving?0.08:0,joyRfb:moving?0.06:0,
+        joyLlr:parkingSlew?-0.82:steer*0.16,
+        joyRlr:moving?steer*0.09:0};
+      const smoothing=1-Math.exp(-Math.max(0,dt)*5.5);
+      for(const [key,value] of Object.entries(desired)){
+        state.operatorAxes[key]+=(value-state.operatorAxes[key])*smoothing;
+      }
+      const a=state.operatorAxes;
+      state.operatorRig.apply({
+        joyL:{fb:a.joyLfb,lr:a.joyLlr},joyR:{fb:a.joyRfb,lr:a.joyRlr},
+        travelL:a.travelL,travelR:a.travelR,
+      });
+    }
     return state.playing||state.follow;
   };
   const renderOverlay=renderer=>{

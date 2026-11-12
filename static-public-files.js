@@ -12,7 +12,7 @@ const PUBLIC_ROOT_FILES = Object.freeze([
   'public-transport.js',
   'my-pins-session.js', 'point-list-item.js', 'public-data.js', 'public-site.js',
   'qr.js', 'splat-compare.js', 'splat-normalization.js', 'viewer-perf.js', 'moving-resolution.js',
-  'excavator-route.js', 'excavator-rig.js', 'excavator-rig-math.mjs',
+  'excavator-route.js', 'excavator-rig.js', 'excavator-rig-math.mjs', 'excavator-operator-rig.mjs',
   'visit-analytics.js',
 ]);
 const PUBLIC_ROOT_SET = new Set(PUBLIC_ROOT_FILES);
@@ -31,7 +31,7 @@ const PUBLIC_ASSET_EXTENSIONS = Object.freeze([
   '.mp4', '.webm',
 ]);
 const PUBLIC_ASSET_EXTENSION_SET = new Set(PUBLIC_ASSET_EXTENSIONS);
-const PUBLIC_ASSET_EXACT_FILES = Object.freeze(['site-map-bounds.json', 'gps-calibration.json', 'excavator/params.json']);
+const PUBLIC_ASSET_EXACT_FILES = Object.freeze(['site-map-bounds.json', 'gps-calibration.json', 'excavator/params.json', 'excavator/operator_rig_contract_v7.json']);
 const PUBLIC_ASSET_EXACT_SET = new Set(PUBLIC_ASSET_EXACT_FILES);
 
 function decodePathname(pathname) {

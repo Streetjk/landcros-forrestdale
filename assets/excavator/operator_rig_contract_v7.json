@@ -1,0 +1,1042 @@
+{
+ "contract": "EX2000-7 SiteNav v7 operator rig + control pivots",
+ "glb": "EX2000_7_SiteNav_v7.glb",
+ "units": "metres; angles in degrees unless noted; quaternions [x, y, z, w] (three.js order)",
+ "frames": {
+  "three_js_SLEW_local": "+X forward (boom), +Y up, +Z operator's RIGHT (= Blender -Y)",
+  "blender_world": "+X forward, +Y operator's LEFT, +Z up (build/report coordinates)",
+  "note": "every node below is a descendant of SLEW, so all of it slews with the upper structure"
+ },
+ "name_safety": "all names use [A-Z a-z 0-9 _] only, so THREE.PropertyBinding.sanitizeNodeName leaves them unchanged",
+ "operator": {
+  "armature_node": {
+   "node_index": 55,
+   "parent": "SLEW",
+   "translation": [
+    2.374937,
+    2.196823,
+    -2.425
+   ],
+   "rotation_xyzw": [
+    0,
+    0.707107,
+    0,
+    0.707107
+   ],
+   "scale": [
+    1,
+    1,
+    1
+   ]
+  },
+  "skinned_mesh_node": "CAB_OPERATOR_Mesh",
+  "bone_count": 22,
+  "rest_pose": "the seated grip pose IS the bind/rest pose: identity deltas = hands on both joysticks, boots on pedals",
+  "bones": {
+   "OP_Abdomen": {
+    "node_index": 44,
+    "parent": "OP_Hips",
+    "translation": [
+     0.0,
+     0.106104,
+     -0.0
+    ],
+    "rotation_xyzw": [
+     0.047781,
+     0.0,
+     0.0,
+     0.998858
+    ],
+    "scale": [
+     1,
+     1.0,
+     1
+    ],
+    "role": ""
+   },
+   "OP_Body": {
+    "node_index": 52,
+    "parent": "OP_Root",
+    "translation": [
+     0.000453,
+     0.865401,
+     -0.045606
+    ],
+    "rotation_xyzw": [
+     0,
+     0.0,
+     0,
+     1
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ],
+    "role": ""
+   },
+   "OP_Chest": {
+    "node_index": 42,
+    "parent": "OP_Torso",
+    "translation": [
+     0.0,
+     0.216291,
+     -0.0
+    ],
+    "rotation_xyzw": [
+     0.003636,
+     0.0,
+     -0.0,
+     0.999993
+    ],
+    "scale": [
+     1,
+     1.0,
+     1.0
+    ],
+    "role": "chest"
+   },
+   "OP_Foot_L": {
+    "node_index": 46,
+    "parent": "OP_LowerLeg_L",
+    "translation": [
+     1e-06,
+     0.511121,
+     2e-06
+    ],
+    "rotation_xyzw": [
+     -0.678313,
+     -0.038716,
+     -0.028708,
+     0.733191
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ],
+    "role": "left boot (heel/pedal hinge)"
+   },
+   "OP_Foot_R": {
+    "node_index": 49,
+    "parent": "OP_LowerLeg_R",
+    "translation": [
+     -1e-06,
+     0.511121,
+     -1e-06
+    ],
+    "rotation_xyzw": [
+     -0.678313,
+     0.038716,
+     0.028707,
+     0.733191
+    ],
+    "scale": [
+     1,
+     1,
+     1.0
+    ],
+    "role": "right boot"
+   },
+   "OP_Hand_L": {
+    "node_index": 34,
+    "parent": "OP_LowerArm_L",
+    "translation": [
+     -2e-06,
+     0.23528,
+     -1e-06
+    ],
+    "rotation_xyzw": [
+     -0.187991,
+     -0.084926,
+     0.06466,
+     0.976353
+    ],
+    "scale": [
+     1.0,
+     1,
+     1.0
+    ],
+    "role": "left hand incl. closed grip (wrist joint)"
+   },
+   "OP_Hand_R": {
+    "node_index": 38,
+    "parent": "OP_LowerArm_R",
+    "translation": [
+     1e-06,
+     0.23528,
+     -1e-06
+    ],
+    "rotation_xyzw": [
+     -0.187986,
+     0.084927,
+     -0.06466,
+     0.976354
+    ],
+    "scale": [
+     1.0,
+     1,
+     1
+    ],
+    "role": "right hand incl. closed grip"
+   },
+   "OP_Head": {
+    "node_index": 32,
+    "parent": "OP_Neck",
+    "translation": [
+     0.0,
+     0.076729,
+     -0.0
+    ],
+    "rotation_xyzw": [
+     0.043619,
+     -0.000275,
+     -1.2e-05,
+     0.999048
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ],
+    "role": "head + hard hat + glasses"
+   },
+   "OP_Hips": {
+    "node_index": 45,
+    "parent": "OP_Body",
+    "translation": [
+     -0.000797,
+     0.028695,
+     0.033075
+    ],
+    "rotation_xyzw": [
+     -0.147485,
+     0.0,
+     -0.0,
+     0.989064
+    ],
+    "scale": [
+     1,
+     1.0,
+     1.0
+    ],
+    "role": "pelvis/spine root"
+   },
+   "OP_LowerArm_L": {
+    "node_index": 35,
+    "parent": "OP_UpperArm_L",
+    "translation": [
+     -0.0,
+     0.181908,
+     0.0
+    ],
+    "rotation_xyzw": [
+     0.091118,
+     -0.122579,
+     -0.623621,
+     0.76666
+    ],
+    "scale": [
+     1,
+     1.0,
+     1.0
+    ],
+    "role": "left forearm (elbow joint)"
+   },
+   "OP_LowerArm_R": {
+    "node_index": 39,
+    "parent": "OP_UpperArm_R",
+    "translation": [
+     0.0,
+     0.181908,
+     -1e-06
+    ],
+    "rotation_xyzw": [
+     0.091116,
+     0.12258,
+     0.623619,
+     0.766663
+    ],
+    "scale": [
+     1,
+     1.0,
+     1
+    ],
+    "role": "right forearm"
+   },
+   "OP_LowerLeg_L": {
+    "node_index": 47,
+    "parent": "OP_UpperLeg_L",
+    "translation": [
+     2e-06,
+     0.432979,
+     0.0
+    ],
+    "rotation_xyzw": [
+     0.508596,
+     0.53709,
+     -0.393998,
+     0.545555
+    ],
+    "scale": [
+     1.0,
+     1,
+     1.0
+    ],
+    "role": ""
+   },
+   "OP_LowerLeg_R": {
+    "node_index": 50,
+    "parent": "OP_UpperLeg_R",
+    "translation": [
+     -4e-06,
+     0.432979,
+     -0.0
+    ],
+    "rotation_xyzw": [
+     0.508597,
+     -0.537088,
+     0.394,
+     0.545554
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1.0
+    ],
+    "role": ""
+   },
+   "OP_Neck": {
+    "node_index": 33,
+    "parent": "OP_Chest",
+    "translation": [
+     0.0,
+     0.133251,
+     0.0
+    ],
+    "rotation_xyzw": [
+     0.016708,
+     1e-06,
+     0.0,
+     0.99986
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ],
+    "role": "neck"
+   },
+   "OP_Root": {
+    "node_index": 53,
+    "parent": "CAB_OPERATOR",
+    "translation": [
+     -0.0,
+     0,
+     0.072289
+    ],
+    "rotation_xyzw": [
+     0,
+     0.0,
+     0,
+     1
+    ],
+    "scale": [
+     1,
+     1,
+     1
+    ],
+    "role": ""
+   },
+   "OP_Shoulder_L": {
+    "node_index": 37,
+    "parent": "OP_Chest",
+    "translation": [
+     0.098742,
+     0.01834,
+     0.02278
+    ],
+    "rotation_xyzw": [
+     -0.426367,
+     -0.856799,
+     -0.099603,
+     0.272372
+    ],
+    "scale": [
+     1.0,
+     1,
+     1.0
+    ],
+    "role": ""
+   },
+   "OP_Shoulder_R": {
+    "node_index": 41,
+    "parent": "OP_Chest",
+    "translation": [
+     -0.098054,
+     0.01834,
+     0.02278
+    ],
+    "rotation_xyzw": [
+     -0.426366,
+     0.856799,
+     0.099602,
+     0.272371
+    ],
+    "scale": [
+     1.0,
+     1.0,
+     1
+    ],
+    "role": ""
+   },
+   "OP_Torso": {
+    "node_index": 43,
+    "parent": "OP_Abdomen",
+    "translation": [
+     0.0,
+     0.162004,
+     0.0
+    ],
+    "rotation_xyzw": [
+     0.027517,
+     -1e-06,
+     0.0,
+     0.999621
+    ],
+    "scale": [
+     1,
+     1,
+     1.0
+    ],
+    "role": ""
+   },
+   "OP_UpperArm_L": {
+    "node_index": 36,
+    "parent": "OP_Shoulder_L",
+    "translation": [
+     0,
+     0.065633,
+     -0.0
+    ],
+    "rotation_xyzw": [
+     -0.743798,
+     0.275146,
+     0.295504,
+     0.53267
+    ],
+    "scale": [
+     1,
+     1,
+     1.0
+    ],
+    "role": "left upper arm (shoulder joint)"
+   },
+   "OP_UpperArm_R": {
+    "node_index": 40,
+    "parent": "OP_Shoulder_R",
+    "translation": [
+     1e-06,
+     0.065633,
+     0.0
+    ],
+    "rotation_xyzw": [
+     -0.743797,
+     -0.275146,
+     -0.295503,
+     0.532672
+    ],
+    "scale": [
+     1,
+     1.0,
+     1.0
+    ],
+    "role": "right upper arm"
+   },
+   "OP_UpperLeg_L": {
+    "node_index": 48,
+    "parent": "OP_Body",
+    "translation": [
+     0.120138,
+     0.098749,
+     0.018381
+    ],
+    "rotation_xyzw": [
+     0.466353,
+     -0.460132,
+     -0.472684,
+     0.589376
+    ],
+    "scale": [
+     1,
+     1.0,
+     1
+    ],
+    "role": ""
+   },
+   "OP_UpperLeg_R": {
+    "node_index": 51,
+    "parent": "OP_Body",
+    "translation": [
+     -0.121045,
+     0.098749,
+     0.018381
+    ],
+    "rotation_xyzw": [
+     0.466353,
+     0.460132,
+     0.472684,
+     0.589376
+    ],
+    "scale": [
+     1,
+     1,
+     1.0
+    ],
+    "role": ""
+   }
+  }
+ },
+ "controls": {
+  "CAB_JOY_L": {
+   "node_index": 29,
+   "parent": "SLEW",
+   "translation": [
+    2.7397,
+    3.339587,
+    -2.672361
+   ],
+   "rotation_xyzw": [
+    0,
+    0,
+    0,
+    1
+   ],
+   "scale": [
+    1,
+    1,
+    1
+   ],
+   "mesh": "CAB_JOY_L_Mesh",
+   "pivot": "base of the shaft (rubber boot)",
+   "axes": {
+    "fwd_back": {
+     "local_axis_three": [
+      0,
+      0,
+      1
+     ],
+     "range_deg": 12.0,
+     "sign": "fb = +1 pushes the grip FORWARD (toward +X, the boom) = rotation of -range about local +Z"
+    },
+    "left_right": {
+     "local_axis_three": [
+      1,
+      0,
+      0
+     ],
+     "range_deg": 12.0,
+     "sign": "lr = +1 tilts the grip to the operator's RIGHT (toward +Z) = rotation of +range about local +X"
+    }
+   },
+   "compose": "pivot.quaternion = q(+Z, -fb*range) * q(+X, lr*range); neutral rotation is identity",
+   "pod_blender": [
+    [
+     2.33,
+     2.6526,
+     5.1736
+    ],
+    [
+     2.8183,
+     2.7324,
+     5.2836
+    ]
+   ],
+   "pivot_world_blender": [
+    2.7397,
+    2.6724,
+    5.2896
+   ],
+   "grip_centre_world_blender": [
+    2.7563,
+    2.6535,
+    5.4363
+   ],
+   "grip_axis_up_world_blender": [
+    0.1116,
+    -0.1269,
+    0.9856
+   ],
+   "grip_radius_m": 0.013,
+   "fist_hole_radius_m": 0.015,
+   "shaft_length_m": 0.1489,
+   "armrest_top_z": 5.2836
+  },
+  "CAB_JOY_R": {
+   "node_index": 31,
+   "parent": "SLEW",
+   "translation": [
+    2.739702,
+    3.339586,
+    -2.177641
+   ],
+   "rotation_xyzw": [
+    0,
+    0,
+    0,
+    1
+   ],
+   "scale": [
+    1,
+    1,
+    1
+   ],
+   "mesh": "CAB_JOY_R_Mesh",
+   "pivot": "base of the shaft (rubber boot)",
+   "axes": {
+    "fwd_back": {
+     "local_axis_three": [
+      0,
+      0,
+      1
+     ],
+     "range_deg": 12.0,
+     "sign": "fb = +1 pushes the grip FORWARD (toward +X, the boom) = rotation of -range about local +Z"
+    },
+    "left_right": {
+     "local_axis_three": [
+      1,
+      0,
+      0
+     ],
+     "range_deg": 12.0,
+     "sign": "lr = +1 tilts the grip to the operator's RIGHT (toward +Z) = rotation of +range about local +X"
+    }
+   },
+   "compose": "pivot.quaternion = q(+Z, -fb*range) * q(+X, lr*range); neutral rotation is identity",
+   "pod_blender": [
+    [
+     2.33,
+     2.1176,
+     5.1736
+    ],
+    [
+     2.8183,
+     2.1974,
+     5.2836
+    ]
+   ],
+   "pivot_world_blender": [
+    2.7397,
+    2.1776,
+    5.2896
+   ],
+   "grip_centre_world_blender": [
+    2.7563,
+    2.1965,
+    5.4363
+   ],
+   "grip_axis_up_world_blender": [
+    0.1115,
+    0.1269,
+    0.9856
+   ],
+   "grip_radius_m": 0.013,
+   "fist_hole_radius_m": 0.015,
+   "shaft_length_m": 0.1489,
+   "armrest_top_z": 5.2836
+  },
+  "CAB_TRAVEL_L": {
+   "node_index": 57,
+   "parent": "SLEW",
+   "translation": [
+    2.993201,
+    2.722661,
+    -2.610806
+   ],
+   "rotation_xyzw": [
+    0,
+    0,
+    -0.002394,
+    0.999997
+   ],
+   "scale": [
+    1,
+    1,
+    1
+   ],
+   "mesh": "CAB_TRAVEL_L_Mesh",
+   "pivot": "pedal hinge at the boot heel (OP_Foot head)",
+   "axis": {
+    "local_axis_three": [
+     0,
+     0,
+     1
+    ],
+    "range_deg": 10.0,
+    "sign": "t = +1 = FORWARD travel: pedal toe down + lever top forward = rotation of -range about local +Z"
+   },
+   "pivot_world_blender": [
+    2.9932,
+    2.6108,
+    4.6727
+   ],
+   "pedal_rest_toe_up_deg": 12.0,
+   "lever_top_world_blender": [
+    3.0097,
+    2.51,
+    4.99
+   ]
+  },
+  "CAB_TRAVEL_R": {
+   "node_index": 59,
+   "parent": "SLEW",
+   "translation": [
+    2.993201,
+    2.722661,
+    -2.239193
+   ],
+   "rotation_xyzw": [
+    0,
+    0,
+    0,
+    1
+   ],
+   "scale": [
+    1,
+    1,
+    1
+   ],
+   "mesh": "CAB_TRAVEL_R_Mesh",
+   "pivot": "pedal hinge at the boot heel (OP_Foot head)",
+   "axis": {
+    "local_axis_three": [
+     0,
+     0,
+     1
+    ],
+    "range_deg": 10.0,
+    "sign": "t = +1 = FORWARD travel: pedal toe down + lever top forward = rotation of -range about local +Z"
+   },
+   "pivot_world_blender": [
+    2.9932,
+    2.2392,
+    4.6727
+   ],
+   "pedal_rest_toe_up_deg": 12.0,
+   "lever_top_world_blender": [
+    3.0097,
+    2.34,
+    4.99
+   ]
+  }
+ },
+ "hand_follow": {
+  "method": "Blender IK (UpperArm->LowerArm->Hand, position+orientation) solved at the full deflection of each joystick axis; the browser blends per-axis delta quaternions (local, post-multiplied on the neutral bone rotation)",
+  "formula": "for each arm bone b: b.quaternion = neutral_b * slerp(I, D[side][fb>0?'fwd':'back'][b], |fb|) * slerp(I, D[side][lr>0?'right':'left'][b], |lr|)",
+  "feet_formula": "OP_Foot_X.quaternion = neutral * slerp(I, D[X][t>0?'travel_fwd':'travel_back'][OP_Foot_X], |t|)",
+  "deltas": {
+   "L": {
+    "fwd": {
+     "OP_UpperArm_L": [
+      0.042876,
+      -0.101109,
+      -0.009799,
+      0.993903
+     ],
+     "OP_LowerArm_L": [
+      -0.007654,
+      0.100364,
+      -0.004058,
+      0.994913
+     ],
+     "OP_Hand_L": [
+      -0.004856,
+      0.101126,
+      0.033578,
+      0.994295
+     ]
+    },
+    "back": {
+     "OP_UpperArm_L": [
+      -0.041127,
+      0.083036,
+      0.007563,
+      0.995669
+     ],
+     "OP_LowerArm_L": [
+      0.006128,
+      -0.050007,
+      0.005678,
+      0.998714
+     ],
+     "OP_Hand_L": [
+      -0.003385,
+      -0.13157,
+      -0.044525,
+      0.990301
+     ]
+    },
+    "right": {
+     "OP_UpperArm_L": [
+      -0.012892,
+      0.011949,
+      -0.032943,
+      0.999303
+     ],
+     "OP_LowerArm_L": [
+      -0.023243,
+      -0.045541,
+      -0.052522,
+      0.99731
+     ],
+     "OP_Hand_L": [
+      0.056413,
+      0.018052,
+      -0.040786,
+      0.997411
+     ]
+    },
+    "left": {
+     "OP_UpperArm_L": [
+      0.016396,
+      -0.0201,
+      0.030734,
+      0.999191
+     ],
+     "OP_LowerArm_L": [
+      0.022642,
+      0.067827,
+      0.049935,
+      0.996189
+     ],
+     "OP_Hand_L": [
+      -0.056008,
+      -0.016518,
+      0.037944,
+      0.997572
+     ]
+    },
+    "travel_fwd": {
+     "OP_Foot_L": [
+      0.086678,
+      5.4e-05,
+      -0.00911,
+      0.996195
+     ]
+    },
+    "travel_back": {
+     "OP_Foot_L": [
+      -0.086678,
+      -5.4e-05,
+      0.00911,
+      0.996195
+     ]
+    }
+   },
+   "R": {
+    "fwd": {
+     "OP_UpperArm_R": [
+      0.042875,
+      0.101111,
+      0.009799,
+      0.993903
+     ],
+     "OP_LowerArm_R": [
+      -0.007654,
+      -0.100365,
+      0.004058,
+      0.994913
+     ],
+     "OP_Hand_R": [
+      -0.004855,
+      -0.101127,
+      -0.033577,
+      0.994295
+     ]
+    },
+    "back": {
+     "OP_UpperArm_R": [
+      -0.041126,
+      -0.083035,
+      -0.007562,
+      0.995669
+     ],
+     "OP_LowerArm_R": [
+      0.006128,
+      0.050007,
+      -0.005678,
+      0.998714
+     ],
+     "OP_Hand_R": [
+      -0.003385,
+      0.131569,
+      0.044523,
+      0.990301
+     ]
+    },
+    "right": {
+     "OP_UpperArm_R": [
+      0.016397,
+      0.020103,
+      -0.030734,
+      0.999191
+     ],
+     "OP_LowerArm_R": [
+      0.022642,
+      -0.067831,
+      -0.049935,
+      0.996189
+     ],
+     "OP_Hand_R": [
+      -0.056008,
+      0.016518,
+      -0.037944,
+      0.997572
+     ]
+    },
+    "left": {
+     "OP_UpperArm_R": [
+      -0.012892,
+      -0.011946,
+      0.032943,
+      0.999303
+     ],
+     "OP_LowerArm_R": [
+      -0.023243,
+      0.04554,
+      0.052522,
+      0.99731
+     ],
+     "OP_Hand_R": [
+      0.056414,
+      -0.018053,
+      0.040785,
+      0.997411
+     ]
+    },
+    "travel_fwd": {
+     "OP_Foot_R": [
+      0.086678,
+      -5.4e-05,
+      0.00911,
+      0.996195
+     ]
+    },
+    "travel_back": {
+     "OP_Foot_R": [
+      -0.086678,
+      5.4e-05,
+      -0.00911,
+      0.996195
+     ]
+    }
+   }
+  },
+  "ik_target_residual_mm": {
+   "L_fwd": 0.0,
+   "L_back": 0.0,
+   "L_right": 0.0,
+   "L_left": 0.0,
+   "R_fwd": 0.0,
+   "R_back": 0.0,
+   "R_right": 0.0,
+   "R_left": 0.0
+  },
+  "fist_vs_grip_error_mm_blender": {
+   "L_fwd": {
+    "L": 0.0,
+    "R": 0.0
+   },
+   "L_back": {
+    "L": 0.0,
+    "R": 0.0
+   },
+   "L_right": {
+    "L": 0.0,
+    "R": 0.0
+   },
+   "L_left": {
+    "L": 0.0,
+    "R": 0.0
+   },
+   "R_fwd": {
+    "L": 0.0,
+    "R": 0.0
+   },
+   "R_back": {
+    "L": 0.0,
+    "R": 0.0
+   },
+   "R_right": {
+    "L": 0.0,
+    "R": 0.0
+   },
+   "R_left": {
+    "L": 0.0,
+    "R": 0.0
+   },
+   "L_half_fwd": {
+    "L": 2.02,
+    "R": 0.0
+   },
+   "both_corner_fwd_right": {
+    "L": 6.56,
+    "R": 6.68
+   },
+   "both_corner_back_left": {
+    "L": 6.07,
+    "R": 5.58
+   }
+  }
+ },
+ "suggested_mapping": {
+  "slew_clockwise (upper turns right, seen from above)": {
+   "CAB_JOY_L": {
+    "lr": "+1 (ramp in, hold, ramp out)"
+   }
+  },
+  "slew_counter_clockwise": {
+   "CAB_JOY_L": {
+    "lr": "-1"
+   }
+  },
+  "travel_forward": {
+   "CAB_TRAVEL_L": "+1",
+   "CAB_TRAVEL_R": "+1"
+  },
+  "travel_reverse": {
+   "CAB_TRAVEL_L": "-1",
+   "CAB_TRAVEL_R": "-1"
+  },
+  "turn_right_while_driving": {
+   "CAB_TRAVEL_L": "+1",
+   "CAB_TRAVEL_R": "0..+0.3"
+  },
+  "pivot_turn_right": {
+   "CAB_TRAVEL_L": "+1",
+   "CAB_TRAVEL_R": "-1"
+  },
+  "turn_left": "mirror of the right-hand cases",
+  "dig_cycle_ISO_pattern (optional)": {
+   "boom_down/up": "CAB_JOY_R fb +1/-1",
+   "bucket_curl/dump": "CAB_JOY_R lr -1/+1",
+   "stick_out/in": "CAB_JOY_L fb +1/-1"
+  },
+  "smoothing": "critically damped or ease in/out over >= 0.25 s; keep |fb|,|lr|,|t| <= 1; set all to 0 when paused or replay resets"
+ },
+ "clips": {
+  "mechanical (unchanged)": [
+   "Dig",
+   "Slew",
+   "TrackDrive_OnePitch"
+  ],
+  "operator demo (optional, 0-48 @24 fps: ramp 0.5 s, hold 1 s, ramp 0.5 s)": {
+   "OperatorDrive": "both travel +1",
+   "OperatorSteer": "travel L +1, R -0.6",
+   "OperatorSlew": "CAB_JOY_L lr +1"
+  },
+  "rule": "operator clips only animate OP_* bones and CAB_JOY_*/CAB_TRAVEL_* pivots; do not run an operator clip and per-frame control on the same nodes at once (stop the action or skip those tracks)"
+ },
+ "reference_js": "output/operator_rig_v7.mjs (dependency-free; works on three.js Object3D)"
+}
