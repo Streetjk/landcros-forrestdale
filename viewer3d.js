@@ -1030,7 +1030,10 @@ function animate() {
     }
     const _renderCpuStart = _perfEnabled ? performance.now() : 0;
     _perf.gpuBegin('render');
-    try { renderer.render(scene, camera); }
+    try {
+      renderer.render(scene, camera);
+      _excavatorDemo?.renderOverlay?.(renderer);
+    }
     finally { _perf.gpuEnd('render'); }
     if (_perfEnabled) _renderCpuMs = performance.now() - _renderCpuStart;
   }
@@ -4336,6 +4339,10 @@ async function loadComparisonScene(route, opts = {}) {
 }
 
 function _doIntroAnimation() {
+  // The isolated EX2000-7 route owns its introductory camera zoom/orbit.
+  // The standard SiteNav intro would fight its follow controller. Leave
+  // the normal SiteNav homepage and other scenes entirely unchanged.
+  if (window.location?.pathname?.endsWith('/excavator-route.html')) return;
   if (!_splatViewer || _introPlayed) return;
   _introPlayed = true;
   controls.enabled = false;
@@ -4915,7 +4922,7 @@ async function boot() {
   window.dispatchEvent(new CustomEvent('viewer3d:ready'));
 
   if (window.location.pathname.endsWith('/excavator-route.html')) {
-    import('./excavator-route.js?v=20261112d').then(async ({ createExcavatorRoute }) => {
+    import('./excavator-route.js?v=20261112e').then(async ({ createExcavatorRoute }) => {
       _excavatorDemo = await createExcavatorRoute({
         THREE, scene, camera, controls, invalidate: _invalidateExcavatorFrame,
       });

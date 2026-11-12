@@ -8,7 +8,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { ExcavatorRig } from './excavator-rig.js';
 
 const SCENE_METRES = 12.449; // provisional GPS calibration; scene units are NOT metres
-const MODEL_URL = './assets/excavator/EX2000_7_SiteNav_v3.glb';
+const MODEL_URL = './assets/excavator/EX2000_7_SiteNav_v4.glb';
 const RIG_PARAMS_URL = './assets/excavator/params.json';
 
 // Travel in the opposite direction to the first demo: start at the eastern
@@ -23,7 +23,8 @@ const WAYPOINTS = [
   [-5.77, -11.16],
 ].reverse();
 
-const OVERLAY_ORDER = 50; // splat=1; traffic arrows=3; keep the excavator in front
+const OVERLAY_ORDER = 50;
+const EXCAVATOR_LAYER = 29; // dedicated final render pass, never in the site's splat pass
 const ZOOM_SECONDS = 18;
 const ORBIT_RADIANS_PER_SECOND = 0.058;
 
@@ -48,7 +49,7 @@ function createToolbar() {
       <button id="ex-focus" type="button" aria-pressed="true">Unfollow</button>
       <label for="ex-speed" style="font-size:11px">Speed</label>
       <select id="ex-speed" aria-label="Animation speed">
-        <option value="1" selected>1×</option><option value="2">2×</option>
+        <option value="1">1×</option><option value="2" selected>2×</option>
         <option value="5">5×</option>
       </select>
     </div>
@@ -94,13 +95,29 @@ export async function createExcavatorRoute({THREE,scene,camera,controls,invalida
   scene.add(routeMesh);
 
   const state={rig:null,mechanics:null,progress:0,playing:true,completed:false,
-    speed:1,lastMs:0,lastYaw:0,resetYaw:true,elapsed:0,
-    follow:true,cameraElapsed:0};
+    speed:2,lastMs:0,lastYaw:0,resetYaw:true,elapsed:0,
+    follow:true,manualCamera:false,cameraElapsed:0};
+  const onControlStart=()=>{
+    if(!state.follow)return;
+    // Keep following the excavator's position while the owner controls the
+    // view angle, pan and zoom. Do not reassert the scripted camera pose.
+    state.manualCamera=true;
+    ui.focus.textContent='Recenter';
+  };
+  controls.addEventListener('start',onControlStart);
   const focus=()=>{
+    if(state.follow&&state.manualCamera){
+      state.manualCamera=false;
+      state.cameraElapsed=0;
+      ui.focus.textContent='Unfollow';
+      invalidate();
+      return;
+    }
     state.follow=!state.follow;
     ui.focus.textContent=state.follow?'Unfollow':'Focus';
     ui.focus.setAttribute('aria-pressed',String(state.follow));
     if(state.follow){
+      state.manualCamera=false;
       state.cameraElapsed=0;
       controls.autoRotate=false;
     }
@@ -138,43 +155,35 @@ export async function createExcavatorRoute({THREE,scene,camera,controls,invalida
     // Opus's mechanical adapter solves all four cylinder/linkage positions,
     // and instances the 92 Blender-modelled shoes as two draw calls.
     state.mechanics=new ExcavatorRig(rig,params,{instanceShoes:true});
-    // Three.js draws opaque GLB meshes before transparent Gaussian splats,
-    // irrespective of renderOrder. Move the model to the transparent queue
-    // (full opacity preserved), after splats and traffic overlays.
-    // Ground/traffic/splats can write nearer depth values than the model;
-    // clear that depth once at the first excavator mesh per render pass.
-    // Subsequent excavator meshes still use depth testing and writes so the
-    // machine occludes its own far-side parts correctly.
-    let depthClearedFrame=-1;
+    // Rendering the model in the same pass as Gaussian splats and transparent
+    // traffic arrows produces sorting conflicts even with high renderOrder.
+    // Assign the entire rig, including dynamically instanced track shoes, to
+    // a dedicated camera layer. It will be drawn in a second, final pass.
+    // This keeps the v4 glass's genuine 50% alpha and correct internal depth.
     rig.traverse(object=>{
+      object.layers.set(EXCAVATOR_LAYER);
       if(!object.isMesh)return;
       object.renderOrder=OVERLAY_ORDER;
-      object.onBeforeRender=renderer=>{
-        const frame=renderer.info.render.frame;
-        if(depthClearedFrame!==frame){
-          renderer.clearDepth();
-          depthClearedFrame=frame;
-        }
-      };
       const materials=Array.isArray(object.material)?object.material:[object.material];
       for(const material of materials){
         if(!material)continue;
-        material.transparent=true;
         material.depthTest=true;
-        if(material.opacity===1)material.depthWrite=true;
-        material.needsUpdate=true;
       }
     });
+    // Standard site lighting must illuminate the model in its own layer.
+    // Enabling an extra layer does not affect ordinary SiteNav rendering.
+    scene.traverse(object=>{if(object.isLight)object.layers.enable(EXCAVATOR_LAYER);});
     controls.autoRotate=false;
     ui.status.textContent='Model loaded · one-way route running';
   } catch (error) {
     ui.status.textContent='Model unavailable — animation not started';
     console.error('[excavator-route] GLB could not load:',error);
-    return {update(){return false;},dispose(){routeMesh.removeFromParent();ui.wrap.remove();}};
+    return {update(){return false;},dispose(){controls.removeEventListener('start',onControlStart);routeMesh.removeFromParent();ui.wrap.remove();}};
   }
 
   const vec=new THREE.Vector3();
   const tan=new THREE.Vector3();
+  const travelShift=new THREE.Vector3();
   const orbitPosition=new THREE.Vector3();
   const orbitTarget=new THREE.Vector3();
   const update=ms=>{
@@ -196,26 +205,34 @@ export async function createExcavatorRoute({THREE,scene,camera,controls,invalida
     const t=state.progress;
     route.getPointAt(t,vec);
     route.getTangentAt(t,tan).normalize();
+    travelShift.copy(vec).sub(state.rig.position);
     state.rig.position.copy(vec);
     const yaw=-Math.atan2(tan.z,tan.x);
     state.rig.rotation.set(0,yaw,0);
     if(state.follow){
-      state.cameraElapsed+=dt;
-      const u=Math.min(1,state.cameraElapsed/ZOOM_SECONDS);
-      const eased=u*u*(3-2*u);
-      const radius=THREE.MathUtils.lerp(5.6,1.95,eased);
-      // Start at the forward three-quarter angle, not directly behind the
-      // travel axis; turn with the chassis and slowly orbit around it.
-      const azimuth=yaw+0.45+state.cameraElapsed*ORBIT_RADIANS_PER_SECOND;
-      orbitTarget.set(vec.x,vec.y+0.30,vec.z);
-      orbitPosition.set(
-        vec.x+Math.sin(azimuth)*radius,
-        vec.y+0.92+radius*0.29,
-        vec.z+Math.cos(azimuth)*radius,
-      );
-      const smoothing=1-Math.exp(-dt*1.7);
-      controls.target.lerp(orbitTarget,smoothing);
-      camera.position.lerp(orbitPosition,smoothing);
+      if(state.manualCamera){
+        // An interactive orbit must remain entirely under OrbitControls.
+        // Only translate the user's chosen pose along with the chassis.
+        camera.position.add(travelShift);
+        controls.target.add(travelShift);
+      }else{
+        state.cameraElapsed+=dt;
+        const u=Math.min(1,state.cameraElapsed/ZOOM_SECONDS);
+        const eased=u*u*(3-2*u);
+        const radius=THREE.MathUtils.lerp(5.6,1.95,eased);
+        // Start at the forward three-quarter angle, not directly behind the
+        // travel axis; turn with the chassis and slowly orbit around it.
+        const azimuth=yaw+0.45+state.cameraElapsed*ORBIT_RADIANS_PER_SECOND;
+        orbitTarget.set(vec.x,vec.y+0.30,vec.z);
+        orbitPosition.set(
+          vec.x+Math.sin(azimuth)*radius,
+          vec.y+0.92+radius*0.29,
+          vec.z+Math.cos(azimuth)*radius,
+        );
+        const smoothing=1-Math.exp(-dt*1.7);
+        controls.target.lerp(orbitTarget,smoothing);
+        camera.position.lerp(orbitPosition,smoothing);
+      }
       controls.update();
     }
     if(state.resetYaw){state.lastYaw=yaw;state.resetYaw=false;}
@@ -233,6 +250,20 @@ export async function createExcavatorRoute({THREE,scene,camera,controls,invalida
     });
     return state.playing||state.follow;
   };
+  const renderOverlay=renderer=>{
+    if(!state.rig)return;
+    const originalMask=camera.layers.mask;
+    const originalAutoClear=renderer.autoClear;
+    try{
+      renderer.autoClear=false;
+      renderer.clearDepth();
+      camera.layers.set(EXCAVATOR_LAYER);
+      renderer.render(scene,camera);
+    }finally{
+      camera.layers.mask=originalMask;
+      renderer.autoClear=originalAutoClear;
+    }
+  };
   update(performance.now());
-  return {update,dispose(){routeMesh.removeFromParent();state.rig?.removeFromParent();ui.wrap.remove();}};
+  return {update,renderOverlay,dispose(){controls.removeEventListener('start',onControlStart);routeMesh.removeFromParent();state.rig?.removeFromParent();ui.wrap.remove();}};
 }

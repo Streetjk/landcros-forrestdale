@@ -13,8 +13,8 @@ in the reference screenshot are separate and must not be modified.
 - The normal root URL continues using `index.html`.
 - The build makes a copy of the HTML viewer with the new suffix. Its animation
   code only imports on that suffix.
-- Asset target: `assets/excavator/EX2000_7_SiteNav_v3.glb`.
-- The v2 GLB is retained for comparison, but the route page uses v3.
+- Asset target: `assets/excavator/EX2000_7_SiteNav_v4.glb`.
+- The v2 and v3 GLBs are retained for comparison; the route page uses v4.
 - Rejected primitive model must **never** be copied to this asset path.
 
 ## Route georeferencing
@@ -62,26 +62,37 @@ traffic-control arrows.
   so the installed stick and bucket remain simplified.
 - Scene scale is currently ~12.449 physical metres per SiteNav unit from
   `assets/gps-calibration.json` (status: provisional).
-- Speed choices are **1×, 2× and 5×**; the default 1× demonstration rate is
-  4.2 km/h equivalent (twice the first demo's baseline). Multipliers are
-  visual playback controls, not recommended machine travel speeds.
+- Speed choices are **1×, 2× and 5×**, initially **2×**. The 1× demo rate is
+  equivalent to 4.2 km/h (twice the first demo's baseline); starting 2× is
+  an 8.4 km/h equivalent *visual playback rate*, not a recommended machine
+  travel speed.
 - Motion uses the Opus-generated `ExcavatorRig` solver and 92 instanced
   track shoes, independently rotating upperstructure, and a one-way
   spline route. The original rig retains its joint and cylinder animation
   capability, but the public **Dig cycle button is removed**.
-- The v3 GLB is **1,368,484 bytes, 71,414 triangles, eight materials**.
-  It preserves the v2 joint hierarchy and passed 500 random rig poses with
+- The Opus 5.5-generated v4 model is derived from six workshop photographs,
+  removes both front hanging ladders and replaces all MMS/chevron markings
+  with legible yellow **BIG YELLOW** decals on the front and counterweight.
+  The cabin has a simplified hollow interior and its tinted `CAB_GLASS`
+  material has glTF `alphaMode=BLEND` with opacity **0.50**. Other structural
+  materials remain opaque. V4 has fewer than 100,000 triangles and is under
+  3 MiB; the v3 GLB remains a visual comparison baseline.
+  It preserves the v2/v3 joint hierarchy and passed 500 random rig poses with
   <0.001 m hydraulic pin misalignment, including validation against the
   original params. These are mechanical checks, not cross-device proof.
-- The camera follows by default, slowly zooms in over about 18 seconds
-  and orbits the moving excavator. **Unfollow** returns to manual navigation;
-  **Focus** reactivates the automatic view.
-- The excavator's meshes are submitted to the transparent render queue
-  after the splat (render order 1) and traffic arrows (3), with render order
-  50. Background depth is cleared once just before the excavator's meshes,
-  then depth testing is retained for its own geometry. This guarantees the
-  site overlays cannot cut across the machine without modifying the normal
-  homepage rendering pipeline.
+- The camera follows by default, slowly zooms in over about 18 seconds and
+  orbits the moving excavator. Dragging, panning or zooming the view changes
+  to **manual-follow**: the owner retains their chosen view while the camera
+  translates with the travelling rig. **Recenter** resumes the scripted
+  cinematic; **Unfollow** and **Focus** toggle follow entirely.
+- The ordinary SiteNav introduction is suppressed **only** on
+  `/excavator-route.html` to prevent it fighting the route camera. The normal
+  homepage retains its original introductory sequence.
+- The excavator uses dedicated WebGL camera layer 29. Its geometry is excluded
+  from the splat/traffic pass and rendered in a **second, final pass**, after
+  the splat and traffic arrows, following one depth-buffer clear. The model's
+  opaque materials retain depth testing, while cab glazing retains genuine
+  alpha blending. The standard homepage rendering pipeline is unchanged.
 
 ## Acceptance before operational use
 
