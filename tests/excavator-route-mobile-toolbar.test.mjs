@@ -21,10 +21,10 @@ test('mobile breakpoint covers portrait phones only', () => {
   assert.ok(mobile.length > 0);
 });
 
-test('mobile overlay is compact and sits below the brand/address', () => {
-  assert.match(mobile, /width:min\(320px,calc\(100vw - 20px\)\)/);
+test('mobile overlay is compact and anchored top-right below branding', () => {
+  assert.match(mobile, /width:min\(260px,calc\(100vw - 20px\)\)/);
   assert.match(mobile, /top:calc\(70px \+ env\(safe-area-inset-top, 0px\)\)/);
-  assert.match(mobile, /left:calc\(10px \+ env\(safe-area-inset-left, 0px\)\);right:auto/);
+  assert.match(mobile, /right:calc\(10px \+ env\(safe-area-inset-right, 0px\)\);left:auto/);
 });
 
 test('mobile hides repetitive explanatory text but desktop keeps it', () => {

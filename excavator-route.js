@@ -43,8 +43,8 @@ const smootherstep = value => {
   return t*t*t*(t*(t*6-15)+10);
 };
 
-// Portrait phones (320–430 CSS px) get a compact two-row overlay below the
-// SiteNav brand/address; wider viewports keep the original desktop panel.
+// Portrait phones (320–430 CSS px) get a compact, top-right overlay below
+// the SiteNav brand/address; wider viewports keep the desktop panel.
 const MOBILE_TOOLBAR_QUERY = '(max-width:600px)';
 
 // All presentation lives in this stylesheet, never in inline style
@@ -79,8 +79,8 @@ const TOOLBAR_CSS = `
   @media ${MOBILE_TOOLBAR_QUERY} {
     #excavator-route-controls {
       top:calc(70px + env(safe-area-inset-top, 0px));
-      left:calc(10px + env(safe-area-inset-left, 0px));right:auto;
-      width:min(320px,calc(100vw - 20px));max-width:calc(100vw - 20px);
+      right:calc(10px + env(safe-area-inset-right, 0px));left:auto;
+      width:min(260px,calc(100vw - 20px));max-width:calc(100vw - 20px);
       padding:7px 8px 8px;border-radius:12px;
       box-shadow:0 6px 18px rgba(0,0,0,.30)
     }

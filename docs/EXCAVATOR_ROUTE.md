@@ -73,9 +73,9 @@ arrows.
   equivalent to 4.2 km/h (twice the first demo's baseline); starting 2× is
   an 8.4 km/h equivalent *visual playback rate*, not a recommended machine
   travel speed.
-- On portrait phones (up to 600 CSS px wide), the control panel becomes a
-  compact two-row toolbar beneath the LANDCROS branding: a short live-status
-  chip plus a single row of playback, camera and labelled speed controls.
+- On portrait phones (up to 600 CSS px wide), the route control panel is a
+  **260px-wide, top-right toolbar** beneath the LANDCROS branding: a short
+  live-status chip plus a single row of playback, camera and speed controls.
   It retains 40px touch targets, keyboard focus indicators and the full
   desktop panel for larger screens. The camera remains draggable.
 - Motion uses the Opus-generated `ExcavatorRig` solver and 92 instanced
