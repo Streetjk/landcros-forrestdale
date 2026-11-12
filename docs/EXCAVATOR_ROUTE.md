@@ -78,8 +78,10 @@ traffic-control arrows.
   **Focus** reactivates the automatic view.
 - The excavator's meshes are submitted to the transparent render queue
   after the splat (render order 1) and traffic arrows (3), with render order
-  50 and depth testing retained for its own geometry. The isolated route
-  page therefore does not modify the splat on the normal homepage.
+  50. Background depth is cleared once just before the excavator's meshes,
+  then depth testing is retained for its own geometry. This guarantees the
+  site overlays cannot cut across the machine without modifying the normal
+  homepage rendering pipeline.
 
 ## Acceptance before operational use
 

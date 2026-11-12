@@ -140,11 +140,22 @@ export async function createExcavatorRoute({THREE,scene,camera,controls,invalida
     state.mechanics=new ExcavatorRig(rig,params,{instanceShoes:true});
     // Three.js draws opaque GLB meshes before transparent Gaussian splats,
     // irrespective of renderOrder. Move the model to the transparent queue
-    // (full opacity preserved), after splats and traffic overlays. Retain
-    // depth testing/writes for realistic self-occlusion and ground contact.
+    // (full opacity preserved), after splats and traffic overlays.
+    // Ground/traffic/splats can write nearer depth values than the model;
+    // clear that depth once at the first excavator mesh per render pass.
+    // Subsequent excavator meshes still use depth testing and writes so the
+    // machine occludes its own far-side parts correctly.
+    let depthClearedFrame=-1;
     rig.traverse(object=>{
       if(!object.isMesh)return;
       object.renderOrder=OVERLAY_ORDER;
+      object.onBeforeRender=renderer=>{
+        const frame=renderer.info.render.frame;
+        if(depthClearedFrame!==frame){
+          renderer.clearDepth();
+          depthClearedFrame=frame;
+        }
+      };
       const materials=Array.isArray(object.material)?object.material:[object.material];
       for(const material of materials){
         if(!material)continue;
@@ -186,12 +197,16 @@ export async function createExcavatorRoute({THREE,scene,camera,controls,invalida
     route.getPointAt(t,vec);
     route.getTangentAt(t,tan).normalize();
     state.rig.position.copy(vec);
+    const yaw=-Math.atan2(tan.z,tan.x);
+    state.rig.rotation.set(0,yaw,0);
     if(state.follow){
       state.cameraElapsed+=dt;
       const u=Math.min(1,state.cameraElapsed/ZOOM_SECONDS);
       const eased=u*u*(3-2*u);
       const radius=THREE.MathUtils.lerp(5.6,1.95,eased);
-      const azimuth=0.65+state.cameraElapsed*ORBIT_RADIANS_PER_SECOND;
+      // Start at the forward three-quarter angle, not directly behind the
+      // travel axis; turn with the chassis and slowly orbit around it.
+      const azimuth=yaw+0.45+state.cameraElapsed*ORBIT_RADIANS_PER_SECOND;
       orbitTarget.set(vec.x,vec.y+0.30,vec.z);
       orbitPosition.set(
         vec.x+Math.sin(azimuth)*radius,
@@ -203,8 +218,6 @@ export async function createExcavatorRoute({THREE,scene,camera,controls,invalida
       camera.position.lerp(orbitPosition,smoothing);
       controls.update();
     }
-    const yaw=-Math.atan2(tan.z,tan.x);
-    state.rig.rotation.set(0,yaw,0);
     if(state.resetYaw){state.lastYaw=yaw;state.resetYaw=false;}
     const yawDelta=Math.atan2(Math.sin(yaw-state.lastYaw),Math.cos(yaw-state.lastYaw));
     const turnDiff=driving?Math.max(-0.18,Math.min(0.18,yawDelta*2.41)):0;
