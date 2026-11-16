@@ -419,7 +419,8 @@ function showSceneShare(scene) {
   const row = document.getElementById('scene-share-row');
   const input = document.getElementById('scene-share-url');
   const qrWrap = document.getElementById('scene-qr-wrap');
-  const url = `${location.origin}/s/${scene.shareCode}`;
+  // Shared scenes open directly on the CDN viewer; the API remains on the backend.
+  const url = `https://landcros-forrestdale-static.onrender.com/?scene=${encodeURIComponent(scene.shareCode)}`;
   input.value = url;
   qrWrap.replaceChildren();
   generateQR(url, 'scene-qr-wrap', { width: 192, height: 192, colorDark: '#172b3d' });
