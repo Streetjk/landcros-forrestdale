@@ -35,6 +35,7 @@ const scriptsDb     = require('./scripts-db');
 const scenesDb      = require('./scenes-db');
 const sceneDuplicate = require('./scene-duplicate');
 const { canManageScene } = require('./resource-ownership');
+const { canonicalEditorPath } = require('./editor-site-route');
 
 // Generic client error body — logs the real error server-side, never leaks
 // DB/schema/config detail (e.message) to the client.
@@ -354,6 +355,17 @@ function addHeaders(res, extra = {}) {
 const server = http.createServer((req, res) => {
   const url  = new URL(req.url, `http://localhost`);
   const pathname = url.pathname;
+
+  // A previously shared editor URL used ?site=lan instead of the registered
+  // ?site=landcros slug. Redirect before the editor starts parallel API reads;
+  // never invent or import an empty site, and leave other tenants untouched.
+  if (req.method === 'GET' || req.method === 'HEAD') {
+    const canonical = canonicalEditorPath(url, SITE);
+    if (canonical) {
+      res.writeHead(302, { Location: canonical, 'Cache-Control': 'no-store' });
+      return res.end();
+    }
+  }
 
   // Stable human-facing entry routes. Keep the existing Node API/backend on
   // this service, but send the public map to the current CDN-backed static
