@@ -3,6 +3,8 @@
 // This file scaffolds the renderer and pin system; nav fly-through follows in Phase 7.5.
 
 import * as THREE from 'three';
+import { inspectSplatSortSupport } from './splat-render-policy.js';
+import { resolveSplatQuality, resolveSplatCandidates } from './splat-quality.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
 import { Sky } from 'three/addons/objects/Sky.js';
@@ -102,6 +104,12 @@ const _Q = (() => {
     toneMapping:  tier === 'low' ? THREE.LinearToneMapping : THREE.ACESFilmicToneMapping,
   };
 })();
+
+// A user can force Lite/Full via ?splatQuality=lite|full without affecting
+// GPS, scene links or the model's original data. High-tier defaults to Full.
+const _splatQuality = resolveSplatQuality(
+  new URLSearchParams(window.location.search).get('splatQuality'), _Q.tier,
+);
 
 const scene    = new THREE.Scene();
 const camera   = new THREE.PerspectiveCamera(60, 1, 0.1, 500);
@@ -1128,6 +1136,26 @@ function _buildCamButtons(cfg) {
   _syncGpsLocateButton();
   locateBtn.addEventListener('click', () => _toggleGpsTracking(locateBtn));
   wrap.appendChild(locateBtn);
+
+  // Explicit lightweight / detailed model selection for this site only.
+  // Reuse the existing control row so the UI stays usable on narrow screens.
+  if (cfg.assets?.splatModels?.lite && cfg.assets?.splatModels?.full) {
+    const qualityBtn = document.createElement('button');
+    qualityBtn.type = 'button';
+    qualityBtn.id = 'btn-splat-quality';
+    qualityBtn.className = 'cam-preset-btn';
+    qualityBtn.title = `3D detail: ${_splatQuality}. Switch to ${_splatQuality === 'full' ? 'Lite' : 'Full'} model (reloads map)`;
+    qualityBtn.setAttribute('aria-label', qualityBtn.title);
+    qualityBtn.setAttribute('aria-pressed', String(_splatQuality === 'full'));
+    qualityBtn.innerHTML = `<div class="icon-wrap"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 2 8l10 5 10-5-10-5ZM2 12l10 5 10-5M2 16l10 5 10-5"/></svg></div><span class="label-wrap">3D ${_splatQuality === 'full' ? 'Full' : 'Lite'}</span>`;
+    qualityBtn.classList.toggle('active', _splatQuality === 'full');
+    qualityBtn.addEventListener('click', () => {
+      const url = new URL(window.location.href);
+      url.searchParams.set('splatQuality', _splatQuality === 'full' ? 'lite' : 'full');
+      window.location.assign(url.toString());
+    });
+    wrap.appendChild(qualityBtn);
+  }
 
 
 
@@ -4441,10 +4469,7 @@ async function loadSplatBackground(opts = {}) {
     sendStatus('unavailable');
     return 'unavailable'; // save-data / 2G: intentionally skip the large splat download
   }
-  const _splatAsset = _cfg.assets?.splat;
-  const candidates = Array.isArray(_splatAsset) ? _splatAsset
-                   : typeof _splatAsset === 'string' ? [_splatAsset]
-                   : ['./assets/site.splat', './assets/site.ply'];
+  const candidates = resolveSplatCandidates(_cfg.assets ?? {}, _splatQuality);
   let splatPath = null;
   for (const path of candidates) {
     try {
@@ -4519,25 +4544,19 @@ async function loadSplatBackground(opts = {}) {
     const _endSplatImport = _perf.begin('splatModuleImport');
     const GS3D = await import('@mkkellogg/gaussian-splats-3d');
     _endSplatImport();
-    // gpuAcceleratedSort computes per-splat distances on the GPU via WebGL2
-    // transform feedback + a fence-sync readback, every frame. Confirmed
-    // live (2026-09-07) that this broke splat loading entirely on both Edge
-    // and Brave, while genuinely improving rotation smoothness elsewhere.
-    // Brave's own docs: it deliberately randomizes WebGL readback per
-    // session as an anti-fingerprinting measure — exactly the operation
-    // this needs every frame. Feature-detect rather than block outright:
-    // navigator.brave.isBrave() is Brave's own documented, supported
-    // detection API (not fingerprinting-adjacent — this exists to route
-    // Brave to the WORKING path, the opposite of discriminating against
-    // it). Edge has no equivalent API; the "Edg/" UA token is the
-    // established way to identify Chromium Edge specifically (distinct
-    // from legacy EdgeHTML's "Edge/" token). If detection itself fails for
-    // any reason, fail toward the slower-but-always-correct CPU path.
-    let _gpuSortOk = true;
-    try {
-      if (navigator.brave && await navigator.brave.isBrave()) _gpuSortOk = false;
-      else if (/Edg\//.test(navigator.userAgent)) _gpuSortOk = false;
-    } catch { _gpuSortOk = false; }
+    // WebGL2 transform-feedback sort can silently show a blank splat under
+    // software rendering (SwiftShader), even when addSplatScene() succeeds.
+    // Inspect the actual graphics backend, not merely the browser name.
+    let _isBrave = false;
+    try { _isBrave = Boolean(await navigator.brave?.isBrave?.()); } catch { _isBrave = true; }
+    const _sortPolicy = inspectSplatSortSupport({
+      gl: renderer.getContext(),
+      userAgent: navigator.userAgent,
+      isBrave: _isBrave,
+      forceCpu: new URLSearchParams(window.location.search).get('splatSort') === 'cpu',
+    });
+    const _gpuSortOk = _sortPolicy.gpuAcceleratedSort;
+    _perf.mark('splatSortPolicy', { reason: _sortPolicy.reason, gpu: _gpuSortOk });
     // These two are INDEPENDENT and were wrongly tied together when the
     // Brave/Edge detection went in:
     //   gpuAcceleratedSort    — precomputes splat distances on the GPU and
@@ -4554,46 +4573,66 @@ async function loadSplatBackground(opts = {}) {
     // it is a supported pairing rather than an exotic one. Gated on real
     // cross-origin isolation because SharedArrayBuffer requires it.
     const _sharedMemOk = typeof SharedArrayBuffer !== 'undefined' && self.crossOriginIsolated === true;
-    const sv = new GS3D.Viewer({
+    const _makeSplatViewer = (gpuSort) => new GS3D.Viewer({
       selfDrivenMode: false,
       useBuiltInControls: false,
       renderer,
       camera,
-      gpuAcceleratedSort: _gpuSortOk,
+      gpuAcceleratedSort: gpuSort,
       sharedMemoryForWorkers: _sharedMemOk,
       splatAlphaRemovalThreshold: 1,
     });
+    let sv = _makeSplatViewer(_gpuSortOk);
 
     // Re-use the already-downloaded buffer as a blob URL to avoid a second network fetch.
     const splatBlobUrl = rawBuf ? URL.createObjectURL(new Blob([rawBuf], { type: 'application/octet-stream' })) : null;
     try {
       const _endAddSplat = _perf.begin('splatAddScene');
+      const _addSceneWithTimeout = async (target) => {
+        let timeoutId;
+        try {
+          await Promise.race([
+            target.addSplatScene(splatBlobUrl || splatPath, {
+              showLoadingUI: false,
+              ...(splatBlobUrl ? { format: GS3D.SceneFormat.Splat }
+                : ext === 'KSPLAT' ? { format: GS3D.SceneFormat.KSplat }
+                : {}),
+              onProgress: (p) => {
+                const pct = Math.min(99, Math.round(p));
+                if (onProgress) onProgress(pct);
+                else {
+                  if (bar) bar.style.width = pct + '%';
+                  if (msg) msg.textContent = `Loading ${ext}… ${pct}%`;
+                }
+              },
+            }),
+            new Promise((_, reject) => {
+              timeoutId = setTimeout(() => reject(new Error('GS3D timeout')), 15000);
+            }),
+          ]);
+        } finally {
+          clearTimeout(timeoutId);
+        }
+      };
       try {
-      await Promise.race([
-        sv.addSplatScene(splatBlobUrl || splatPath, {
-          showLoadingUI: false,
-          ...(splatBlobUrl ? { format: GS3D.SceneFormat.Splat }
-            : ext === 'KSPLAT' ? { format: GS3D.SceneFormat.KSplat }
-            : {}),
-          onProgress: (p) => {
-            const pct = Math.min(99, Math.round(p));
-            if (onProgress) {
-              onProgress(pct);
-            } else {
-              if (bar) bar.style.width = pct + '%';
-              if (msg) msg.textContent = `Loading ${ext}… ${pct}%`;
-            }
-          },
-        }),
-        new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('GS3D timeout')), 15000)
-        ),
-      ]);
-      _endAddSplat({ status: 'ok' });
+        await _addSceneWithTimeout(sv);
       } catch (error) {
-        _endAddSplat({ status: 'error' });
-        throw error;
+        if (!_gpuSortOk) {
+          _endAddSplat({ status: 'error' });
+          throw error;
+        }
+        // A GPU-sort failure must not make SiteNav lose its entire 3D map.
+        console.warn('[SiteNav] GPU splat sort failed, retrying with CPU:', error);
+        _perf.mark('splatGpuFallback', { error: String(error).slice(0, 120) });
+        try { await sv.dispose?.(); } catch { /* best effort cleanup */ }
+        sv = _makeSplatViewer(false);
+        try { await _addSceneWithTimeout(sv); }
+        catch (cpuError) {
+          _endAddSplat({ status: 'error' });
+          throw cpuError;
+        }
       }
+      _endAddSplat({ status: 'ok' });
     } finally {
       if (splatBlobUrl) URL.revokeObjectURL(splatBlobUrl);
     }

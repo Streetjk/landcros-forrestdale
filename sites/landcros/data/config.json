@@ -13,7 +13,12 @@
       "./assets/site-lite.splat",
       "./assets/site.splat",
       "./assets/site.ply"
-    ]
+    ],
+    "splatModels": {
+      "lite": "./assets/site-lite.splat",
+      "full": "./assets/site-clean.splat",
+      "original": "./assets/site.splat"
+    }
   },
   "plane": {
     "position": [
@@ -36,7 +41,15 @@
       0,
       -1.7,
       -1.3
-    ]
+    ],
+    "normalization": {
+      "center": [
+        0.2094523310661316,
+        -0.20264392904937267,
+        0.03846222162246704
+      ],
+      "scale": 10.062215864288204
+    }
   },
   "camera": {
     "initial": {
