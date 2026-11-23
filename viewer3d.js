@@ -1137,28 +1137,6 @@ function _buildCamButtons(cfg) {
   locateBtn.addEventListener('click', () => _toggleGpsTracking(locateBtn));
   wrap.appendChild(locateBtn);
 
-  // Explicit lightweight / detailed model selection for this site only.
-  // Reuse the existing control row so the UI stays usable on narrow screens.
-  if (cfg.assets?.splatModels?.lite && cfg.assets?.splatModels?.full) {
-    const qualityBtn = document.createElement('button');
-    qualityBtn.type = 'button';
-    qualityBtn.id = 'btn-splat-quality';
-    qualityBtn.className = 'cam-preset-btn';
-    qualityBtn.title = `3D detail: ${_splatQuality}. Switch to ${_splatQuality === 'full' ? 'Lite' : 'Full'} model (reloads map)`;
-    qualityBtn.setAttribute('aria-label', qualityBtn.title);
-    qualityBtn.setAttribute('aria-pressed', String(_splatQuality === 'full'));
-    qualityBtn.innerHTML = `<div class="icon-wrap"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 2 8l10 5 10-5-10-5ZM2 12l10 5 10-5M2 16l10 5 10-5"/></svg></div><span class="label-wrap">3D ${_splatQuality === 'full' ? 'Full' : 'Lite'}</span>`;
-    qualityBtn.classList.toggle('active', _splatQuality === 'full');
-    qualityBtn.addEventListener('click', () => {
-      const url = new URL(window.location.href);
-      url.searchParams.set('splatQuality', _splatQuality === 'full' ? 'lite' : 'full');
-      window.location.assign(url.toString());
-    });
-    wrap.appendChild(qualityBtn);
-  }
-
-
-
   (cfg.camera?.presets ?? []).filter(p => p.action !== 'fullscreen').forEach((p, i) => {
     const btn = document.createElement('button');
     btn.type = 'button';
