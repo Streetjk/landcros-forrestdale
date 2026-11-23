@@ -11,7 +11,7 @@ const PUBLIC_ROOT_FILES = Object.freeze([
   'location-details.js', 'ppe-matrix.js', 'label-layout.js', 'map-touch-input.js', 'pin-camera-flight.js', 'map-controls.js', 'my-pins-client.js',
   'public-transport.js',
   'my-pins-session.js', 'point-list-item.js', 'public-data.js', 'public-site.js',
-  'qr.js', 'splat-compare.js', 'splat-normalization.js', 'viewer-perf.js', 'moving-resolution.js',
+  'qr.js', 'splat-compare.js', 'splat-normalization.js', 'splat-render-policy.js', 'splat-quality.js', 'viewer-perf.js', 'moving-resolution.js',
   'excavator-route.js', 'excavator-rig.js', 'excavator-rig-math.mjs', 'excavator-operator-rig.mjs',
   'visit-analytics.js',
 ]);
