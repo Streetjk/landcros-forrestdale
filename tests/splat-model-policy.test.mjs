@@ -43,3 +43,10 @@ test('model fallback order permits a cleaned full model with immutable originals
   assert.deepEqual(resolveSplatCandidates(assets,'lite'), ['./assets/site-lite.splat','./assets/site-clean.splat','./assets/site.splat','./assets/site.ply']);
   assert.deepEqual(resolveSplatCandidates({splat:'./assets/existing.splat'},'full'), ['./assets/existing.splat']);
 });
+
+test('map controls do not expose a full/lite quality switch', async () => {
+  const { readFileSync } = await import('node:fs');
+  const viewer = readFileSync(new URL('../viewer3d.js', import.meta.url), 'utf8');
+  assert.doesNotMatch(viewer, /btn-splat-quality|qualityBtn/);
+  assert.match(viewer, /resolveSplatCandidates\(_cfg\.assets \?\? \{\}, _splatQuality\)/);
+});
