@@ -15,8 +15,8 @@
       "./assets/site.ply"
     ],
     "splatModels": {
-      "lite": "./assets/site-lite-ground-smooth.splat",
-      "full": "./assets/site-ground-smooth.splat",
+      "lite": "./assets/site-lite.splat",
+      "full": "./assets/site-clean.splat",
       "original": "./assets/site.splat"
     }
   },
